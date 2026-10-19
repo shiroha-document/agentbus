@@ -21,7 +21,8 @@ jobs:
   handle:
     # cheap pre-filter; the CLI re-checks the marker and the actor's permission
     if: contains(github.event.issue.body, '<!-- agentbus-join v1 -->')
-    runs-on: ubuntu-latest
+    # self-hosted when the repo/org variable AGENTBUS_RUNNER is set (e.g. "agentbus")
+    runs-on: ${{ vars.AGENTBUS_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
         with:

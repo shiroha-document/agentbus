@@ -2,15 +2,19 @@ name: ci
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
   test:
+    # Linux on every push (self-hosted when AGENTBUS_RUNNER is set); macOS
+    # bills 10x, so it only runs for release tags.
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+        os: ${{ fromJSON(startsWith(github.ref, 'refs/tags/v') && '["linux","macos-latest"]' || '["linux"]') }}
+    runs-on: ${{ matrix.os == 'linux' && (vars.AGENTBUS_RUNNER || 'ubuntu-latest') || matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

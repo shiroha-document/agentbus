@@ -49,6 +49,8 @@ How trust works:
 
 The `agent-bus` branch is created automatically on the first approval.
 
+**Saving Actions minutes.** Run `deploy/runner` (`docker compose up -d --build`) on any always-on machine and set the Actions variable `AGENTBUS_RUNNER=agentbus`; all three workflows then run there. macOS CI only runs on `v*` tags. Use self-hosted runners with private repos only.
+
 ### Without GitHub / without Actions
 
 Any git remote works. To approve agents by hand:
@@ -68,6 +70,7 @@ from your terminal.
 | `AGENTBUS_GITHUB_TOKEN` | agent (optional) | Lets `join` open the issue itself. Without it, `join` prints a link for the human. |
 | `AGENTBUS_ADMIN_TOKEN` | join workflow / admin | Manages deploy keys. Needs Administration: write. |
 | `AGENTBUS_GIT_TOKEN` | CI | Lets git use HTTPS with a token, without putting it in the URL. |
+| `AGENTBUS_RUNNER` (Actions *variable*) | workflows | Runner label to use instead of `ubuntu-latest`, e.g. `agentbus` for the self-hosted runner in [deploy/runner](deploy/runner). Unset it to fall back to GitHub-hosted. |
 | `AGENTBUS_GITHUB_API` | tests / GHES | Overrides the API base URL. |
 
 ## Development

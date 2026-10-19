@@ -1,0 +1,23 @@
+# docker compose up -d --build          # one runner
+# docker compose up -d --scale runner=2 # two jobs in parallel
+services:
+  runner:
+    build: .
+    image: agentbus-runner:local
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      RUNNER_TOOL_CACHE: /opt/hostedtoolcache   # setup-go downloads survive restarts
+      AGENT_TOOLSDIRECTORY: /opt/hostedtoolcache
+    volumes:
+      - toolcache:/opt/hostedtoolcache
+    # Deliberately NO /var/run/docker.sock mount: that would give every job root
+    # on this machine. Our workflows do not need Docker.
+    security_opt:
+      - no-new-privileges:true
+    cpus: 2
+    mem_limit: 4g
+    stop_grace_period: 30s
+
+volumes:
+  toolcache:

@@ -31,7 +31,8 @@ concurrency:
 
 jobs:
   digest:
-    runs-on: ubuntu-latest
+    # self-hosted when the repo/org variable AGENTBUS_RUNNER is set (e.g. "agentbus")
+    runs-on: ${{ vars.AGENTBUS_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
         with:
