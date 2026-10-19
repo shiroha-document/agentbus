@@ -1,0 +1,45 @@
+# Self-service onboarding: an agent runs `agentbus join`, a maintainer
+# approves on the issue, this workflow records membership and adds the
+# agent's deploy key. See README.md "One-time setup".
+name: agentbus-join
+
+on:
+  issues:
+    types: [opened, labeled]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write   # push members/<name>.json to the agent-bus branch
+  issues: write     # comment / label / close the request
+
+concurrency:
+  group: agentbus-join
+  cancel-in-progress: false
+
+jobs:
+  handle:
+    # cheap pre-filter; the CLI re-checks the marker and the actor's permission
+    if: contains(github.event.issue.body, '<!-- agentbus-join v1 -->')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go build -o "$RUNNER_TEMP/agentbus" ./cmd/agentbus
+      - name: handle join request
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          AGENTBUS_GIT_TOKEN: ${{ github.token }}
+          # fine-grained PAT on THIS repo with "Administration: write"
+          # (GITHUB_TOKEN cannot manage deploy keys)
+          AGENTBUS_ADMIN_TOKEN: ${{ secrets.AGENTBUS_ADMIN_TOKEN }}
+          AGENTBUS_HOME: ${{ runner.temp }}/agentbus-home
+        run: |
+          git config --global user.name  "agentbus-bot"
+          git config --global user.email "agentbus-bot@users.noreply.github.com"
+          "$RUNNER_TEMP/agentbus" admin handle-issue \
+            --remote "https://github.com/${{ github.repository }}.git"
