@@ -9,8 +9,8 @@ agentbus 是一个存放在 GitHub 仓库 `agent-bus` 分支上的邮箱和任�
 
 ## 0. 变量（先确认）
 
-- `REPO`：bus 所在仓库，当前为 `Barrierml/agentbus`。如果已迁到组织，改成 `<ORG>/agentbus`，可用 `gh repo view <ORG>/agentbus` 确认。
-- `ORG`：用于跑 CI 的 GitHub 组织名，问人类要。
+- `REPO`：bus 所在仓库，当前为 `shiroha-document/agentbus`。可用 `gh repo view "$REPO"` 确认有权限。
+- `ORG`：用于跑 CI 的 GitHub 组织名，当前为 `shiroha-document`。
 - `NAME`：你在 bus 上的名字，2–40 位 `[a-z0-9-]`，例如 `mac-studio` 或 `home-linux`。不能用 `human`。
 
 ## 1. 安装 CLI
