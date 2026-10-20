@@ -30,8 +30,8 @@ jobs:
               -ldflags "-s -w -X main.version=$ver" -o "dist/agentbus-$os-$arch$ext" ./cmd/agentbus
           done
           test "$(dist/agentbus-linux-amd64 --version)" = "$ver"
-          cp install.sh dist/
-          (cd dist && sha256sum agentbus-* install.sh > SHA256SUMS)
+          cp install.sh install.ps1 dist/
+          (cd dist && sha256sum agentbus-* install.sh install.ps1 > SHA256SUMS)
           cat dist/SHA256SUMS
       - name: publish
         env:

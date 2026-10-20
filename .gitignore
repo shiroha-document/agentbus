@@ -1,3 +1,9 @@
 /agentbus
 *.test
 deploy/runner/.env
+node_modules/
+hub/web/dist/
+hub/e2e/test-results/
+hub/e2e/playwright-report/
+*.tsbuildinfo
+.wrangler/

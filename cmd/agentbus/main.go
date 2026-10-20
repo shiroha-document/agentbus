@@ -37,6 +37,11 @@ func main() {
 
 func (c *cli) run(args []string) int {
 	argv := args
+	args, hubOpt, err := extractHubFlags(args)
+	if err != nil {
+		fmt.Fprintln(c.errw, "agentbus:", err)
+		return exitUsage
+	}
 	// global flags may precede the command
 	for len(args) > 0 && strings.HasPrefix(args[0], "-") {
 		switch args[0] {
@@ -63,6 +68,9 @@ func (c *cli) run(args []string) int {
 	}
 	cmd, rest := args[0], args[1:]
 	h, ok := commands[cmd]
+	if v3, isV3 := hubCommands[cmd]; isV3 && useHub(cmd, rest, hubOpt) {
+		h, ok = v3, true
+	}
 	if !ok {
 		fmt.Fprintf(c.errw, "unknown command %q\n", cmd)
 		return c.usage()
@@ -70,7 +78,7 @@ func (c *cli) run(args []string) int {
 	if done, code := c.autoUpdate(cmd, argv); done {
 		return code
 	}
-	err := h(c, rest)
+	err = h(c, rest)
 	processUnlock()
 	code := exitOK
 	if err != nil {
@@ -113,9 +121,37 @@ func (c *cli) fail(err error) int {
 }
 
 func (c *cli) usage() int {
-	fmt.Fprint(c.errw, `agentbus — git-backed mailbox + long tasks for cooperating agents
+	fmt.Fprint(c.errw, `agentbus — cooperating coding agents: v3 hub client + v1 git mailbox
 
-usage: agentbus [--json] [--home DIR] <command> [flags]
+usage: agentbus [--json] [--home DIR] [--hub-home DIR] [--hub URL] <command> [flags]
+
+v3 hub (config in $AGENTBUS_HUB_HOME, default <user config dir>/agentbus)
+setup      setup [--yes] [--hub URL --name N --cli C --tier T --repo OWNER/REPO=PATH... --interval 5m
+                 --quota-source S --no-schedule --no-doctor]        (interactive wizard: CLIs, join, tier,
+                                                                     repos, scheduler, quota source, doctor)
+           join URL --name N [--cli claude|codex|cursor|gemini|custom] [--binary PATH] [--wake-interval 5m]
+                [--wake poll|trigger] [--trigger-url U] [--owner O] [--machine M] [--display-name D]
+           state | whoami | status [--no-quota] | doctor | keys rotate
+           schedule install|uninstall|status [--interval 5m] [--method launchd|systemd|cron|schtasks]
+round      tick [--max-threads N] [--timeout 20m] [--dry-run]   (exit 0 done, 3 nothing/busy, 4 paused or
+                                                                 pending approval, 5 quota exhausted, 1 error)
+           post [--thread T] (--body B | --body-file F | -) [--kind msg|progress|confirm] [--reply P] [--key K]
+           post --workspace W --title X [--assignee NAME] (--body B | --body-file F | -)   (new thread)
+           thread show [T] [--before P] [--limit N] | thread state [T] (--body B | --body-file F | -)
+           thread assign [T] NAME | thread close [T] [--done] | thread list [--workspace W] [--mine] [--status S]
+           confirm [--thread T] "question" | ack [--thread T] [DELIVERY_ID...]
+           (T defaults to $AGENTBUS_THREAD; post's idempotency key defaults to $AGENTBUS_ROUND + body hash)
+usage      quota [--json] [--source auto|native|magpie|both] [--report] | usage [--days 7] | usage baseline
+manager    pause NAME [--reason R] [--until 2h] | resume NAME
+           manage members | manage approve NAME | manage reject NAME
+           manage workspace list | manage workspace create --name N --goal G [--repo R] [--branch B] [--brief-file F]
+           manage workspace update ID [--name N] [--goal G] [--repo R] [--branch B] [--brief-file F] [--status S]
+
+join, thread, status, ack and whoami exist in both versions: they run the v3 command when a hub
+config exists (or --hub URL is given; for join also a positional http(s) URL), otherwise the v1 one.
+join with v1 flags (--remote, --repo, --me, --wait) always runs v1.
+
+v1 git mailbox (maintenance)
 
 setup      init --remote URL --me NAME [--role R] [--cap docker,arm64] [--channel ci] [--wake daemon|poll|wait|manual]
            whoami | agents | sync
@@ -140,7 +176,7 @@ update     self-update [--check] [--force] [--version vX.Y.Z] | --version
 ci         digest [--since 1h | --range A..B] [--level all|important|alerts] [--remote URL]   (markdown for humans; exit 3 if empty)
            board [--tz Asia/Shanghai] [--recent 7d] [--max-rows 30] [--remote URL]          (dashboard markdown; pinned issue)
 
-exit codes: 0 ok, 1 error, 2 usage, 3 nothing new, 4 fenced (stop), 5 cancelled (stop), 6 claim lost
+v1 exit codes: 0 ok, 1 error, 2 usage, 3 nothing new, 4 fenced (stop), 5 cancelled (stop), 6 claim lost
 `)
 	return exitUsage
 }

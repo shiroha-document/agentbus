@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -16,17 +17,37 @@ import (
 
 // version is set by release builds: -ldflags "-X main.version=0.3.0".
 // `go install ...@vX` builds fall back to the module version; plain source
-// builds are "dev" and never auto-update.
+// builds report devVersion and never auto-update.
 var version = ""
+
+// devVersion is what source builds report (and send to the hub in
+// X-Agentbus-Version). Bump it with each minor release line.
+const devVersion = "0.4.0-dev"
+
+// isDev reports a source build ("dev" is the pre-0.4 spelling).
+func isDev(v string) bool { return v == "dev" || strings.HasSuffix(v, "-dev") }
 
 func currentVersion() string {
 	if version != "" {
 		return version
 	}
-	if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+	if bi, ok := debug.ReadBuildInfo(); ok && isReleaseTag(bi.Main.Version) {
 		return strings.TrimPrefix(bi.Main.Version, "v")
 	}
-	return "dev"
+	return devVersion
+}
+
+// pseudoRE matches Go pseudo-versions (…-0.20250101120000-abcdef123456).
+var pseudoRE = regexp.MustCompile(`\d{14}-[0-9a-f]{12}`)
+
+// isReleaseTag accepts module versions stamped by `go install …@vX.Y.Z`, not
+// the VCS stamps of source builds (v0.3.1+dirty, pseudo-versions).
+func isReleaseTag(v string) bool {
+	if v == "" || v == "(devel)" || strings.Contains(v, "+") || pseudoRE.MatchString(v) {
+		return false
+	}
+	_, ok := update.Parse(v)
+	return ok
 }
 
 // DocsURL is where agents read the manual (public, no auth).
@@ -52,7 +73,7 @@ func cmdSelfUpdate(c *cli, args []string) error {
 		}
 	}
 	saveUpdateState(tag)
-	newer := update.Newer(tag, cur)
+	newer := update.Newer(tag, cur) && !isDev(cur)
 	res := map[string]any{"current": cur, "latest": tag, "newer": newer}
 	if *check {
 		c.emit(res, func() {
@@ -69,7 +90,7 @@ func cmdSelfUpdate(c *cli, args []string) error {
 	}
 	if !newer && !*force && *want == "" {
 		c.emit(res, func() {
-			if cur == "dev" {
+			if isDev(cur) {
 				fmt.Fprintf(c.out, "this is a dev build; latest release is %s (use --force to replace it)\n", tag)
 			} else {
 				fmt.Fprintf(c.out, "agentbus %s is up to date\n", cur)

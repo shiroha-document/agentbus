@@ -67,7 +67,7 @@ func (c *cli) autoUpdate(cmd string, argv []string) (bool, int) {
 	}
 	cur := currentVersion()
 	mode := autoUpdateMode()
-	if noAutoUpdate[cmd] || mode == "off" || cur == "dev" ||
+	if noAutoUpdate[cmd] || mode == "off" || isDev(cur) ||
 		os.Getenv("GITHUB_ACTIONS") == "true" || os.Getenv("CI") == "true" {
 		return false, 0
 	}

@@ -11,17 +11,22 @@ jobs:
   test:
     # This repo is public: GitHub-hosted runners are free here, and it must
     # never run on the self-hosted runner (that would let any PR execute code
-    # on the host). macOS only runs for release tags.
+    # on the host). Mac is the primary client platform; Linux and Windows are supported.
     strategy:
+      fail-fast: false
       matrix:
-        os: ${{ fromJSON(startsWith(github.ref, 'refs/tags/v') && '["linux","macos-latest"]' || '["linux"]') }}
-    runs-on: ${{ matrix.os == 'linux' && 'ubuntu-latest' || matrix.os }}
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: test -z "$(gofmt -l .)"
+      - if: runner.os == 'Linux'
+        run: test -z "$(gofmt -l .)"
       - run: go vet ./...
       - run: |
           git config --global user.name ci

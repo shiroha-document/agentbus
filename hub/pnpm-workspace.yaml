@@ -1,0 +1,4 @@
+packages:
+  - worker
+  - web
+  - e2e

@@ -1,0 +1,11 @@
+[Unit]
+Description=agentbus tick every 300s (alice)
+
+[Timer]
+OnActiveSec=30s
+OnUnitActiveSec=300s
+AccuracySec=15s
+Unit=agentbus-alice.service
+
+[Install]
+WantedBy=timers.target

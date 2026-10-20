@@ -1,0 +1,1 @@
+{"type":"result","subtype":"success","is_error":false,"duration_ms":42000,"duration_api_ms":42000,"result":"Updated README.","session_id":"c-1","request_id":"r-1","usage":{"inputTokens":12000,"outputTokens":800,"cacheReadTokens":9000,"cacheWriteTokens":0}}

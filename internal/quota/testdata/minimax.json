@@ -1,0 +1,7 @@
+{"model_remains":[
+ {"model_name":"general","start_time":1760954400000,"end_time":1760972400000,"current_interval_remaining_percent":64,"current_interval_status":1,"current_interval_total_count":0,
+  "weekly_start_time":1760918400000,"weekly_end_time":1761523200000,"current_weekly_remaining_percent":90,"current_weekly_status":1,"current_weekly_total_count":0},
+ {"model_name":"video","start_time":1760918400,"end_time":1761004800,"current_interval_remaining_percent":0,"current_interval_status":2,"current_interval_total_count":5,"current_interval_usage_count":5,
+  "weekly_start_time":0,"weekly_end_time":0,"current_weekly_remaining_percent":100,"current_weekly_status":3,"current_weekly_total_count":0},
+ {"model_name":"image","current_interval_status":3,"current_interval_total_count":0,"current_weekly_status":3,"current_weekly_total_count":0}],
+ "base_resp":{"status_code":0,"status_msg":"success"}}

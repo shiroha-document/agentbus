@@ -1,0 +1,20 @@
+magpie: 2 cards could not be read
+[
+  {"provider":"claude","name":"Claude Code","kind":"subscription","plan":"max","user":"dev@example.com",
+   "windows":[
+     {"name":"5 hours","used":40,"remaining":60,"resetsAt":"2026-10-20T15:00:00Z"},
+     {"name":"7 days","used":20,"remaining":80,"resetsAt":"2026-10-25T08:00:00Z"},
+     {"name":"7 days · Opus","used":5,"remaining":95}],
+   "readAt":"2026-10-20T11:59:00Z"},
+  {"provider":"codex","name":"Codex","kind":"subscription","plan":"plus","user":"dev@example.com · Team",
+   "windows":[{"name":"5 hours","used":50,"remaining":50,"resetsAt":"2026-10-20T13:00:00Z"},{"name":"7 days","used":18,"remaining":82}],
+   "asOf":"2026-10-20T11:50:00Z","lastServedAt":"2026-10-20T11:40:00Z"},
+  {"provider":"copilot","name":"Copilot","kind":"subscription","plan":"pro",
+   "windows":[{"name":"Premium requests · Month","used":33.3,"remaining":66.7,"resetsAt":"2026-11-01T00:00:00Z"},{"unlimited":true,"name":"Chat","used":0,"remaining":100}]},
+  {"provider":"zhipu","name":"Zhipu GLM","kind":"plan","plan":"pro","windows":[{"name":"5 hours","used":12,"remaining":88},{"name":"MCP · Month","used":3,"remaining":97}]},
+  {"provider":"deepseek","name":"DeepSeek","kind":"balance","windows":[],"balance":"¥88.50"},
+  {"provider":"openrouter","name":"OpenRouter","kind":"balance","windows":[],"balance":"$16.54"},
+  {"provider":"commandcode","name":"Command Code","kind":"balance","windows":[],"balance":"1.2K credits"},
+  {"provider":"moonshot","name":"Kimi","kind":"balance","windows":[],"error":"Kimi said 401: invalid key sk-FAKEFAKEFAKEFAKE at https://api.moonshot.cn/v1/users/me/balance?token=abc"},
+  {"provider":"gemini","name":"Gemini CLI","kind":"subscription","windows":[],"error":"Authorization: Bearer ya29.FAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE refused"}
+]

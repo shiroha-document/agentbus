@@ -1,0 +1,4 @@
+{"code":200,"msg":"操作成功","success":true,"data":{"level":"pro","limits":[
+ {"type":"TOKENS_LIMIT","unit":3,"number":5,"usage":4000000,"currentValue":480000,"remaining":3520000,"percentage":12,"nextResetTime":1761062400000},
+ {"type":"TOKENS_LIMIT","unit":6,"number":1,"percentage":40,"nextResetTime":1761400000000},
+ {"type":"TIME_LIMIT","unit":5,"number":1,"usage":1000,"currentValue":30,"remaining":970,"percentage":3,"nextResetTime":1762000000000}]}}

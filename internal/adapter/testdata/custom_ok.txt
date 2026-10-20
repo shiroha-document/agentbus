@@ -1,0 +1,2 @@
+some log line
+{"answer":"custom done","stats":{"in":100,"out":20,"cache":{"read":50}},"cost":0.01,"model":"local-llm","failed":false}

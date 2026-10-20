@@ -1,0 +1,245 @@
+/*
+ * agentbus hub design tokens — single source of truth for colour, type, radius,
+ * shadow and motion. Mirrors docs/design/ui-guidelines.md. Components must only
+ * reference these tokens (Tailwind utilities generated from @theme, or var(--x)).
+ *
+ * Raw tokens live on :root so they can switch with prefers-color-scheme /
+ * prefers-contrast; @theme inline maps them into Tailwind utilities.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* 1.1 brand — mint scale */
+  --mint-50: oklch(0.985 0.012 165);
+  --mint-100: oklch(0.965 0.03 165);
+  --mint-200: oklch(0.93 0.06 165);
+  --mint-300: oklch(0.88 0.09 165);
+  --mint-400: oklch(0.8 0.12 165);
+  --mint-500: oklch(0.72 0.14 165);
+  --mint-600: oklch(0.62 0.13 165);
+  --mint-700: oklch(0.5 0.11 165);
+  --mint-950: oklch(0.25 0.05 165);
+
+  /* 1.2 neutrals */
+  --bg: oklch(0.985 0.006 165);
+  --surface: oklch(1 0 0 / 0.62);
+  --surface-strong: oklch(1 0 0 / 0.82);
+  --surface-solid: oklch(0.995 0.004 165);
+  --border: oklch(0.2 0.02 165 / 0.08);
+  --border-strong: oklch(0.2 0.02 165 / 0.16);
+  --text: oklch(0.22 0.015 165);
+  --text-2: oklch(0.45 0.015 165);
+  --text-3: oklch(0.62 0.012 165);
+  /* caption-size text must still reach 4.5:1 — use for small meta text (--text-cap) */
+  --text-cap: oklch(0.5 0.014 165);
+
+  /* 1.3 semantic */
+  --danger: oklch(0.68 0.15 25);
+  --danger-text: oklch(0.52 0.16 25);
+  --warning: oklch(0.8 0.14 75);
+  --warning-text: oklch(0.5 0.11 70);
+  --info: oklch(0.72 0.11 235);
+  --info-text: oklch(0.5 0.1 235);
+  --success: var(--mint-500);
+
+  /* 2 background blobs */
+  --blob-1: oklch(0.88 0.09 165 / 0.2);
+  --blob-2: oklch(0.93 0.06 165 / 0.2);
+  --blob-3: oklch(0.72 0.11 235 / 0.2);
+  --noise-opacity: 0.02;
+
+  /* 3 glass */
+  --glass-highlight: inset 0 1px 0 oklch(1 0 0 / 0.5);
+
+  /* 5 shadows */
+  --elev-1: 0 1px 2px oklch(0.3 0.03 165 / 0.06), 0 4px 16px oklch(0.3 0.03 165 / 0.06);
+  --elev-2: 0 8px 40px oklch(0.3 0.03 165 / 0.12);
+
+  /* focus ring */
+  --ring: var(--mint-500);
+  --ring-glow: oklch(0.72 0.14 165 / 0.2);
+
+  /* data viz */
+  --chart-input: oklch(0.72 0.14 165);
+  --chart-cache-read: oklch(0.88 0.09 165);
+  --chart-cache-write: oklch(0.72 0.11 235);
+  --chart-output: oklch(0.5 0.11 165);
+  --chart-cost: oklch(0.8 0.14 75);
+  --chart-grid: oklch(0.2 0.02 165 / 0.08);
+  --chart-axis: oklch(0.5 0.014 165);
+
+  /* heatmap levels 0..4 */
+  --heat-0: oklch(0.2 0.02 165 / 0.06);
+  --heat-1: oklch(0.93 0.06 165);
+  --heat-2: oklch(0.8 0.12 165);
+  --heat-3: oklch(0.67 0.14 165);
+  --heat-4: oklch(0.5 0.11 165);
+
+  /* avatar gradients — mint family with gentle hue drift */
+  --avatar-0-a: oklch(0.88 0.09 150);
+  --avatar-0-b: oklch(0.66 0.13 165);
+  --avatar-1-a: oklch(0.9 0.07 175);
+  --avatar-1-b: oklch(0.64 0.12 190);
+  --avatar-2-a: oklch(0.92 0.06 140);
+  --avatar-2-b: oklch(0.7 0.14 155);
+  --avatar-3-a: oklch(0.89 0.08 195);
+  --avatar-3-b: oklch(0.62 0.11 210);
+  --avatar-4-a: oklch(0.93 0.05 120);
+  --avatar-4-b: oklch(0.7 0.12 150);
+  --avatar-5-a: oklch(0.87 0.09 165);
+  --avatar-5-b: oklch(0.55 0.11 175);
+  --avatar-6-a: oklch(0.91 0.06 210);
+  --avatar-6-b: oklch(0.68 0.12 170);
+  --avatar-7-a: oklch(0.9 0.08 160);
+  --avatar-7-b: oklch(0.6 0.1 200);
+  --avatar-ink: oklch(0.25 0.05 165);
+}
+
+/* Dark mode. Accent steps (300–600) follow the spec: +0.04 lightness, −0.01
+ * chroma. Tint steps used as surfaces (50–200) and the text step (700) are
+ * re-mapped to dark-appropriate values so backgrounds stay calm and text stays
+ * legible (deviation noted in ui-guidelines §1: those steps would otherwise be
+ * near-white on a dark canvas). */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --mint-50: oklch(0.22 0.022 165);
+    --mint-100: oklch(0.26 0.035 165);
+    --mint-200: oklch(0.32 0.05 165);
+    --mint-300: oklch(0.92 0.08 165);
+    --mint-400: oklch(0.84 0.11 165);
+    --mint-500: oklch(0.76 0.13 165);
+    --mint-600: oklch(0.66 0.12 165);
+    --mint-700: oklch(0.84 0.1 165);
+    --mint-950: oklch(0.22 0.05 165);
+
+    --bg: oklch(0.17 0.012 165);
+    --surface: oklch(0.24 0.014 165 / 0.55);
+    --surface-strong: oklch(0.27 0.014 165 / 0.78);
+    --surface-solid: oklch(0.24 0.014 165);
+    --border: oklch(1 0 0 / 0.08);
+    --border-strong: oklch(1 0 0 / 0.16);
+    --text: oklch(0.95 0.008 165);
+    --text-2: oklch(0.75 0.01 165);
+    --text-3: oklch(0.58 0.01 165);
+    --text-cap: oklch(0.7 0.01 165);
+
+    --danger: oklch(0.72 0.14 25);
+    --danger-text: oklch(0.78 0.12 25);
+    --warning: oklch(0.84 0.13 75);
+    --warning-text: oklch(0.86 0.12 75);
+    --info: oklch(0.76 0.1 235);
+    --info-text: oklch(0.8 0.09 235);
+
+    --blob-1: oklch(0.5 0.09 165 / 0.2);
+    --blob-2: oklch(0.42 0.07 165 / 0.2);
+    --blob-3: oklch(0.5 0.1 235 / 0.2);
+    --noise-opacity: 0.03;
+
+    --glass-highlight: inset 0 1px 0 oklch(1 0 0 / 0.06);
+    --elev-1: 0 1px 2px oklch(0 0 0 / 0.25), 0 4px 16px oklch(0 0 0 / 0.2);
+    --elev-2: 0 8px 40px oklch(0 0 0 / 0.4);
+    --ring-glow: oklch(0.76 0.13 165 / 0.25);
+
+    --chart-input: oklch(0.76 0.13 165);
+    --chart-cache-read: oklch(0.5 0.08 165);
+    --chart-cache-write: oklch(0.7 0.1 235);
+    --chart-output: oklch(0.88 0.09 165);
+    --chart-cost: oklch(0.84 0.13 75);
+    --chart-grid: oklch(1 0 0 / 0.08);
+    --chart-axis: oklch(0.7 0.01 165);
+
+    --heat-0: oklch(1 0 0 / 0.06);
+    --heat-1: oklch(0.36 0.06 165);
+    --heat-2: oklch(0.5 0.1 165);
+    --heat-3: oklch(0.66 0.12 165);
+    --heat-4: oklch(0.82 0.12 165);
+
+    --avatar-ink: oklch(0.2 0.04 165);
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --surface: var(--surface-solid);
+    --surface-strong: var(--surface-solid);
+    --border: var(--border-strong);
+    --text-2: var(--text);
+    --text-3: var(--text-cap);
+  }
+}
+
+@theme inline {
+  /* Drop Tailwind's default palette: only tokens below may be used. */
+  --color-*: initial;
+  --color-transparent: transparent;
+  --color-current: currentColor;
+
+  --color-mint-50: var(--mint-50);
+  --color-mint-100: var(--mint-100);
+  --color-mint-200: var(--mint-200);
+  --color-mint-300: var(--mint-300);
+  --color-mint-400: var(--mint-400);
+  --color-mint-500: var(--mint-500);
+  --color-mint-600: var(--mint-600);
+  --color-mint-700: var(--mint-700);
+  --color-mint-950: var(--mint-950);
+
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-strong: var(--surface-strong);
+  --color-surface-solid: var(--surface-solid);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-fg: var(--text);
+  --color-fg-2: var(--text-2);
+  --color-fg-3: var(--text-3);
+  --color-fg-caption: var(--text-cap);
+
+  --color-danger: var(--danger);
+  --color-danger-text: var(--danger-text);
+  --color-warning: var(--warning);
+  --color-warning-text: var(--warning-text);
+  --color-info: var(--info);
+  --color-info-text: var(--info-text);
+  --color-success: var(--success);
+
+  /* 4 type */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Inter", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+
+  --text-*: initial;
+  --text-display: 48px;
+  --text-display--line-height: 52px;
+  --text-display--letter-spacing: -0.02em;
+  --text-display--font-weight: 600;
+  --text-title-1: 28px;
+  --text-title-1--line-height: 34px;
+  --text-title-1--letter-spacing: -0.01em;
+  --text-title-1--font-weight: 600;
+  --text-title-2: 20px;
+  --text-title-2--line-height: 26px;
+  --text-title-2--font-weight: 600;
+  --text-body: 15px;
+  --text-body--line-height: 24px;
+  --text-callout: 13px;
+  --text-callout--line-height: 20px;
+  --text-callout--font-weight: 500;
+  --text-caption: 12px;
+  --text-caption--line-height: 16px;
+
+  /* 5 radius & shadow */
+  --radius-control: 12px;
+  --radius-card: 20px;
+  --radius-dialog: 28px;
+  --radius-pill: 999px;
+  --shadow-1: var(--elev-1);
+  --shadow-2: var(--elev-2);
+
+  /* 6 motion */
+  --ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-base: 240ms;
+  --duration-reduced: 120ms;
+
+  --breakpoint-md: 768px;
+}

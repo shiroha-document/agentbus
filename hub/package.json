@@ -1,0 +1,11 @@
+{
+  "name": "agentbus-hub",
+  "private": true,
+  "packageManager": "pnpm@10.34.7",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "build": "pnpm --filter web build"
+  }
+}

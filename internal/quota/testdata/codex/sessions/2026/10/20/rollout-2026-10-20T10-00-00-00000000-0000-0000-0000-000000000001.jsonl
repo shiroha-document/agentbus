@@ -1,0 +1,6 @@
+{"timestamp":"2026-10-20T10:00:00.000Z","type":"session_meta","payload":{"id":"00000000-0000-0000-0000-000000000001","cwd":"/tmp/x"}}
+{"timestamp":"2026-10-20T10:00:05.000Z","type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":{"primary":{"used_percent":10.0,"window_minutes":300,"resets_in_seconds":9000},"secondary":{"used_percent":3.0,"window_minutes":10080,"resets_in_seconds":500000}}}}
+{"timestamp":"2026-10-20T10:00:06.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"token_count rate_limits"}]}}
+{"timestamp":"2026-10-20T11:00:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100}},"rate_limits":{"primary":{"used_percent":42.5,"window_minutes":299,"resets_in_seconds":3600},"secondary":{"used_percent":17.0,"window_minutes":10080,"resets_at":1792900000},"plan_type":"plus"}}}
+{"timestamp":"2026-10-20T11:00:01.000Z","type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":{"limit_id":"gpt-5-codex-mini","primary":{"used_percent":99.0,"window_minutes":300,"resets_in_seconds":60}}}}
+{"timestamp":"2026-10-20T11:00:02.000Z","type":"event_msg","payload":{"type":"agent_message","message":"done"}}

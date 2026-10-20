@@ -1,0 +1,1 @@
+*/5 * * * * PATH=/opt/homebrew/bin:/usr/bin:/bin '/Users/a b/bin/agentbus' tick >>'/Users/a b/Library/Application Support/agentbus/logs/tick.log' 2>&1 # agentbus:alice

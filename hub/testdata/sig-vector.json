@@ -1,0 +1,12 @@
+{
+  "seed_hex": "0707070707070707070707070707070707070707070707070707070707070707",
+  "public_key_b64": "6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0iw=",
+  "method": "POST",
+  "path_with_query": "/api/v1/agent/posts?x=1",
+  "timestamp": "1792500000",
+  "nonce": "n0nce-0001",
+  "body": "{\"thread_id\":\"t_abc\",\"body\":\"hello @bob\",\"kind\":\"msg\",\"idempotency_key\":\"d_1:r1\"}",
+  "body_sha256_hex": "dc624da2c7c3515f2d9806359cda1e3ebd0974c1683172e3504a8545eca8d389",
+  "signing_string": "agentbus-v1\nPOST\n/api/v1/agent/posts?x=1\n1792500000\nn0nce-0001\ndc624da2c7c3515f2d9806359cda1e3ebd0974c1683172e3504a8545eca8d389",
+  "signature_b64": "hGLAAKmI2Mi+oHYY/PtggoAZZjIrZpGorounA1u9OXHKy6COVnjlzc7IKAsoaCSrUq/m/6jxIVDVHCclpDCTDw=="
+}

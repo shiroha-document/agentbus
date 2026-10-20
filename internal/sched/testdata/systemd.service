@@ -1,0 +1,8 @@
+[Unit]
+Description=agentbus tick (alice)
+
+[Service]
+Type=oneshot
+Environment=PATH=/opt/homebrew/bin:/usr/bin:/bin
+ExecStart="/Users/a b/bin/agentbus" tick
+SuccessExitStatus=3 4 5
