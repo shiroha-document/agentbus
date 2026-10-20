@@ -142,7 +142,9 @@ func TestInstallSystemdAndCron(t *testing.T) {
 	home := t.TempDir()
 	r := &fakeRunner{out: map[string]string{"systemctl --user is-active": "active\n"}}
 	h := Host{GOOS: "linux", Home: home, Runner: r}
-	if m, err := Install(h, "", job); err != nil || m != Systemd {
+	sj := job
+	sj.LogDir = filepath.Join(home, "logs")
+	if m, err := Install(h, "", sj); err != nil || m != Systemd {
 		t.Fatal(m, err)
 	}
 	if _, err := os.Stat(filepath.Join(SystemdDir(home), "agentbus-alice.timer")); err != nil {

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -66,7 +67,8 @@ func (j Job) Args() []string {
 	return a
 }
 
-func (j Job) logFile() string { return filepath.Join(j.LogDir, "tick.log") }
+// launchd/systemd/cron files are unix-only: always use forward slashes.
+func (j Job) logFile() string { return path.Join(j.LogDir, "tick.log") }
 
 // ---- launchd ----
 

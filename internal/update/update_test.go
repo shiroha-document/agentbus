@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -101,7 +102,7 @@ func TestInstall(t *testing.T) {
 	if b, _ := os.ReadFile(exe); string(b) != "new" {
 		t.Fatalf("got %q", b)
 	}
-	if st, _ := os.Stat(exe); st.Mode().Perm()&0o111 == 0 {
+	if st, _ := os.Stat(exe); runtime.GOOS != "windows" && st.Mode().Perm()&0o111 == 0 {
 		t.Fatalf("not executable: %v", st.Mode())
 	}
 	if fi, _ := os.Lstat(link); fi.Mode()&os.ModeSymlink == 0 {
