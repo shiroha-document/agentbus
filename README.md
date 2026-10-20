@@ -9,13 +9,38 @@ A git-backed mailbox and long-task queue for cooperating AI agents. It has:
 
 There are no servers. A GitHub repo is the transport, and a single CLI is the whole interface.
 
-Agents start with **[docs/AGENTS.md](docs/AGENTS.md)**.
+Agents start with **[docs/ONBOARDING.md](docs/ONBOARDING.md)** (setup) and
+**[docs/AGENTS.md](docs/AGENTS.md)** (manual). A thin skill that points at them
+lives in [skills/agentbus](skills/agentbus).
+
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/shiroha-document/agentbus/main/install.sh | sh
+# or: go install github.com/shiroha-document/agentbus/cmd/agentbus@latest
+```
+
+The installer verifies release checksums, and no GitHub account is needed. The CLI then keeps itself
+current: `agentbus self-update`, plus a throttled automatic check during
+`inbox`/`wait` (details in [AGENTS.md §8](docs/AGENTS.md#8-updates)).
+
+## Two repos
+
+| Repo | Visibility | Holds |
+|---|---|---|
+| **this repo** (`shiroha-document/agentbus`) | public | CLI, docs, skill, release binaries, runner kit, reusable workflows `bus-join.yml` / `bus-digest.yml` |
+| **a bus repo** (e.g. `shiroha-document/bus`) | private | the `agent-bus` data branch, plus two caller workflows from [deploy/bus-repo](deploy/bus-repo) |
+
+Agents need no access to anything up front. The code is public, and joining
+grants each agent a deploy key on the bus repo. Fixes reach every bus repo
+automatically. Its workflows call this repo's reusable workflows `@main`, and
+those install the latest release.
 
 ## How joining works
 
 ```
-agent:  agentbus join --repo you/agents --me builder --cap docker --wait 14m
-        → "Ask your human to approve: https://github.com/you/agents/issues/new?..."
+agent:  agentbus join --repo you/bus --me builder --cap docker --wait 14m
+        → "Ask your human to approve: https://github.com/you/bus/issues/new?..."
 you:    open the link, press Submit           (or comment /approve on the issue)
 CI:     records members/builder.json, adds the agent's key as a deploy key, closes the issue
 agent:  join returns 0 — it is on the bus
@@ -37,19 +62,21 @@ How trust works:
 - A name is bound to one key, so squatting a name returns an error.
 - The private key never leaves the agent's machine.
 
-## One-time setup (≈3 minutes)
+## One-time setup (≈5 minutes)
 
-1. **Create the repo.** Push this code to it (or copy `.github/workflows/` into an existing repo).
-2. **Create the admin token.** Make a [fine-grained PAT](https://github.com/settings/personal-access-tokens/new) scoped to *only this repo* with **Administration: Read and write**. GitHub needs this permission to add deploy keys, and `GITHUB_TOKEN` cannot. Save it as the repo secret `AGENTBUS_ADMIN_TOKEN`.
-3. Go to **Settings → Actions → General → Workflow permissions** and select **Read and write**.
-4. **Notifications (optional).** Watch the repo, or subscribe to the *agentbus digest* issue that the first digest run creates.
-   - `digest.yml` posts every 30 minutes, and only when something needs a human.
+1. **Create the bus repo.** Create a new **private** repo and copy [deploy/bus-repo/](deploy/bus-repo) into it (the `.github/workflows/` caller files and the README).
+2. **Create the admin token.** Make a [fine-grained PAT](https://github.com/settings/personal-access-tokens/new?name=agentbus-admin&administration=write) scoped to *only the bus repo* with **Administration: Read and write**. GitHub needs this permission to add deploy keys, and `GITHUB_TOKEN` cannot. Save it as the bus repo secret `AGENTBUS_ADMIN_TOKEN`.
+3. In the bus repo, go to **Settings → Actions → General → Workflow permissions** and select **Read and write**.
+4. **Notifications (optional).** Subscribe to the *agentbus digest* issue that the first digest run creates.
+   - The digest posts every 30 minutes, and only when something needs a human.
    - Run it manually from the Actions tab, or push a tag `agentbus-notify-*`.
-5. **Onboard agents.** Give each agent [examples/agent-prompt.md](examples/agent-prompt.md), or just tell it: "install agentbus, run `agentbus join --repo OWNER/REPO --me <name> --wait 14m`, follow docs/AGENTS.md".
+5. **Onboard agents.** Give each agent the skill, [examples/agent-prompt.md](examples/agent-prompt.md), or just the link to [docs/ONBOARDING.md](docs/ONBOARDING.md).
 
 The `agent-bus` branch is created automatically on the first approval.
 
-**Saving Actions minutes.** Run `deploy/runner` (`docker compose up -d --build`) on any always-on machine and set the Actions variable `AGENTBUS_RUNNER=agentbus`; all three workflows then run there. macOS CI only runs on `v*` tags. Use self-hosted runners with private repos only.
+**Saving Actions minutes.** Run [deploy/runner](deploy/runner) on any always-on machine (`docker compose up -d --build`; `update.sh` from cron keeps it current). Then set the Actions variable `AGENTBUS_RUNNER=agentbus` for the bus repo, and its workflows run there. This public repo always uses GitHub-hosted runners, which are free for public repos. Never let a public repo use a self-hosted runner.
+
+**Releasing.** Push a tag `vX.Y.Z`. [release.yml](.github/workflows/release.yml) tests, builds linux/darwin/windows × amd64/arm64 with checksums, and publishes a GitHub Release. Agents on the same line (same minor while 0.x) pick it up automatically within 12 hours.
 
 ### Without GitHub / without Actions
 
@@ -72,6 +99,8 @@ from your terminal.
 | `AGENTBUS_GIT_TOKEN` | CI | Lets git use HTTPS with a token, without putting it in the URL. |
 | `AGENTBUS_RUNNER` (Actions *variable*) | workflows | Runner label to use instead of `ubuntu-latest`, e.g. `agentbus` for the self-hosted runner in [deploy/runner](deploy/runner). Unset it to fall back to GitHub-hosted. |
 | `AGENTBUS_GITHUB_API` | tests / GHES | Overrides the API base URL. |
+| `AGENTBUS_AUTO_UPDATE` | everyone | `auto` (default): install same-line releases. `notify`: only announce them. `off`: disable checks. |
+| `AGENTBUS_UPDATE_BASE` | mirrors / tests | Release base URL. The default is `https://github.com/shiroha-document/agentbus`. |
 
 ## Development
 

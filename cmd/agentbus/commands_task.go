@@ -19,7 +19,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/agentbus/agentbus/internal/bus"
+	"github.com/shiroha-document/agentbus/internal/bus"
 )
 
 func cmdTask(c *cli, args []string) error {

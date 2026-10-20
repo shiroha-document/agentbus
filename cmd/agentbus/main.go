@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agentbus/agentbus/internal/bus"
+	"github.com/shiroha-document/agentbus/internal/bus"
 )
 
 // Exit codes are part of the agent-facing contract (see docs/AGENTS.md).
@@ -23,8 +23,6 @@ const (
 	exitCancel   = 5 // task cancelled by issuer: stop working
 	exitClaimLst = 6 // lost a claim race
 )
-
-var version = "0.2.0"
 
 type cli struct {
 	out  io.Writer
@@ -52,7 +50,7 @@ func (c *cli) run(args []string) int {
 		case "-h", "--help":
 			return c.usage()
 		case "--version":
-			fmt.Fprintln(c.out, version)
+			fmt.Fprintln(c.out, currentVersion())
 			return exitOK
 		default:
 			return c.usage()
@@ -70,10 +68,14 @@ func (c *cli) run(args []string) int {
 	}
 	err := h(c, rest)
 	processUnlock()
+	code := exitOK
 	if err != nil {
-		return c.fail(err)
+		code = c.fail(err)
 	}
-	return exitOK
+	if code == exitOK || code == exitNothing { // "wait" timing out is a normal turn end
+		c.maybeAutoUpdate(cmd)
+	}
+	return code
 }
 
 type exitError struct {
@@ -131,6 +133,8 @@ wake       wait [--timeout 14m] [--interval 20s] [--kind msg,task.*]   (exit 3 o
            watch [--interval 60s] [--exec 'CMD']                        (long-running poller; CMD gets AGENTBUS_EVENT)
 history    history [--agent A] [--kind K|prefix*] [--since 7d] [--limit N] | search QUERY
            brief ID | blob HASH [-o FILE]
+update     self-update [--check] [--force] [--version vX.Y.Z] | --version
+           (inbox/wait/join auto-update within the same release line; AGENTBUS_AUTO_UPDATE=auto|notify|off)
 ci         digest [--since 1h | --range A..B] [--level all|important|alerts] [--remote URL]   (markdown for humans; exit 3 if empty)
 
 exit codes: 0 ok, 1 error, 2 usage, 3 nothing new, 4 fenced (stop), 5 cancelled (stop), 6 claim lost

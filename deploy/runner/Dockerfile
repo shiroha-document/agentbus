@@ -1,5 +1,5 @@
-# Self-hosted GitHub Actions runner for the agentbus workflows (ci / join /
-# digest). Based on GitHub's official runner image, plus the few tools our
+# Self-hosted GitHub Actions runner for the agentbus bus-repo workflows (join /
+# digest). Private repos only. Based on GitHub's official runner image, plus the few tools our
 # jobs call directly: git (agentbus itself), gh (digest posting), jq, curl.
 FROM ghcr.io/actions/actions-runner:latest
 

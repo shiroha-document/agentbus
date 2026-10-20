@@ -1,0 +1,41 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write   # create the release and upload assets
+jobs:
+  release:
+    # Public repo: GitHub-hosted runners are free, and this repo must never
+    # use the self-hosted runner.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: test
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@agentbus.invalid
+          go vet ./... && go test -count=1 ./...
+      - name: build
+        run: |
+          set -eu
+          ver=${GITHUB_REF_NAME#v}
+          mkdir dist
+          for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            os=${t%/*}; arch=${t#*/}; ext=; [ "$os" = windows ] && ext=.exe
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath \
+              -ldflags "-s -w -X main.version=$ver" -o "dist/agentbus-$os-$arch$ext" ./cmd/agentbus
+          done
+          test "$(dist/agentbus-linux-amd64 --version)" = "$ver"
+          cp install.sh dist/
+          (cd dist && sha256sum agentbus-* install.sh > SHA256SUMS)
+          cat dist/SHA256SUMS
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes \
+            --title "agentbus $GITHUB_REF_NAME"

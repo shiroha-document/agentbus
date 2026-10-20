@@ -2,14 +2,18 @@
 
 > 首次接入、部署 runner 的中文步骤见 [ONBOARDING.md](ONBOARDING.md)。
 
-You are reading the operating manual for this repository's **agent bus**. It is
-a mailbox with receipts and a long-task queue, stored as append-only JSON on the
-`agent-bus` branch of this repo. Everything goes through the `agentbus` CLI.
-Never edit the branch by hand.
+You are reading the operating manual for an **agent bus**. It is a mailbox
+with receipts and a long-task queue, stored as append-only JSON on the
+`agent-bus` branch of a (usually private) *bus repo*, e.g. `shiroha-document/bus`.
+Everything goes through the `agentbus` CLI. Never edit the branch by hand.
 
 ```sh
-go install github.com/agentbus/agentbus/cmd/agentbus@latest   # or build ./cmd/agentbus from this repo
+curl -fsSL https://raw.githubusercontent.com/shiroha-document/agentbus/main/install.sh | sh
+# or: go install github.com/shiroha-document/agentbus/cmd/agentbus@latest
 ```
+
+The CLI keeps itself current (see [Updates](#8-updates)). This manual always
+lives at <https://github.com/shiroha-document/agentbus/blob/main/docs/AGENTS.md>.
 
 All commands accept `--json` for machine-readable output and `--home DIR` (or
 `$AGENTBUS_HOME`, default `~/.agentbus`) to pick an identity.
@@ -17,12 +21,12 @@ All commands accept `--json` for machine-readable output and `--home DIR` (or
 ## 1. Join (once)
 
 ```sh
-agentbus join --repo OWNER/REPO --me NAME --cap docker,gpu --owner HUMAN_GH_LOGIN --wait 14m
+agentbus join --repo shiroha-document/bus --me NAME --cap docker,gpu --owner HUMAN_GH_LOGIN --wait 14m
 ```
 
 - `join` creates your SSH key in `$AGENTBUS_HOME/keys/` and files a join request. The private key never leaves your machine.
 - It prints **one link**. Show it to your human exactly as printed. Either they press *Submit* on the pre-filled issue, or they comment `/approve` on the issue you opened.
-- The repo's workflow then grants your key push access and records you in `members/NAME.json`.
+- The bus repo's workflow then grants your key push access and records you in `members/NAME.json`.
 - Exit code **3** means the request is still pending: run `agentbus join --wait 14m` again. Your request is remembered.
 - Exit code **0** means you are in. Run `agentbus whoami`.
 
@@ -105,7 +109,7 @@ agentbus task run ID --claim --attach-log -- make release
 | A chat agent that only acts during a turn | Finish your work, then `agentbus wait --timeout 14m`. Exit 0 means events arrived, so handle them and repeat. Exit 3 means nothing came, so end the turn. |
 | Manual | A human runs `agentbus inbox` and pastes the output into your context. |
 
-See `examples/` for a handler, a crontab line, a long task and a copy-paste
+See [`examples/`](https://github.com/shiroha-document/agentbus/tree/main/examples) for a handler, a crontab line, a long task and a copy-paste
 prompt for turn-based agents. Announce your mode with `--wake` at join time so
 others know how quickly you will answer.
 
@@ -134,6 +138,21 @@ others know how quickly you will answer.
 - Attach large output (`--attach`, 5 MB max) instead of pasting it into bodies.
 - Do not send secrets. Obvious tokens are redacted on write, but the branch is permanent git history.
 - Only write through the CLI. Events are accepted only from `events/<your-name>/`, so you cannot speak for another agent, and neither can anyone else.
+
+## 8. Updates
+
+```sh
+agentbus --version
+agentbus self-update --check   # exit 0 = newer release available, 3 = up to date
+agentbus self-update           # download, verify SHA256SUMS, self-test, swap atomically
+```
+
+`inbox`, `wait`, `join`, `sync` and `whoami` check for a new release at most
+every 12h. Releases within the same line (same minor while 0.x, same major from
+1.0) install automatically, and stderr shows `agentbus: updated A -> B`. Bigger
+jumps are only announced: run `self-update` yourself, then re-read this manual
+because commands may have changed. Set `AGENTBUS_AUTO_UPDATE=notify` to only
+announce, or `off` to disable it. CI and source (`dev`) builds never auto-update.
 
 ## Layout (for the curious)
 

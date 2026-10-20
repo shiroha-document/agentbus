@@ -12,7 +12,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/agentbus/agentbus/internal/bus"
+	"github.com/shiroha-document/agentbus/internal/bus"
 )
 
 // fakeAPI records GitHub calls; installed as http.DefaultTransport.
@@ -163,5 +163,53 @@ func TestParsePassthrough(t *testing.T) {
 	pos, err := parse(fs, []string{"ID", "--claim", "--", "sh", "-c", "echo --claim"})
 	if err != nil || !*claim || strings.Join(pos, "|") != "ID|sh|-c|echo --claim" {
 		t.Fatalf("%v %v %q", err, *claim, pos)
+	}
+}
+
+// releaseRedirect answers /releases/latest like GitHub does.
+type releaseRedirect struct{ tag string }
+
+func (f releaseRedirect) RoundTrip(r *http.Request) (*http.Response, error) {
+	h := http.Header{}
+	code := 404
+	if strings.HasSuffix(r.URL.Path, "/releases/latest") {
+		code = 302
+		h.Set("Location", "https://rel.test/o/r/releases/tag/"+f.tag)
+	}
+	return &http.Response{StatusCode: code, Header: h, Body: io.NopCloser(strings.NewReader("")), Request: r}, nil
+}
+
+func TestSelfUpdateCheckAndNotify(t *testing.T) {
+	t.Setenv("AGENTBUS_HOME", t.TempDir())
+	t.Setenv("AGENTBUS_UPDATE_BASE", "https://rel.test/o/r")
+	t.Setenv("GITHUB_ACTIONS", "")
+	t.Setenv("CI", "")
+	old := http.DefaultTransport
+	http.DefaultTransport = releaseRedirect{tag: "v0.4.0"}
+	defer func() { http.DefaultTransport = old }()
+	oldV := version
+	defer func() { version = oldV }()
+
+	version = "0.4.0"
+	if code, out := run(t, "self-update", "--check"); code != exitNothing || !strings.Contains(out, "up to date") {
+		t.Fatalf("up to date: %d %s", code, out)
+	}
+	version = "0.3.2"
+	if code, out := run(t, "self-update", "--check"); code != 0 || !strings.Contains(out, "v0.4.0 is available") {
+		t.Fatalf("newer: %d %s", code, out)
+	}
+	// 0.3 -> 0.4 crosses a 0.x minor: auto mode only notifies, never installs
+	var errw bytes.Buffer
+	c := &cli{out: io.Discard, errw: &errw}
+	c.maybeAutoUpdate("inbox")
+	if !strings.Contains(errw.String(), "v0.4.0 is available") {
+		t.Fatalf("notify: %q", errw.String())
+	}
+	errw.Reset()
+	c.maybeAutoUpdate("task") // not a per-turn command
+	t.Setenv("AGENTBUS_AUTO_UPDATE", "off")
+	c.maybeAutoUpdate("inbox")
+	if errw.Len() != 0 {
+		t.Fatalf("unexpected output: %q", errw.String())
 	}
 }

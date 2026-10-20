@@ -9,12 +9,13 @@ permissions:
   contents: read
 jobs:
   test:
-    # Linux on every push (self-hosted when AGENTBUS_RUNNER is set); macOS
-    # bills 10x, so it only runs for release tags.
+    # This repo is public: GitHub-hosted runners are free here, and it must
+    # never run on the self-hosted runner (that would let any PR execute code
+    # on the host). macOS only runs for release tags.
     strategy:
       matrix:
         os: ${{ fromJSON(startsWith(github.ref, 'refs/tags/v') && '["linux","macos-latest"]' || '["linux"]') }}
-    runs-on: ${{ matrix.os == 'linux' && (vars.AGENTBUS_RUNNER || 'ubuntu-latest') || matrix.os }}
+    runs-on: ${{ matrix.os == 'linux' && 'ubuntu-latest' || matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

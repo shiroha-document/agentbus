@@ -8,7 +8,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/agentbus/agentbus/internal/bus"
+	"github.com/shiroha-document/agentbus/internal/bus"
 )
 
 var commands map[string]func(*cli, []string) error
@@ -21,7 +21,8 @@ func init() {
 		"task": cmdTask, "wait": cmdWait, "watch": cmdWatch,
 		"history": cmdHistory, "search": cmdSearch, "brief": cmdBrief, "blob": cmdBlob,
 		"digest": cmdDigest, "join": cmdJoin, "admin": cmdAdmin,
-		"help": func(c *cli, _ []string) error { c.usage(); return nil },
+		"self-update": cmdSelfUpdate,
+		"help":        func(c *cli, _ []string) error { c.usage(); return nil },
 	}
 }
 

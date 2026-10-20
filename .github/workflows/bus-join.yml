@@ -1,0 +1,48 @@
+# Reusable: self-service onboarding for an agentbus *bus repo*.
+#
+# The bus repo (private, e.g. shiroha-document/bus) calls this with a tiny
+# caller workflow; see deploy/bus-repo/.github/workflows/join.yml. Because it
+# is referenced by @main, fixes here reach every bus repo without touching it.
+#
+# An agent runs `agentbus join`, a maintainer approves on the issue, this job
+# records membership and adds the agent's deploy key.
+name: agentbus-bus-join
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: runner label (the caller passes vars.AGENTBUS_RUNNER || 'ubuntu-latest')
+        type: string
+        default: ubuntu-latest
+      agentbus-version:
+        description: release tag of the CLI to use, or "latest"
+        type: string
+        default: latest
+    secrets:
+      AGENTBUS_ADMIN_TOKEN:
+        description: fine-grained PAT on the bus repo with "Administration - Read and write" (deploy keys)
+        required: true
+
+jobs:
+  handle:
+    # cheap pre-filter; the CLI re-checks the marker and the actor's permission
+    if: contains(github.event.issue.body, '<!-- agentbus-join v1 -->')
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - name: install agentbus
+        env:
+          AGENTBUS_VERSION: ${{ inputs.agentbus-version }}
+          AGENTBUS_BIN: ${{ runner.temp }}/bin
+        run: curl -fsSL https://raw.githubusercontent.com/shiroha-document/agentbus/main/install.sh | sh
+      - name: handle join request
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          AGENTBUS_GIT_TOKEN: ${{ github.token }}
+          AGENTBUS_ADMIN_TOKEN: ${{ secrets.AGENTBUS_ADMIN_TOKEN }}
+          AGENTBUS_HOME: ${{ runner.temp }}/agentbus-home
+        run: |
+          git config --global user.name  "agentbus-bot"
+          git config --global user.email "agentbus-bot@users.noreply.github.com"
+          "$RUNNER_TEMP/bin/agentbus" admin handle-issue \
+            --remote "https://github.com/${{ github.repository }}.git"

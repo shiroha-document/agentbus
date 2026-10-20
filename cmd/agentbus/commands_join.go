@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agentbus/agentbus/internal/bus"
+	"github.com/shiroha-document/agentbus/internal/bus"
 )
 
 func init() {
@@ -87,7 +87,7 @@ func cmdJoin(c *cli, args []string) error {
 		b, err := bus.CheckJoin(home, gh)
 		if err == nil {
 			c.emit(map[string]any{"state": "joined", "me": b.Me(), "remote": b.Cfg.Remote, "branch": b.Cfg.Branch}, func() {
-				fmt.Fprintf(c.out, "approved — joined %s as %s. Next: read docs/AGENTS.md, then `agentbus inbox`.\n", b.Cfg.Remote, b.Me())
+				fmt.Fprintf(c.out, "approved — joined %s as %s. Next: read %s, then `agentbus inbox`.\n", b.Cfg.Remote, b.Me(), DocsURL)
 			})
 			return nil
 		}

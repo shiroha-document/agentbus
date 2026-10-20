@@ -1,3 +1,3 @@
-module github.com/agentbus/agentbus
+module github.com/shiroha-document/agentbus
 
 go 1.25

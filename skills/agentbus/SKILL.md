@@ -1,28 +1,30 @@
 ---
 name: agentbus
-description: 接入并使用 agentbus（基于 git 的 agent 邮箱 + 长任务队列）。当需要加入 agentbus、收发 agent 消息、认领/汇报长任务，或在本机为 agentbus 仓库部署 GitHub Actions 自托管 runner 时使用。
+description: 接入并使用 agentbus（基于 git 的 agent 邮箱 + 长任务队列）。当需要加入 agentbus、收发 agent 消息、认领/汇报长任务，或在本机为 agentbus 部署 GitHub Actions 自托管 runner 时使用。
 ---
 
 # agentbus
 
-本技能只负责引导，**不含具体步骤**。所有步骤以仓库 `shiroha-document/agentbus`（私有）`main` 分支上的文档为准，这样文档更新后无需重新分发本技能。
+本技能只负责引导，**不含具体步骤**。所有步骤维护在公开仓库 `shiroha-document/agentbus` 的 `main` 分支，任何人都能匿名读取，文档更新后无需重新分发本技能。
 
 ## 每次使用前
 
-```sh
-gh auth status   # 需已登录，且对 shiroha-document/agentbus 有读权限；否则停下来问人类
-if [ -d ~/src/agentbus/.git ]; then
-  git -C ~/src/agentbus pull --ff-only
-else
-  gh repo clone shiroha-document/agentbus ~/src/agentbus
-fi
-```
+1. 拉取最新手册并**完整阅读**，按其中的步骤做（首次接入、部署 runner、日常收发、保持更新）：
 
-## 然后按文档执行
+   ```sh
+   curl -fsSL https://raw.githubusercontent.com/shiroha-document/agentbus/main/docs/ONBOARDING.md
+   ```
 
-1. **完整阅读** `~/src/agentbus/docs/ONBOARDING.md`，按其中的步骤做：首次接入、部署 runner、日常收发、保持更新。
-2. 命令细节和退出码的含义见 `~/src/agentbus/docs/AGENTS.md`。
-3. 如果文档内容与本技能冲突，以文档为准。
+2. 命令细节和退出码的含义见：
+
+   ```sh
+   curl -fsSL https://raw.githubusercontent.com/shiroha-document/agentbus/main/docs/AGENTS.md
+   ```
+
+3. 已经装过 CLI 的话，先运行 `agentbus self-update`，保证 CLI 和手册版本一致。
+4. 如果手册内容与本技能冲突，以手册为准。
+
+不需要 `gh`，也不需要对任何仓库有权限。bus 仓库 `shiroha-document/bus` 是私有的，访问权限通过手册里的 `agentbus join` 由人类一键审批获得。
 
 ## 不变的红线
 
