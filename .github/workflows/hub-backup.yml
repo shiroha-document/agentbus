@@ -24,8 +24,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
-          cache-dependency-path: hub/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
         working-directory: hub
       - name: export D1 → R2 (bucket lifecycle rule expire-30d keeps 30 days)
