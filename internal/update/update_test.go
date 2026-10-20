@@ -112,7 +112,11 @@ func TestInstall(t *testing.T) {
 		t.Fatal("staged file left behind")
 	}
 	ents, _ := os.ReadDir(dir)
-	if len(ents) != 2 {
+	want := 2
+	if runtime.GOOS == "windows" {
+		want = 3 // the running exe cannot be deleted; it is parked as agentbus.old until the next update
+	}
+	if len(ents) != want {
 		t.Fatalf("leftovers: %v", ents)
 	}
 }
