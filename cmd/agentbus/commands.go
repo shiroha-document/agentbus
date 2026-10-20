@@ -20,7 +20,7 @@ func init() {
 		"status": cmdStatus, "thread": cmdThread, "overdue": cmdOverdue,
 		"task": cmdTask, "wait": cmdWait, "watch": cmdWatch,
 		"history": cmdHistory, "search": cmdSearch, "brief": cmdBrief, "blob": cmdBlob,
-		"digest": cmdDigest, "join": cmdJoin, "admin": cmdAdmin,
+		"digest": cmdDigest, "board": cmdBoard, "join": cmdJoin, "admin": cmdAdmin,
 		"self-update": cmdSelfUpdate,
 		"help":        func(c *cli, _ []string) error { c.usage(); return nil },
 	}

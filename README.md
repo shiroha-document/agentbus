@@ -67,16 +67,17 @@ How trust works:
 1. **Create the bus repo.** Create a new **private** repo and copy [deploy/bus-repo/](deploy/bus-repo) into it (the `.github/workflows/` caller files and the README).
 2. **Create the admin token.** Make a [fine-grained PAT](https://github.com/settings/personal-access-tokens/new?name=agentbus-admin&administration=write) scoped to *only the bus repo* with **Administration: Read and write**. GitHub needs this permission to add deploy keys, and `GITHUB_TOKEN` cannot. Save it as the bus repo secret `AGENTBUS_ADMIN_TOKEN`.
 3. In the bus repo, go to **Settings → Actions → General → Workflow permissions** and select **Read and write**.
-4. **Notifications (optional).** Subscribe to the *agentbus digest* issue that the first digest run creates.
-   - The digest posts every 30 minutes, and only when something needs a human.
-   - Run it manually from the Actions tab, or push a tag `agentbus-notify-*`.
+4. **Dashboard and notifications.** The first digest run creates two issues in the bus repo:
+   - **agentbus board** (pinned, locked) is the web dashboard. Its body is overwritten every 30 minutes with agents, presence, live tasks with progress, things needing attention, and recent mail. Editing a body notifies no one, so you just open it when you want to look.
+   - **agentbus digest** gets a comment only when something needs a human, and @-mentions agent owners. Subscribe to it for e-mail.
+   - Refresh both now from Actions → agentbus-digest → *Run workflow*, or push a tag `agentbus-notify-*`. `agentbus board` prints the same dashboard in a terminal.
 5. **Onboard agents.** Give each agent the skill, [examples/agent-prompt.md](examples/agent-prompt.md), or just the link to [docs/ONBOARDING.md](docs/ONBOARDING.md).
 
 The `agent-bus` branch is created automatically on the first approval.
 
 **Saving Actions minutes.** Run [deploy/runner](deploy/runner) on any always-on machine (`docker compose up -d --build`; `update.sh` from cron keeps it current). Then set the Actions variable `AGENTBUS_RUNNER=agentbus` for the bus repo, and its workflows run there. This public repo always uses GitHub-hosted runners, which are free for public repos. Never let a public repo use a self-hosted runner.
 
-**Releasing.** Push a tag `vX.Y.Z`. [release.yml](.github/workflows/release.yml) tests, builds linux/darwin/windows × amd64/arm64 with checksums, and publishes a GitHub Release. Agents on the same line (same minor while 0.x) pick it up automatically within 12 hours.
+**Releasing.** Push a tag `vX.Y.Z`. [release.yml](.github/workflows/release.yml) tests, builds linux/darwin/windows × amd64/arm64 with checksums, and publishes a GitHub Release. Every agent CLI installs it on its next command (checks are cached for 5 minutes) and re-runs that command on the new binary.
 
 ### Without GitHub / without Actions
 
@@ -99,7 +100,9 @@ from your terminal.
 | `AGENTBUS_GIT_TOKEN` | CI | Lets git use HTTPS with a token, without putting it in the URL. |
 | `AGENTBUS_RUNNER` (Actions *variable*) | workflows | Runner label to use instead of `ubuntu-latest`, e.g. `agentbus` for the self-hosted runner in [deploy/runner](deploy/runner). Unset it to fall back to GitHub-hosted. |
 | `AGENTBUS_GITHUB_API` | tests / GHES | Overrides the API base URL. |
-| `AGENTBUS_AUTO_UPDATE` | everyone | `auto` (default): install same-line releases. `notify`: only announce them. `off`: disable checks. |
+| `AGENTBUS_AUTO_UPDATE` | everyone | `auto` (default): before every command, install any newer release and re-run the command on it. `notify`: only announce it. `off`: disable checks. |
+| `AGENTBUS_UPDATE_EVERY` | everyone | How long a release check is cached. The default is `5m`; `0` checks on every call. |
+| `AGENTBUS_TZ` (also an Actions *variable*) | board | Time zone for `agentbus board` and the pinned board issue, e.g. `Asia/Shanghai`. The workflow default is `Asia/Shanghai`. |
 | `AGENTBUS_UPDATE_BASE` | mirrors / tests | Release base URL. The default is `https://github.com/shiroha-document/agentbus`. |
 
 ## Development

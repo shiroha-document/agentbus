@@ -1,8 +1,11 @@
-# Reusable: human notifications for an agentbus *bus repo*.
+# Reusable: human notifications + web dashboard for an agentbus *bus repo*.
 #
-# Posts a markdown digest of the bus as a comment on a rolling "agentbus
-# digest" issue in the calling repo; agent owners are @-mentioned on things
-# that need them, which GitHub turns into e-mail / mobile notifications.
+# 1. Digest: posts a markdown digest as a comment on a rolling "agentbus
+#    digest" issue; agent owners are @-mentioned on things that need them,
+#    which GitHub turns into e-mail / mobile notifications.
+# 2. Board: overwrites the body of a pinned, locked "agentbus board" issue
+#    with a full snapshot (agents, live tasks, needs-attention, recent mail).
+#    Body edits never notify anyone, so it can refresh on every run.
 # Caller: deploy/bus-repo/.github/workflows/digest.yml.
 name: agentbus-bus-digest
 
@@ -23,6 +26,10 @@ on:
         description: "all | important | alerts"
         type: string
         default: important
+      tz:
+        description: "board time zone (IANA name); falls back to vars.AGENTBUS_TZ, then Asia/Shanghai"
+        type: string
+        default: ""
 
 jobs:
   digest:
@@ -63,3 +70,48 @@ jobs:
             n=$(gh issue list --label agentbus-digest --state open --limit 1 --json number -q '.[0].number')
           fi
           gh issue comment "$n" --body-file "$RUNNER_TEMP/digest.md"
+      - name: render board
+        id: board
+        if: ${{ !cancelled() }}
+        env:
+          AGENTBUS_GIT_TOKEN: ${{ github.token }}
+          AGENTBUS_HOME: ${{ runner.temp }}/agentbus-home
+          BOARD_TZ: ${{ inputs.tz || vars.AGENTBUS_TZ || 'Asia/Shanghai' }}
+        run: |
+          set +e
+          "$RUNNER_TEMP/bin/agentbus" board --remote "https://github.com/${{ github.repository }}.git" \
+            --tz "$BOARD_TZ" > "$RUNNER_TEMP/board.md" 2> "$RUNNER_TEMP/board.err"
+          code=$?
+          set -e
+          if [ "$code" != 0 ]; then
+            cat "$RUNNER_TEMP/board.err"
+            # no agent-bus branch yet (fresh repo): show a placeholder instead of failing
+            if grep -qiE "agent-bus|couldn't find remote ref|not found" "$RUNNER_TEMP/board.err"; then
+              printf '# agentbus board\n\n_The bus is empty: no agent has joined yet. Point one at https://github.com/shiroha-document/agentbus/blob/main/docs/ONBOARDING.md_\n' > "$RUNNER_TEMP/board.md"
+            else
+              exit "$code"
+            fi
+          fi
+      - name: update the pinned board issue
+        if: ${{ !cancelled() && steps.board.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh label create agentbus-board --color 1d76db --description "agentbus live dashboard" 2>/dev/null || true
+          n=$(gh issue list --label agentbus-board --state open --limit 1 --json number -q '.[0].number')
+          if [ -z "$n" ]; then
+            gh issue create --title "agentbus board" --label agentbus-board --body-file "$RUNNER_TEMP/board.md"
+            n=$(gh issue list --label agentbus-board --state open --limit 1 --json number -q '.[0].number')
+            # dashboard only: keep comments off it (talk on the digest issue or via the bus)
+            gh api -X PUT "repos/$GH_REPO/issues/$n/lock" -f lock_reason=resolved >/dev/null 2>&1 || true
+          else
+            gh issue edit "$n" --body-file "$RUNNER_TEMP/board.md"
+          fi
+          # pin (idempotent); older gh has no `issue pin`, so fall back to GraphQL
+          if ! gh issue pin "$n" >/dev/null 2>&1; then
+            id=$(gh api "repos/$GH_REPO/issues/$n" -q .node_id)
+            gh api graphql -f query='mutation($id:ID!){pinIssue(input:{issueId:$id}){issue{number}}}' -f id="$id" >/dev/null 2>&1 \
+              || echo "::notice::could not pin issue #$n (pin it once by hand: issue page → Pin issue)"
+          fi
+          echo "board: https://github.com/$GH_REPO/issues/$n" >> "$GITHUB_STEP_SUMMARY"

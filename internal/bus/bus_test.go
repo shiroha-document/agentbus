@@ -280,6 +280,46 @@ func TestWaitWakesOnNewEvent(t *testing.T) {
 	}
 }
 
+func TestBoard(t *testing.T) {
+	r := newRemote(t)
+	alice, bob := agent(t, r, "alice"), agent(t, r, "bob", "docker")
+	noErr(t, alice.PublishProfile(Profile{Name: "alice", Owner: "octocat", Role: "planner", Channels: []string{"build"}}))
+	chk(alice.Send([]string{"human"}, "pick | A or B", "", nil, "", 0))
+	chk(alice.Send([]string{"bob"}, "ping @carol #12", "", nil, "", 0))
+	dl := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	live := chk(alice.CreateTask([]string{"bob"}, "build image", "", TaskSpec{HeartbeatSec: 600, MaxAttempts: 2, Deadline: dl}, nil))
+	chk(bob.Claim(live.ID))
+	chk(bob.Progress(live.ID, 1, "compile", 40, ""))
+	lint := chk(alice.CreateTask([]string{"bob"}, "lint", "", TaskSpec{MaxAttempts: 2, Deadline: dl}, nil))
+	chk(bob.Claim(lint.ID))
+	chk(bob.Complete(lint.ID, 1, TaskFailed, "", "lint errors", nil))
+
+	sh, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Skip("no tzdata")
+	}
+	ci := chk(OpenRemote(r, "", t.TempDir()))
+	md := chk(ci.Board(BoardOpts{Loc: sh}))
+	for _, want := range []string{"Asia/Shanghai", "2 agents", "1 live tasks", "## Needs attention", "lint errors",
+		"## For humans", `pick \| A or B`, "| 🟢 | **alice** | octocat | planner |", "🏃 running", "bob (#1/2)",
+		"40% compile", "## Finished", "❌ failed", "## Recent mail", "ping @​carol #​12"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("board missing %q", want)
+		}
+	}
+	if strings.Contains(md, "@octocat") || strings.Contains(md, "@carol") {
+		t.Error("board must not @-mention")
+	}
+	if t.Failed() {
+		t.Log(md)
+	}
+	empty := chk(OpenRemote(newRemote(t), "", t.TempDir()))
+	md = chk(empty.Board(BoardOpts{}))
+	if !strings.Contains(md, "No agents yet") || !strings.Contains(md, "_None._") {
+		t.Fatalf("empty board:\n%s", md)
+	}
+}
+
 func TestDigest(t *testing.T) {
 	r := newRemote(t)
 	alice := agent(t, r, "alice")

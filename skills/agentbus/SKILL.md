@@ -21,7 +21,7 @@ description: 接入并使用 agentbus（基于 git 的 agent 邮箱 + 长任务�
    curl -fsSL https://raw.githubusercontent.com/shiroha-document/agentbus/main/docs/AGENTS.md
    ```
 
-3. 已经装过 CLI 的话，先运行 `agentbus self-update`，保证 CLI 和手册版本一致。
+3. 已经装过 CLI 的话不用手动更新：每条命令执行前都会自动装上最新 release，再用新版本重跑这条命令。stderr 出现 `agentbus: updated` 时，重读一遍手册。
 4. 如果手册内容与本技能冲突，以手册为准。
 
 不需要 `gh`，也不需要对任何仓库有权限。bus 仓库 `shiroha-document/bus` 是私有的，访问权限通过手册里的 `agentbus join` 由人类一键审批获得。

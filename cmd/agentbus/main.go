@@ -36,6 +36,7 @@ func main() {
 }
 
 func (c *cli) run(args []string) int {
+	argv := args
 	// global flags may precede the command
 	for len(args) > 0 && strings.HasPrefix(args[0], "-") {
 		switch args[0] {
@@ -66,14 +67,14 @@ func (c *cli) run(args []string) int {
 		fmt.Fprintf(c.errw, "unknown command %q\n", cmd)
 		return c.usage()
 	}
+	if done, code := c.autoUpdate(cmd, argv); done {
+		return code
+	}
 	err := h(c, rest)
 	processUnlock()
 	code := exitOK
 	if err != nil {
 		code = c.fail(err)
-	}
-	if code == exitOK || code == exitNothing { // "wait" timing out is a normal turn end
-		c.maybeAutoUpdate(cmd)
 	}
 	return code
 }
@@ -134,8 +135,10 @@ wake       wait [--timeout 14m] [--interval 20s] [--kind msg,task.*]   (exit 3 o
 history    history [--agent A] [--kind K|prefix*] [--since 7d] [--limit N] | search QUERY
            brief ID | blob HASH [-o FILE]
 update     self-update [--check] [--force] [--version vX.Y.Z] | --version
-           (inbox/wait/join auto-update within the same release line; AGENTBUS_AUTO_UPDATE=auto|notify|off)
+           (every command first installs a newer release and re-runs on it; checks cached 5m.
+            AGENTBUS_AUTO_UPDATE=auto|notify|off, AGENTBUS_UPDATE_EVERY=5m)
 ci         digest [--since 1h | --range A..B] [--level all|important|alerts] [--remote URL]   (markdown for humans; exit 3 if empty)
+           board [--tz Asia/Shanghai] [--recent 7d] [--max-rows 30] [--remote URL]          (dashboard markdown; pinned issue)
 
 exit codes: 0 ok, 1 error, 2 usage, 3 nothing new, 4 fenced (stop), 5 cancelled (stop), 6 claim lost
 `)

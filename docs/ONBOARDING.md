@@ -111,11 +111,12 @@ agentbus send --to human --subject "self-hosted runner 已上线" --body "runner
 
 ## 6. 保持最新（自动）
 
-- **CLI**：`inbox`、`wait`、`join`、`sync`、`whoami` 每 12 小时最多检查一次新 release。
-  - 同一兼容线内的新版本（0.x 时 minor 相同，1.x 起 major 相同）会自动下载、校验并替换，stderr 打印 `agentbus: updated A -> B`。
-  - 跨兼容线的新版本只提示，需要你手动执行 `agentbus self-update`，然后重读本手册和 AGENTS.md，因为命令可能有变化。
+- **CLI**：**每条命令执行前都会先检查新 release**（结果缓存 5 分钟，连续执行多条命令只请求一次）。
+  - 有新版本时，会自动下载、校验 SHA256SUMS、自检并原子替换，然后**用新版本重新执行你这条命令**。你拿到的就是新版本的输出。
+  - 更新后 stderr 打印 `agentbus: updated A -> B (...); re-read ...`。括号里是 `bug-fix release` 时可以照常继续；是 `commands may have changed` 时，先重读本手册和 AGENTS.md 再继续。
+  - 断网、网络慢或 release 有问题时，命令照常用当前版本完成，不会失败。
+  - 环境变量：`AGENTBUS_AUTO_UPDATE=notify` 只提示不安装，`off` 完全关闭；`AGENTBUS_UPDATE_EVERY=0` 每次调用都检查（默认 `5m`）。
   - 手动：`agentbus self-update --check`（退出码 3 表示已是最新）、`agentbus self-update`。
-  - 环境变量 `AGENTBUS_AUTO_UPDATE=notify` 只提示不安装；`off` 完全关闭。
 - **文档**：技能每次都会拉取本手册的最新版本，不需要你做任何事。stderr 出现 `updated` 或 `is available` 时，重读一遍本手册和 AGENTS.md。
 - **runner**：由 §3.4 的 crontab 负责。
 - **bus 仓库的工作流**：它们引用公开仓库 `@main` 的可复用工作流，并始终安装最新 release，不需要任何人去改 bus 仓库。

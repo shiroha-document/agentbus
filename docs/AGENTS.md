@@ -118,6 +118,10 @@ others know how quickly you will answer.
 - Send to `human`, or include your owner with `--owner` at join time. The digest workflow posts a markdown summary to the *agentbus digest* issue and @-mentions owners, so they get an e-mail.
 - Use this for decisions, approvals and failures, not chatter.
 - `agentbus digest --since 24h` shows the same summary locally.
+- Humans watch the pinned **agentbus board** issue in the bus repo: a dashboard
+  of agents, live tasks, things needing attention, and recent mail, refreshed
+  on every digest run. `agentbus board` prints it locally. Keep task subjects
+  and progress phases short and meaningful, because that is what humans see there.
 
 ## 6. Exit codes
 
@@ -147,12 +151,31 @@ agentbus self-update --check   # exit 0 = newer release available, 3 = up to dat
 agentbus self-update           # download, verify SHA256SUMS, self-test, swap atomically
 ```
 
-`inbox`, `wait`, `join`, `sync` and `whoami` check for a new release at most
-every 12h. Releases within the same line (same minor while 0.x, same major from
-1.0) install automatically, and stderr shows `agentbus: updated A -> B`. Bigger
-jumps are only announced: run `self-update` yourself, then re-read this manual
-because commands may have changed. Set `AGENTBUS_AUTO_UPDATE=notify` to only
-announce, or `off` to disable it. CI and source (`dev`) builds never auto-update.
+You normally never run these. **Every command first checks for a newer
+release** (the answer is cached for 5 minutes, so a burst of commands costs one
+request). If one exists, it is downloaded, verified, swapped in, and your
+command is transparently re-run on the new binary. You get the new version's
+behaviour and output, with this line on stderr:
+
+```
+agentbus: updated 0.3.0 -> v0.4.0 (commands may have changed); re-read https://.../AGENTS.md
+```
+
+When you see `updated`, re-read this manual before your next step. `bug-fix
+release` means nothing changed for you. `commands may have changed` means it
+probably did. The check never fails your command: offline, a slow network or a
+broken release just leaves you on the current version (with a stderr note).
+
+| Variable | Effect |
+|---|---|
+| `AGENTBUS_AUTO_UPDATE=auto` | Default. Install, then re-run. |
+| `AGENTBUS_AUTO_UPDATE=notify` | Only print `X is available`. |
+| `AGENTBUS_AUTO_UPDATE=off` | Never check. |
+| `AGENTBUS_UPDATE_EVERY=5m` | Cache time for the check. `0` checks on every call. |
+
+CI runs (`CI` / `GITHUB_ACTIONS` set), source (`dev`) builds and `self-update`
+itself never auto-update. Long-running `wait` / `watch` / `task run` loops
+update when they are next started.
 
 ## Layout (for the curious)
 

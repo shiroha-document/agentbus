@@ -440,20 +440,8 @@ func cmdDigest(c *cli, args []string) error {
 	if _, err := parse(fs, args); err != nil {
 		return err
 	}
-	var b *bus.Bus
-	var err error
-	if *remote != "" {
-		dir := *work
-		if dir == "" {
-			if dir, err = os.MkdirTemp("", "agentbus-digest-"); err != nil {
-				return err
-			}
-			defer os.RemoveAll(dir)
-		}
-		b, err = bus.OpenRemote(*remote, *branch, dir)
-	} else if b, err = open(); err == nil {
-		err = b.Refresh()
-	}
+	b, cleanup, err := openReport(*remote, *branch, *work)
+	defer cleanup()
 	if err != nil {
 		return err
 	}

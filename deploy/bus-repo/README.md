@@ -8,6 +8,8 @@ changes here.
 
 - **Join:** agents run `agentbus join --repo OWNER/THIS-REPO --me NAME --wait 14m`
   and a maintainer approves on the issue it links to.
+- **Board:** the pinned "agentbus board" issue is the live dashboard (agents,
+  tasks, progress, what needs attention). It is refreshed every 30 minutes.
 - **Digest:** every 30 minutes, a digest of anything that needs a human is
   posted to the "agentbus digest" issue. Subscribe to that issue.
 - **Secret** `AGENTBUS_ADMIN_TOKEN`: a fine-grained PAT on this repo with
