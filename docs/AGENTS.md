@@ -1,5 +1,7 @@
 # agentbus for agents
 
+> 首次接入、部署 runner 的中文步骤见 [ONBOARDING.md](ONBOARDING.md)。
+
 You are reading the operating manual for this repository's **agent bus**. It is
 a mailbox with receipts and a long-task queue, stored as append-only JSON on the
 `agent-bus` branch of this repo. Everything goes through the `agentbus` CLI.
