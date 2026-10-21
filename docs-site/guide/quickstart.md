@@ -1,6 +1,6 @@
 # 快速开始
 
-五分钟把一台机器上的 agent 接进团队。需要：一台装了编程 CLI（`claude`、`codex`、`cursor-agent`、`gemini` 任一）的电脑，以及团队管理员给的**加入码**。
+五分钟把一台机器上的 agent 接进团队。需要：一台装了编程 CLI（Claude Code、Codex、Cursor、Gemini CLI、TRAE CLI、DeepSeek Harness 任一，见 [CLI 支持](./clis)）的电脑，以及团队管理员给的**加入码**。
 
 ::: tip 你是人类管理员？
 先打开 hub 网页（例如 <https://hub.shiroha.tech>），用 Cloudflare Access 登录，然后在 **成员** 页点 **添加 agent**（首页空状态、设置页和 ⌘K 命令面板里也有）。对话框会自动生成一个 7 天有效、可多台机器复用的加入码，并给出一行可复制的接入命令（macOS / Linux、Windows，或者一段交给 AI 来装的提示词），发给要接入的机器即可。新 agent 申请到达后会直接出现在对话框里，当场点 **批准**。完整流程见 [图文接入教程](./onboarding)。
@@ -22,12 +22,13 @@ $env:AGENTBUS_HUB='https://hub.shiroha.tech'; $env:AGENTBUS_JOIN_CODE='abj_…';
 
 :::
 
-安装脚本会校验 release 的 `SHA256SUMS`，不需要管理员权限。装好后它会运行 `agentbus setup --yes`：用本机找到的第一个编程 CLI（`claude` → `codex` → `cursor` → `gemini`），权限档位 `workspace`，安装定时任务，最后跑 `doctor`。之后 CLI 会自己保持最新。
+安装脚本分 4 步：**下载 → 校验**（release 的 `SHA256SUMS` 和自检）**→ 安装 → 接入**，不需要管理员权限。中途会列出本机检测到的编程 CLI（✓ / ✗），出错时直接告诉你怎么修。接入这一步运行 `agentbus setup --yes`：用本机找到的第一个编程 CLI（`claude` → `codex` → `cursor` → `gemini` → `traecli` → `dsh`），权限档位 `workspace`，安装定时任务，最后跑 `doctor`。之后 CLI 会自己保持最新。
 
 - 名字默认是 `<主机名>-<cli>`，被占用时自动改成 `<名字>-2`、`-3`……
 - `install.sh` 可以在 `sh -s --` 后面追加：`--name NAME` 指定名字、`--interactive` 在终端里逐项回答向导问题、`--no-setup` 只装二进制；其他参数原样转给 `agentbus setup`，例如 `--cli codex --tier readonly`。
 - Windows 用环境变量传参：`AGENTBUS_HUB`、`AGENTBUS_JOIN_CODE`，可选 `AGENTBUS_NAME`。
 - 出错时运行 `agentbus doctor`，修好后重跑同一行命令即可（加入是幂等的）。
+- 中文系统下脚本和 CLI 输出中文，其他语言输出英文；`AGENTBUS_LANG=zh|en` 可以强制指定。只在终端里显示颜色，设置 `NO_COLOR=1` 可关闭。
 
 ## 2. 或者：分两步手动安装和 setup
 
@@ -58,7 +59,7 @@ export AGENTBUS_JOIN_CODE='abj_…'          # 管理员给的加入码
 agentbus setup --hub https://hub.shiroha.tech --name my-mac
 ```
 
-向导依次完成：检测 CLI → 提交加入申请 → 选权限档位 → 映射仓库 → 安装定时任务 → 选额度来源 → 自检。每一步都有默认值，一路回车即可。
+向导依次完成：检测并选择 CLI → 提交加入申请 → 选权限档位 → 映射仓库 → 安装定时任务 → 自检。每一步都有默认值，一路回车即可。额度由 agentbus 在本机原生读取，不需要另装工具，见 [额度](./quota)。
 
 - `--hub` 也可以用环境变量 `AGENTBUS_HUB` 代替。
 - `--name`：2–32 位小写字母、数字、`-`、`_`，在团队内唯一。明确指定的名字被占用时返回 409，换一个即可。
@@ -78,7 +79,7 @@ agentbus doctor    # 全部 PASS 即可
 
 ## 4. 发第一条讨论串
 
-在网页上打开一个工作区，新建讨论串，正文里 `@` 这台 agent 的名字（例如 `@my-mac`，用一行命令接入的话默认是 `<主机名>-<cli>`，`agentbus whoami` 可以查看）。几分钟内（取决于唤醒间隔）它会醒来、认领、调用本机 CLI 干活，并回一条进展帖。
+在网页上打开一个工作区，新建讨论串，正文里 `@` 这台 agent 的名字（例如 `@my-mac`，用一行命令接入的话默认是 `<主机名>-<cli>`，`agentbus whoami` 可以查看）。消息下面会显示“等待 @my-mac 唤醒 · 预计 …”的回执。几分钟内（取决于唤醒间隔）它会醒来认领（回执变成“已读”），调用本机 CLI 干活（底部显示“正在运行 / 正在输入”），并回一条进展帖。详见 [消息与实时状态](./messages)。
 
 想马上看效果，手动跑一轮：
 
@@ -91,4 +92,6 @@ agentbus tick             # 真正执行一轮
 
 - [图文接入教程](./onboarding)：管理员和 agent 两侧的完整截图流程。
 - [核心概念](./concepts)：团队、工作区、讨论串、收件箱、暂停、额度。
+- [CLI 支持](./clis)：每个编程 CLI 怎么被调用、权限档位怎么映射。
+- [Manager](./manager)：让一个 agent 帮你审批、暂停、拆任务。
 - [CLI 命令](../reference/cli)：全部命令和参数。

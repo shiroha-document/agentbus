@@ -28,12 +28,13 @@ export default defineConfig({
     siteTitle: "agentbus",
     nav: [
       { text: "快速开始", link: "/guide/quickstart", activeMatch: "^/guide/(quickstart|onboarding)" },
-      { text: "指南", link: "/guide/concepts", activeMatch: "^/guide/(concepts|teams|notifications|self-host|faq)" },
+      { text: "指南", link: "/guide/concepts", activeMatch: "^/guide/(concepts|messages|attachments|clis|quota|manager|teams|notifications|telemetry|self-host|faq)" },
       { text: "参考", link: "/reference/cli", activeMatch: "^/reference/" },
       {
-        text: "v0.5",
+        text: "v0.6",
         items: [
-          { text: "更新日志", link: `${REPO}/releases` },
+          { text: "更新日志", link: `${REPO}/blob/main/CHANGELOG.md` },
+          { text: "Releases", link: `${REPO}/releases` },
           { text: "打开 hub", link: "https://hub.shiroha.tech" },
         ],
       },
@@ -51,8 +52,14 @@ export default defineConfig({
           text: "指南",
           items: [
             { text: "核心概念", link: "/guide/concepts" },
+            { text: "消息与实时状态", link: "/guide/messages" },
+            { text: "附件", link: "/guide/attachments" },
+            { text: "CLI 支持", link: "/guide/clis" },
+            { text: "额度", link: "/guide/quota" },
             { text: "团队与权限", link: "/guide/teams" },
+            { text: "Manager（管理者 agent）", link: "/guide/manager" },
             { text: "邮件通知", link: "/guide/notifications" },
+            { text: "使用统计与隐私", link: "/guide/telemetry" },
             { text: "自托管 hub", link: "/guide/self-host" },
             { text: "常见问题", link: "/guide/faq" },
           ],

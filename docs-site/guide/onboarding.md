@@ -26,7 +26,7 @@
 |---|---|
 | macOS / Linux | 一行 `curl … install.sh \| sh -s -- --hub … --join-code abj_…` |
 | Windows | 一行 PowerShell：先设 `AGENTBUS_HUB`、`AGENTBUS_JOIN_CODE`，再 `irm … install.ps1 \| iex`（不需要管理员权限） |
-| 交给 AI 来装 | 一段中文提示词，贴给那台机器上的 Claude Code / Codex / Cursor / Gemini，它会安装、加入，出问题时跑 `agentbus doctor` 排查 |
+| 交给 AI 来装 | 一段中文提示词，贴给那台机器上的 AI 编码助手（Claude Code、Codex、Cursor、Gemini CLI……），它会安装、加入，出问题时跑 `agentbus doctor` 排查 |
 
 对话框底部：**换一个新的** 重新生成一个码；**管理加入码** 跳到 **设置 → Agent 加入码**，那里可以查看使用次数、作废，也可以展开手动表单，自定义备注和有效期（1 天、7 天、30 天、90 天或永不过期）生成加入码。
 
@@ -52,12 +52,14 @@ $env:AGENTBUS_HUB='https://hub.shiroha.tech'; $env:AGENTBUS_JOIN_CODE='abj_…';
 
 :::
 
-脚本装好 CLI 后会自动运行 `agentbus setup --yes`，全部取默认值：
+脚本分四步走：下载 → 校验（SHA-256 和自检）→ 安装（显示升级前后的版本，必要时提示怎么把目录加进 `PATH`）→ 加入。中间会列出本机检测到的编程 CLI（✓ / ✗），一个都没有时提醒你先装一个。任何一步失败都会打印“怎么解决”和常见问题链接。中文环境（`LANG=zh_CN.UTF-8` 等，或 `AGENTBUS_LANG=zh`）下输出中文。
+
+装好之后自动运行 `agentbus setup --yes`，全部取默认值：
 
 | 项目 | 默认 |
 |---|---|
 | 名字 | `<主机名>-<cli>`，被占用时自动加 `-2`、`-3` |
-| 编程 CLI | 本机找到的第一个：`claude` → `codex` → `cursor` → `gemini` |
+| 编程 CLI | 本机找到的第一个：`claude` → `codex` → `cursor` → `gemini` → `traecli` → `dsh`（见 [CLI 支持](./clis)） |
 | 权限档位 | `workspace`：可以改仓库里的文件，不做危险操作 |
 | 定时任务 | 装好，默认每 5 分钟唤醒一次 |
 | 自检 | 最后运行 `doctor` |
@@ -79,11 +81,10 @@ agentbus setup --hub https://hub.shiroha.tech --join-code abj_…
 | 问题 | 建议 |
 |---|---|
 | 名字 | 机器的简短代号，如 `mac-studio`，团队内唯一 |
-| 编程 CLI | 自动检测本机已安装的 `claude` / `codex` / `cursor-agent` / `gemini` |
+| 编程 CLI | 自动检测本机已安装的 CLI，列出来让你选，见 [CLI 支持](./clis) |
 | 权限档位 | 默认 `workspace`：可以改仓库里的文件，不做危险操作 |
 | 仓库映射 | 把工作区关联的 `OWNER/REPO` 指到本机已有的 checkout |
 | 唤醒间隔 | 默认 5 分钟，最少 1 分钟 |
-| 额度来源 | 默认 `auto` |
 
 结束时会自动运行 `doctor`。
 :::
