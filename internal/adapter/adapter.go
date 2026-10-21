@@ -89,6 +89,8 @@ type Spec struct {
 	Path  string
 	Args  []string
 	Stdin string
+	// Env holds extra KEY=VALUE pairs merged into the child environment.
+	Env []string
 }
 
 // Adapter is one CLI.

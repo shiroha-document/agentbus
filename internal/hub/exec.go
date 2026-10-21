@@ -46,6 +46,13 @@ func RunSpec(ctx context.Context, s adapter.Spec, o ExecOptions) ExecResult {
 	cmd := exec.Command(s.Path, s.Args...)
 	cmd.Dir = o.Dir
 	cmd.Env = o.Env
+	if len(s.Env) > 0 {
+		base := cmd.Env
+		if base == nil {
+			base = os.Environ()
+		}
+		cmd.Env = append(append([]string{}, base...), s.Env...)
+	}
 	if s.Stdin != "" {
 		cmd.Stdin = strings.NewReader(s.Stdin)
 	}
