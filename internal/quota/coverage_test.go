@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// coverageRows reads COVERAGE.md's table: magpie id -> native status.
+// coverageRows reads COVERAGE.md's table: provider id -> native status.
 func coverageRows(t *testing.T) map[string]string {
 	t.Helper()
 	f, err := os.Open("COVERAGE.md")
@@ -28,7 +28,7 @@ func coverageRows(t *testing.T) map[string]string {
 			t.Fatalf("short table row: %s", line)
 		}
 		id, status := strings.TrimSpace(cells[0]), strings.TrimSpace(cells[2])
-		if id == "magpie id" || strings.HasPrefix(id, "---") {
+		if id == "provider id" || strings.HasPrefix(id, "---") {
 			continue
 		}
 		if _, dup := rows[id]; dup {

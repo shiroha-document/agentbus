@@ -19,8 +19,8 @@ import (
 // turn's token_count event in $CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl
 // carries payload.rate_limits {primary, secondary}, each {used_percent,
 // window_minutes, resets_at | resets_in_seconds}. The newest one is the
-// reading, timed at its event: an old session reads as stale, and auto mode
-// then prefers magpie (which asks ChatGPT's usage endpoint).
+// reading, timed at its event, so an old session reads as old (the hub
+// shows read_at).
 
 type codexProvider struct{}
 

@@ -16,12 +16,16 @@ rewritten in this package's own types. No magpie code is imported or linked.
 | plans.go | internal/provider/planquota.go | the Zhipu / Z.ai, Kimi Code and MiniMax plan endpoints and their reply parsing |
 | openrouter.go | internal/provider/balance.go | the OpenRouter credits endpoint and balance arithmetic |
 | gemini.go | internal/provider/google.go | the Code Assist `loadCodeAssist` / `retrieveUserQuota` calls and bucket parsing |
-| magpie.go | internal/provider/quotas.go, internal/cli/quota_cli.go | the `magpie quota --json` command and the `provider.Quota` card fields it prints |
+| balances.go | internal/provider/balance.go | the DeepSeek, Moonshot, SiliconFlow, StepFun and AiHubMix balance endpoints and their reply parsing |
+| subscriptions.go | internal/provider/ollama_usage.go, internal/provider/planquota.go, internal/provider/commandcode_plan.go, internal/provider/opencode_client.go | the Ollama Cloud balance, OpenCode Go usage (and its session headers) and Command Code credits endpoints, plan names and reply parsing |
+| copilot.go | internal/provider/subscription_usage.go, internal/provider/account.go, internal/provider/copilot_cli.go, internal/provider/copilot_entitlement.go, internal/provider/copilot_accounts.go | where the Copilot plugins and CLI keep their GitHub token, the `copilot_internal/user` request headers, plan labels and quota snapshot parsing |
+| cline.go | internal/provider/cline_usage.go, internal/provider/cline.go | the ClinePass usage-limits and credits endpoints, the Cline client headers and the `{success, data}` envelope |
+| keys.go | internal/provider/import_opencode.go | OpenCode's `auth.json` location and entry shape |
 | windows.go | internal/provider/subscription_usage.go | window naming ("5 hours", "7 days · Opus" …) |
 
-The rest of this package (quota.go, provider.go, merge.go, httpx.go,
+The rest of this package (quota.go, provider.go, httpx.go, the rest of
 keys.go, cursor.go, claude_keychain_other.go and the tests) is original to
-agentbus.
+agentbus. magpie itself is no longer run.
 
 ## License
 

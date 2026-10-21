@@ -27,11 +27,13 @@ type PromptInput struct {
 type promptPost struct {
 	ID, Author, Kind, When, ReplyTo, Body string
 	Mine                                  bool
+	Attachments                           []string // "name (mime, size) → agentbus file get f_xxx"
 }
 
 type promptDelivery struct {
 	PostID, ReasonText, Author, Body, Quoted string
 	Attempts, Attempt                        int
+	Attachments                              []string
 }
 
 type promptData struct {
@@ -103,6 +105,9 @@ func BuildPrompt(in PromptInput) (string, error) {
 		if p.ReplyTo != nil {
 			pp.ReplyTo = *p.ReplyTo
 		}
+		for _, a := range p.Attachments {
+			pp.Attachments = append(pp.Attachments, attachmentLine(a))
+		}
 		d.Posts = append(d.Posts, pp)
 	}
 	for _, dl := range in.Deliveries {
@@ -112,6 +117,9 @@ func BuildPrompt(in PromptInput) (string, error) {
 			pd.Author = name(p.AuthorID)
 			pd.Body = strings.TrimSpace(p.Body)
 			pd.Quoted = quote(pd.Body)
+			for _, a := range p.Attachments {
+				pd.Attachments = append(pd.Attachments, attachmentLine(a))
+			}
 		} else {
 			pd.Body = "（这条帖子不在上面的最近列表里，用 `agentbus thread show` 往前翻）"
 			pd.Quoted = pd.Body
@@ -133,6 +141,30 @@ func BuildPrompt(in PromptInput) (string, error) {
 		return "", err
 	}
 	return b.String(), nil
+}
+
+// attachmentLine is how the prompt lists an attachment:
+// `name (mime, size) → agentbus file get f_xxx`.
+func attachmentLine(a Attachment) string {
+	name := strings.Join(strings.Fields(a.Name), " ")
+	if name == "" {
+		name = a.ID
+	}
+	mime := firstNonEmpty(strings.TrimSpace(a.Mime), "application/octet-stream")
+	return fmt.Sprintf("%s (%s, %s) → agentbus file get %s", name, mime, FmtSize(a.Size), a.ID)
+}
+
+// FmtSize: 512 B, 1.5 KB, 2.3 MB.
+func FmtSize(n int64) string {
+	switch {
+	case n < 1024:
+		return fmt.Sprintf("%d B", max(n, 0))
+	case n < 1024*1024:
+		return trimZero(fmt.Sprintf("%.1f", float64(n)/1024)) + " KB"
+	case n < 1024*1024*1024:
+		return trimZero(fmt.Sprintf("%.1f", float64(n)/(1024*1024))) + " MB"
+	}
+	return trimZero(fmt.Sprintf("%.1f", float64(n)/(1024*1024*1024))) + " GB"
 }
 
 func quote(s string) string {
