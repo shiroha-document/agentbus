@@ -96,6 +96,12 @@ type Post struct {
 	Reactions    []Reaction     `json:"reactions"`
 	Confirmation *Confirmation  `json:"confirmation"`
 	CreatedAt    int64          `json:"created_at"`
+	// v0.6
+	Model       *string      `json:"model"`
+	CLI         *string      `json:"cli"`
+	EditedAt    *int64       `json:"edited_at"`
+	Revisions   int          `json:"revisions"`
+	Attachments []Attachment `json:"attachments"`
 }
 
 type Delivery struct {
@@ -197,6 +203,10 @@ type NewPost struct {
 	ReplyTo        string         `json:"reply_to,omitempty"`
 	IdempotencyKey string         `json:"idempotency_key"`
 	Usage          *adapter.Usage `json:"usage,omitempty"`
+	// v0.6
+	Model       string   `json:"model,omitempty"`
+	CLI         string   `json:"cli,omitempty"`
+	Attachments []string `json:"attachments,omitempty"`
 }
 
 type PostResp struct {
@@ -204,6 +214,7 @@ type PostResp struct {
 	Thread    Thread   `json:"thread"`
 	Duplicate bool     `json:"duplicate"`
 	Redacted  []string `json:"redacted"`
+	Collapsed bool     `json:"collapsed"`
 }
 
 // ThreadPatch is PATCH /agent/threads/:id.

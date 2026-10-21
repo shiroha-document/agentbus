@@ -400,3 +400,132 @@ func firstNonEmpty(ss ...string) string {
 	}
 	return ""
 }
+
+// ---- v0.6: live status, analytics, attachments ----
+
+// ActivityReq is one live-status update (contract §3).
+type ActivityReq struct {
+	ThreadID string `json:"thread_id"`
+	State    string `json:"state"` // claimed | running | typing | done | failed
+	Detail   string `json:"detail,omitempty"`
+	CLI      string `json:"cli,omitempty"`
+	Model    string `json:"model,omitempty"`
+}
+
+// Activity reports what this agent is doing in a thread. Best effort: callers
+// log and ignore errors (older hubs answer 404).
+func (c *Client) Activity(ctx context.Context, a ActivityReq) error {
+	return c.Do(ctx, "POST", "/agent/activity", a, nil, false)
+}
+
+// Event is one analytics event (contract §5).
+type Event struct {
+	Name          string         `json:"name"`
+	At            int64          `json:"at,omitempty"`
+	Props         map[string]any `json:"props,omitempty"`
+	DurationMS    *int64         `json:"duration_ms,omitempty"`
+	OK            *bool          `json:"ok,omitempty"`
+	ClientVersion string         `json:"client_version,omitempty"`
+	OS            string         `json:"os,omitempty"`
+}
+
+// Events uploads up to 50 analytics events.
+func (c *Client) Events(ctx context.Context, evs []Event) error {
+	return c.Do(ctx, "POST", "/agent/events", map[string]any{"events": evs}, nil, false)
+}
+
+// Attachment is a file stored on the hub (contract §4).
+type Attachment struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Mime string `json:"mime"`
+	Size int64  `json:"size"`
+	URL  string `json:"url"`
+}
+
+// Upload sends a file (≤ 10 MB) and returns its attachment record.
+func (c *Client) Upload(ctx context.Context, name, mime string, data []byte) (*Attachment, error) {
+	var out struct {
+		Attachment Attachment `json:"attachment"`
+	}
+	if mime == "" {
+		mime = "application/octet-stream"
+	}
+	err := c.raw(ctx, "POST", "/agent/uploads", data, map[string]string{
+		"Content-Type": mime, "X-File-Name": url.PathEscape(name),
+	}, func(b []byte) error { return json.Unmarshal(b, &out) })
+	return &out.Attachment, err
+}
+
+// Download fetches an attachment's bytes.
+func (c *Client) Download(ctx context.Context, id string) ([]byte, error) {
+	var data []byte
+	err := c.raw(ctx, "GET", "/agent/files/"+url.PathEscape(id), nil, nil, func(b []byte) error {
+		data = b
+		return nil
+	})
+	return data, err
+}
+
+// raw sends a signed request with a non-JSON body and hands the reply body
+// to read. No retries.
+func (c *Client) raw(ctx context.Context, method, path string, body []byte, headers map[string]string, read func([]byte) error) error {
+	u, err := url.Parse(strings.TrimRight(c.BaseURL, "/") + APIPrefix + path)
+	if err != nil {
+		return err
+	}
+	var rd io.Reader
+	if body != nil {
+		rd = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), rd)
+	if err != nil {
+		return err
+	}
+	pq := u.EscapedPath()
+	if u.RawQuery != "" {
+		pq += "?" + u.RawQuery
+	}
+	ts := strconv.FormatInt(c.now().Unix(), 10)
+	nonce := NewNonce()
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	req.Header.Set("User-Agent", "agentbus/"+c.Version+" ("+runtime.GOOS+"/"+runtime.GOARCH+")")
+	req.Header.Set("X-Agentbus-Version", c.Version)
+	req.Header.Set("X-Agentbus-Member", c.MemberID)
+	req.Header.Set("X-Agentbus-Timestamp", ts)
+	req.Header.Set("X-Agentbus-Nonce", nonce)
+	if c.Key != nil {
+		req.Header.Set("X-Agentbus-Signature", Sign(c.Key, method, pq, ts, nonce, body))
+	}
+	resp, err := c.httpClient().Do(req)
+	if err != nil {
+		return fmt.Errorf("hub unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 12<<20))
+	if err != nil {
+		return fmt.Errorf("hub: reading reply: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		ae := &APIError{Status: resp.StatusCode}
+		var env struct {
+			Error struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if json.Unmarshal(data, &env) == nil {
+			ae.Code, ae.Message = env.Error.Code, env.Error.Message
+		}
+		if ae.Message == "" && ae.Code == "" {
+			ae.Message = strings.TrimSpace(string(data))
+			if len(ae.Message) > 200 {
+				ae.Message = ae.Message[:200]
+			}
+		}
+		return ae
+	}
+	return read(data)
+}
