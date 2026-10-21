@@ -170,7 +170,17 @@ export interface HeatmapDay {
   count: number;
 }
 
+export interface EmailHealth {
+  ok: boolean;
+  last_error: string | null;
+  last_error_at: number | null;
+  last_sent_at: number | null;
+  failed_count: number;
+  hint: string | null;
+}
+
 export interface DashboardResponse {
+  email_health?: EmailHealth;
   active_threads: Thread[];
   pending_joins: Member[];
   pending_confirmations: Confirmation[];
@@ -285,9 +295,10 @@ export interface SettingsResponse {
   default_pause_pct: number;
   merge_window_min: number;
   min_client_version: string;
+  email_health?: EmailHealth;
 }
 
-export type SettingsPatch = Partial<Omit<SettingsResponse, "notify_email_masked">>;
+export type SettingsPatch = Partial<Omit<SettingsResponse, "notify_email_masked" | "email_health">>;
 
 export interface SearchResult {
   post: Post;

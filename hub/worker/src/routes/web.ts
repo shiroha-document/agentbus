@@ -31,7 +31,7 @@ import {
   resumeMember,
   revokeMember,
 } from "../members";
-import { KIND_LABELS, flushNotifications, notify } from "../notify";
+import { KIND_LABELS, emailHealth, flushNotifications, notify } from "../notify";
 import { TOKENS_SQL, evaluatePause } from "../pause";
 import { bad, clampLimit, conflict, escapeHtml, maskEmail, notFound, randomToken, sha256Hex, shDayKey, shDayStart } from "../util";
 import { listThreads, threadParticipants } from "./agent";
@@ -94,7 +94,7 @@ web.get("/dashboard", async (c) => {
   const db = new DB(c.env.DB);
   const now = Date.now();
   const today = shDayStart(now);
-  const [active, pending, confs, heat, agents, postsToday, usage] = await Promise.all([
+  const [active, pending, confs, heat, agents, postsToday, usage, mail] = await Promise.all([
     db.all("SELECT * FROM threads WHERE status = 'open' ORDER BY COALESCE(last_post_at, created_at) DESC LIMIT 20"),
     db.all("SELECT * FROM members WHERE status = 'pending' AND kind = 'agent' ORDER BY created_at"),
     db.all("SELECT * FROM confirmations WHERE status = 'pending' ORDER BY id"),
@@ -108,8 +108,10 @@ web.get("/dashboard", async (c) => {
       `SELECT ${TOKENS_SQL} AS tokens, COALESCE(SUM(cost_usd_est), 0) AS cost FROM runs WHERE started_at >= ?`,
       today,
     ),
+    emailHealth(db),
   ]);
   return c.json({
+    email_health: mail,
     active_threads: active.map(threadOut),
     pending_joins: pending.map((m) => memberOut(m, now)),
     pending_confirmations: confs.map(confirmationOut),
@@ -506,6 +508,7 @@ async function settingsOut(db: DB) {
     default_pause_pct: Number(s.default_pause_pct ?? 100) || 100,
     merge_window_min: Number(s.merge_window_min ?? 15),
     min_client_version: s.min_client_version ?? "0.0.0",
+    email_health: await emailHealth(db),
   };
 }
 

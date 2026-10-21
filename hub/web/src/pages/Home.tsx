@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { motion, useReducedMotion } from "motion/react";
-import { AlertCircle, ArrowRight, Coins, MessageSquareText, Send, UserPlus, Zap } from "lucide-react";
+import { AlertCircle, ArrowRight, Coins, MailWarning, MessageSquareText, Send, UserPlus, Zap } from "lucide-react";
 import { api } from "../api";
 import { qk, useAction, useMe, useWorkspaces } from "../queries";
 import { buildHeatmap } from "../lib/heatmap";
@@ -149,9 +149,30 @@ function Banners({ data }: { data: DashboardResponse }) {
   const reject = useAction((id: string) => api.rejectMember(id), { success: "已拒绝" });
   const joins = data.pending_joins;
   const confirms = data.pending_confirmations;
-  if (joins.length === 0 && confirms.length === 0) return null;
+  const mail = data.email_health && !data.email_health.ok ? data.email_health : null;
+  if (joins.length === 0 && confirms.length === 0 && !mail) return null;
   return (
     <div className="flex flex-col gap-3">
+      {mail && (
+        <section className="glass-1 card flex flex-col gap-2 border-l-[3px] border-l-danger p-5" role="alert" aria-label="邮件通知发送失败">
+          <div className="flex items-center gap-2 text-callout">
+            <MailWarning size={16} className="text-danger-text" aria-hidden />
+            <span className="font-semibold">
+              邮件通知发送失败{mail.failed_count > 1 ? `（${mail.failed_count} 批未送达）` : ""}，你可能错过了提醒
+            </span>
+            <Link to="/settings" className="ml-auto inline-flex items-center gap-1 text-mint-700 hover:underline">
+              去设置 <ArrowRight size={14} aria-hidden />
+            </Link>
+          </div>
+          {mail.hint ? <p className="text-callout font-normal text-fg-2">{mail.hint}</p> : null}
+          {mail.last_error ? (
+            <p className="truncate text-caption text-fg-caption">
+              {mail.last_error_at ? formatRelative(mail.last_error_at) + " · " : ""}
+              {mail.last_error}
+            </p>
+          ) : null}
+        </section>
+      )}
       {joins.length > 0 && (
         <section className="glass-1 card flex flex-col gap-3 border-l-[3px] border-l-mint-500 p-5" aria-label="待审批的加入申请">
           <div className="flex items-center gap-2 text-callout">

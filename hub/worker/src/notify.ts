@@ -120,6 +120,7 @@ export async function flushNotifications(env: Env, opts: { force?: boolean; now?
       error,
       ...ids,
     );
+    if (error && error !== "disabled") await db.batch([db.bumpSeq()]);
   };
   for (const [kind, rows] of byKind) {
     if (kind === "email_change") {
@@ -163,6 +164,62 @@ export async function flushNotifications(env: Env, opts: { force?: boolean; now?
     }
   }
   return { sent };
+}
+
+export interface EmailHealth {
+  ok: boolean;
+  last_error: string | null;
+  last_error_at: number | null;
+  last_sent_at: number | null;
+  failed_count: number;
+  hint: string | null;
+}
+
+/** Map a send error to an actionable Chinese hint. */
+export function emailHint(error: string | null): string | null {
+  if (!error) return null;
+  if (/E_RECIPIENT_NOT_ALLOWED|not a verified/i.test(error))
+    return "收件地址还没在 Cloudflare Email Routing 里验证：去邮箱点开 Cloudflare 发来的验证邮件（Dashboard → Email Routing → Destination addresses 可重发），验证后在设置页发一封测试邮件确认。";
+  if (/notify_email not set/.test(error)) return "还没有设置通知邮箱，提醒邮件都被丢弃了。请在设置页填写通知邮箱。";
+  if (/EMAIL binding not configured|MAIL_FROM not configured/.test(error))
+    return "Worker 没有配置邮件发送（send_email 绑定或 MAIL_FROM），需要检查 wrangler 配置后重新部署。";
+  if (/E_SENDER|sender/i.test(error)) return "发件地址不可用：MAIL_FROM 的域名需要在 Cloudflare 启用 Email Routing。";
+  if (/rate|limit|quota/i.test(error)) return "邮件发送被限流，稍后会继续；如持续出现请检查 Cloudflare 邮件额度。";
+  return "邮件发送失败。可在设置页点「发送测试邮件」重试并查看具体错误。";
+}
+
+/**
+ * Health of the notify_email channel. Unhealthy when the latest failure is newer
+ * than the latest success. `email_change` (goes to a different address, errors
+ * are shown inline) and kinds disabled by the user are ignored.
+ */
+export async function emailHealth(db: DB): Promise<EmailHealth> {
+  const [err, ok] = await Promise.all([
+    db.first<{ error: string; sent_at: number }>(
+      "SELECT error, sent_at FROM notifications WHERE sent_at IS NOT NULL AND error IS NOT NULL AND error <> 'disabled' AND kind <> 'email_change' ORDER BY sent_at DESC LIMIT 1",
+    ),
+    db.first<{ t: number | null }>(
+      "SELECT MAX(sent_at) AS t FROM notifications WHERE sent_at IS NOT NULL AND error IS NULL AND kind <> 'email_change'",
+    ),
+  ]);
+  const lastSent = ok?.t ?? null;
+  const healthy = !err || (lastSent !== null && lastSent >= err.sent_at);
+  let failed = 0;
+  if (!healthy) {
+    const r = await db.first<{ n: number }>(
+      "SELECT COUNT(*) AS n FROM notifications WHERE sent_at > ? AND error IS NOT NULL AND error <> 'disabled' AND kind <> 'email_change'",
+      lastSent ?? 0,
+    );
+    failed = Number(r?.n ?? 0);
+  }
+  return {
+    ok: healthy,
+    last_error: err?.error ?? null,
+    last_error_at: err?.sent_at ?? null,
+    last_sent_at: lastSent,
+    failed_count: failed,
+    hint: healthy ? null : emailHint(err!.error),
+  };
 }
 
 export function errText(e: unknown): string {

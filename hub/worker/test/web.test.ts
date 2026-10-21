@@ -227,3 +227,47 @@ describe("watchdog", () => {
     expect(Object.keys(e2)).toEqual(["triggers"]);
   });
 });
+
+describe("email health", () => {
+  it("flags failed deliveries with a hint and clears after a success", async () => {
+    const env = makeEnv();
+    env.d1.x("INSERT INTO settings (key, value) VALUES ('notify_email', 'me@example.org')");
+    let s = await api(env, "GET", "/settings");
+    expect(s.json.email_health.ok).toBe(true);
+
+    await makeAgent(env, "alice");
+    env.failMail = true;
+    (env.EMAIL as unknown as { send: (m: unknown) => Promise<unknown> }).send = async () => {
+      throw Object.assign(new Error("destination address is not a verified address"), { code: "E_RECIPIENT_NOT_ALLOWED" });
+    };
+    const now = Date.now();
+    await flushNotifications(env, { now });
+    s = await api(env, "GET", "/settings");
+    expect(s.json.email_health.ok).toBe(false);
+    expect(s.json.email_health.failed_count).toBe(1);
+    expect(s.json.email_health.last_error).toMatch(/E_RECIPIENT_NOT_ALLOWED/);
+    expect(s.json.email_health.hint).toMatch(/Email Routing/);
+    const d = await api(env, "GET", "/dashboard");
+    expect(d.json.email_health.ok).toBe(false);
+
+    const sent: string[] = [];
+    (env.EMAIL as unknown as { send: (m: { to: string }) => Promise<unknown> }).send = async (m) => {
+      sent.push(m.to);
+      return { messageId: "y" };
+    };
+    expect((await api(env, "POST", "/notify/test", {})).status).toBe(200);
+    expect(sent).toHaveLength(1);
+    s = await api(env, "GET", "/settings");
+    expect(s.json.email_health.ok).toBe(true);
+    expect(s.json.email_health.hint).toBeNull();
+  });
+
+  it("disabled kinds and missing address are not confused", async () => {
+    const env = makeEnv();
+    await makeAgent(env, "alice");
+    await flushNotifications(env);
+    const s = await api(env, "GET", "/settings");
+    expect(s.json.email_health.ok).toBe(false);
+    expect(s.json.email_health.hint).toMatch(/通知邮箱/);
+  });
+});

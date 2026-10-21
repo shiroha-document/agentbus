@@ -1,12 +1,12 @@
 import { useState, type FormEvent } from "react";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { CheckCircle2, Mail, PauseOctagon, Send, SlidersHorizontal, Bell, ScrollText, X } from "lucide-react";
+import { CheckCircle2, Mail, MailWarning, PauseOctagon, Send, SlidersHorizontal, Bell, ScrollText, X } from "lucide-react";
 import { api } from "../api";
 import { qk, useAction, useSettings } from "../queries";
 import { formatDateTime } from "../lib/format";
 import { NOTIFY_KIND_LABEL, NOTIFY_KIND_ORDER } from "../lib/util";
-import type { SettingsPatch, SettingsResponse } from "../types";
+import type { EmailHealth, SettingsPatch, SettingsResponse } from "../types";
 import { Switch } from "../components/ui/Switch";
 import { EmptyState } from "../components/ui/EmptyState";
 import { QueryError } from "../components/layout/RouteStates";
@@ -14,7 +14,32 @@ import { useMemberMap } from "../components/threads";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-function EmailSection({ masked }: { masked: string | null }) {
+function EmailHealthNotice({ h }: { h?: EmailHealth }) {
+  if (!h) return null;
+  if (h.ok) {
+    return h.last_sent_at ? (
+      <p className="mb-4 flex items-center gap-1.5 text-caption text-fg-caption">
+        <CheckCircle2 size={14} className="text-mint-700" aria-hidden /> 最近一次成功发送：{formatDateTime(h.last_sent_at)}
+      </p>
+    ) : null;
+  }
+  return (
+    <div className="mb-4 flex flex-col gap-1.5 rounded-[12px] border-l-[3px] border-l-danger bg-danger/10 px-3 py-2" role="alert">
+      <div className="flex items-center gap-1.5 text-callout font-semibold text-danger-text">
+        <MailWarning size={16} aria-hidden /> 邮件通知发送失败
+        {h.failed_count > 1 ? <span className="font-normal">（{h.failed_count} 批未送达）</span> : null}
+      </div>
+      {h.hint ? <p className="text-callout font-normal text-fg-2">{h.hint}</p> : null}
+      <p className="break-all text-caption text-fg-caption">
+        {h.last_error_at ? formatDateTime(h.last_error_at) + " · " : ""}
+        {h.last_error}
+        {h.last_sent_at ? ` · 上次成功：${formatDateTime(h.last_sent_at)}` : ""}
+      </p>
+    </div>
+  );
+}
+
+function EmailSection({ masked, health }: { masked: string | null; health?: EmailHealth }) {
   const [email, setEmail] = useState("");
   const [sentTo, setSentTo] = useState<string | null>(null);
   const change = useAction((e: string) => api.changeEmail(e), { invalidate: [qk.settings] });
@@ -38,6 +63,7 @@ function EmailSection({ masked }: { masked: string | null }) {
       <p className="mb-4 text-callout font-normal text-fg-2">
         当前：<span className="tabular font-medium text-fg">{masked ?? "未设置"}</span>
       </p>
+      <EmailHealthNotice h={health} />
       <form onSubmit={submit} className="flex flex-col gap-2 sm:flex-row">
         <input
           type="email"
@@ -65,7 +91,9 @@ function EmailSection({ masked }: { masked: string | null }) {
 
 function NotifySection({ s }: { s: SettingsResponse }) {
   const save = useAction((body: SettingsPatch) => api.updateSettings(body), { invalidate: [qk.settings] });
+  const qc = useQueryClient();
   const test = useAction(() => api.testNotify(), { success: "测试邮件已发送" });
+  const runTest = () => test.mutate(undefined, { onSettled: () => void qc.invalidateQueries() });
   const pendingKinds = save.isPending ? save.variables?.notify_kinds : undefined;
   const kinds = { ...s.notify_kinds, ...pendingKinds };
   return (
@@ -74,7 +102,7 @@ function NotifySection({ s }: { s: SettingsResponse }) {
         <h2 id="s-notify" className="flex items-center gap-2 text-title-2">
           <Bell size={20} className="text-mint-700" aria-hidden /> 通知种类
         </h2>
-        <button className="btn btn-secondary ml-auto" disabled={test.isPending || !s.notify_email_masked} onClick={() => test.mutate(undefined)}>
+        <button className="btn btn-secondary ml-auto" disabled={test.isPending || !s.notify_email_masked} onClick={runTest}>
           <Send size={16} aria-hidden /> {test.isPending ? "发送中…" : "发送测试邮件"}
         </button>
       </div>
@@ -322,7 +350,7 @@ export function SettingsPage() {
         <QueryError error={q.error} onRetry={() => void q.refetch()} />
       ) : (
         <>
-          <EmailSection masked={q.data.notify_email_masked} />
+          <EmailSection masked={q.data.notify_email_masked} health={q.data.email_health} />
           <RuntimeSection
             key={`${q.data.default_pause_pct}|${q.data.merge_window_min}|${q.data.min_client_version}`}
             s={q.data}
