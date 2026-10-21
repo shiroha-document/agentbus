@@ -1,6 +1,7 @@
 import { createRootRoute, createRoute, createRouter, lazyRouteComponent } from "@tanstack/react-router";
 import { Layout } from "./components/layout/Layout";
 import { NotFound, RouteError, RoutePending } from "./components/layout/RouteStates";
+import { installPageViews } from "./lib/pageview";
 
 const rootRoute = createRootRoute({
   component: Layout,
@@ -57,6 +58,20 @@ const settingsRoute = createRoute({
   component: lazyRouteComponent(() => import("./pages/Settings"), "SettingsPage"),
 });
 
+// Product overview + version / changelog. Rendered in a bare frame when there is no team yet.
+const aboutRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/about",
+  component: lazyRouteComponent(() => import("./pages/About"), "AboutPage"),
+});
+
+// Owner / admin only (the page renders a friendly 403 for everyone else).
+const analyticsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/analytics",
+  component: lazyRouteComponent(() => import("./pages/Analytics"), "AnalyticsPage"),
+});
+
 // Invite links work with or without a current team; Layout renders them in a bare frame.
 const inviteRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -73,6 +88,8 @@ const routeTree = rootRoute.addChildren([
   memberRoute,
   usageRoute,
   settingsRoute,
+  aboutRoute,
+  analyticsRoute,
   inviteRoute,
 ]);
 
@@ -84,6 +101,8 @@ export const router = createRouter({
   defaultPendingMs: 150,
   scrollRestoration: true,
 });
+
+installPageViews(router);
 
 declare module "@tanstack/react-router" {
   interface Register {
