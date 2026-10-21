@@ -139,3 +139,74 @@ func TestCursorFallbackBinary(t *testing.T) {
 		t.Fatal(err, s.Path)
 	}
 }
+
+func TestTraeParse(t *testing.T) {
+	r := traecli{}.Parse(read(t, "traecli_ok.jsonl"))
+	want := Usage{Input: 1000 + 1000, CacheRead: 4000, Output: 200 + 50, Reasoning: 100}
+	got := r.Usage
+	got.Model = nil
+	if !r.Known || r.IsError || !reflect.DeepEqual(got, want) || r.Text != "Done: posted progress." ||
+		r.Usage.Model == nil || *r.Usage.Model != "doubao-seed-code" {
+		t.Fatalf("%+v %+v", r, got)
+	}
+	a := traecli{}.Parse(read(t, "traecli_alt.jsonl"))
+	if !a.Known || a.Text != "Hello\nworld" || a.Usage.Input != 500 || a.Usage.CacheRead != 300 || a.Usage.Output != 40 ||
+		a.Usage.Model == nil || *a.Usage.Model != "gpt-5" {
+		t.Fatalf("%+v", a)
+	}
+	f := traecli{}.Parse(read(t, "traecli_failed.jsonl"))
+	if !f.IsError || f.Known || f.Err != "authentication required" {
+		t.Fatalf("%+v", f)
+	}
+	p := traecli{}.Parse([]byte("plain answer\n"))
+	if p.IsError || p.Text != "plain answer" {
+		t.Fatalf("%+v", p)
+	}
+	if e := (traecli{}).Parse(nil); !e.IsError {
+		t.Fatalf("%+v", e)
+	}
+}
+
+func TestDshParse(t *testing.T) {
+	r := dsh{}.Parse(read(t, "dsh_ok.txt"))
+	if r.Known || r.IsError || r.Text != "Refactored the parser and pushed branch fix/parser." {
+		t.Fatalf("%+v", r)
+	}
+}
+
+func TestBuildV06(t *testing.T) {
+	for _, c := range []struct{ tier, mode string }{{TierReadonly, "read-only"}, {"", "workspace-write"}, {TierFull, "danger-full-access"}} {
+		s, err := dsh{}.Build("PROMPT", Options{LookPath: fakeLook, Tier: c.tier})
+		if err != nil || s.Path != "/bin/dsh" || !reflect.DeepEqual(s.Args, []string{"--profile", "headless", "PROMPT"}) ||
+			!reflect.DeepEqual(s.Env, []string{"DSH_PERMISSION_MODE=" + c.mode}) || s.Stdin != "" {
+			t.Errorf("dsh %s: %v %+v", c.tier, err, s)
+		}
+	}
+	s, err := traecli{}.Build("PROMPT", Options{LookPath: fakeLook, Tier: TierFull})
+	if err != nil || s.Path != "/bin/traecli" || !reflect.DeepEqual(s.Args, []string{"exec", "--json", "PROMPT"}) || s.Stdin != "" {
+		t.Fatalf("traecli: %v %+v", err, s)
+	}
+	// long prompts go through the prompt file
+	long := strings.Repeat("x", 9000)
+	s, _ = traecli{}.Build(long, Options{LookPath: fakeLook, PromptFile: "/tmp/p.md"})
+	if !strings.Contains(s.Args[2], "/tmp/p.md") {
+		t.Fatal(s.Args)
+	}
+	look := func(n string) (string, error) {
+		if n == "trae-cli" {
+			return "/x/trae-cli", nil
+		}
+		return "", os.ErrNotExist
+	}
+	if s, err := (traecli{}).Build("p", Options{LookPath: look}); err != nil || s.Path != "/x/trae-cli" {
+		t.Fatal(err, s.Path)
+	}
+	for _, n := range []string{"traecli", "dsh"} {
+		if _, err := Get(n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if Label("traecli") != "TRAE CLI" || Label("dsh") != "DeepSeek Harness" {
+		t.Fatal("labels")
+	}
+}

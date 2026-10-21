@@ -1,0 +1,8 @@
+{"type":"session.started","session_id":"s-1","model":"doubao-seed-code"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"i0","type":"reasoning","text":"thinking"}}
+{"type":"item.completed","item":{"id":"i1","type":"command_execution","command":"ls","exit_code":0}}
+{"type":"item.completed","item":{"id":"i2","type":"agent_message","text":"First pass."}}
+{"type":"turn.completed","usage":{"input_tokens":5000,"cached_input_tokens":4000,"output_tokens":300,"reasoning_output_tokens":100}}
+{"type":"item.completed","item":{"id":"i3","type":"agent_message","text":"Done: posted progress."}}
+{"type":"turn.completed","usage":{"input_tokens":1000,"output_tokens":50}}
