@@ -1,5 +1,9 @@
 // Multi-team isolation (hub-api.md §0.1 / §3 / §6 / §7).
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { E2E_EMAIL } from "../src/auth";
+import { checkFlood } from "../src/core";
 import { flushNotifications } from "../src/notify";
 import { callTriggers, checkUnresponsive, setTriggerFetch } from "../src/watchdog";
 import { newId } from "../src/util";
@@ -7,6 +11,7 @@ import {
   ADMIN_EMAIL,
   Agent,
   FakeD1,
+  MIGRATIONS,
   api,
   makeAgent,
   makeEnv,
@@ -220,6 +225,126 @@ describe("team isolation: writes", () => {
   });
 });
 
+// Regressions from the isolation audit: rows that reference another team's ids
+// (crafted directly in the DB, or sent by a client) must never pull that team's data in.
+describe("isolation audit regressions", () => {
+  /** A post row in team A that (wrongly) points at B's thread / is written by B's agent. */
+  const crossPost = (env: TestEnv, o: { team: string; thread: string; author: string; body: string; idem?: string; at?: number }) => {
+    const id = newId("p");
+    env.d1.x(
+      "INSERT INTO posts (id, team_id, thread_id, author_id, kind, body, idempotency_key, created_at) VALUES (?, ?, ?, ?, 'message', ?, ?, ?)",
+      id, o.team, o.thread, o.author, o.body, o.idem ?? null, o.at ?? Date.now(),
+    );
+    return id;
+  };
+
+  it("POST /agent/runs drops another team's thread_id", async () => {
+    const { env, A, B } = await twoTeams();
+    const id = newId("r");
+    const r = await A.alice.call("POST", "/runs", {
+      runs: [{ id, thread_id: B.thread, started_at: Date.now() - 500, ended_at: Date.now(), input: 1, output: 1 }],
+    });
+    expect(r.status).toBe(200);
+    expect(env.d1.one("SELECT team_id, thread_id FROM runs WHERE id = ?", id)).toEqual({ team_id: A.id, thread_id: null });
+    const own = newId("r");
+    await A.alice.call("POST", "/runs", { runs: [{ id: own, thread_id: A.thread, started_at: Date.now() - 500, ended_at: Date.now() }] });
+    expect(env.d1.one("SELECT thread_id FROM runs WHERE id = ?", own)).toEqual({ thread_id: A.thread });
+    expect(JSON.stringify((await api(env, "GET", "/usage?group=thread")).json)).not.toContain("zebra");
+  });
+
+  it("/feed and /search never resolve another team's thread from a post row", async () => {
+    const { env, A, B, bSecrets } = await twoTeams();
+    crossPost(env, { team: A.id, thread: B.thread, author: A.alice.id, body: "alpha needle" });
+    const feed = await api(env, "GET", "/feed");
+    expect(feed.status).toBe(200);
+    expectNoLeak("feed", feed.json, bSecrets.filter((s) => s !== B.thread));
+    const search = await api(env, "GET", "/search?q=needle");
+    expect(search.json.results).toEqual([]);
+    // The thread view only lists that thread's own-team posts.
+    expect((await api(env, "GET", `/threads/${A.thread}`)).json.posts.every((p: { thread_id: string }) => p.thread_id === A.thread)).toBe(true);
+  });
+
+  it("flood check ignores authors from another team", async () => {
+    const { env, A, B } = await twoTeams();
+    const t0 = Date.now() - 30 * 60_000;
+    for (let i = 0; i < 30; i++)
+      crossPost(env, { team: A.id, thread: A.thread, author: i % 2 ? A.alice.id : B.alice.id, body: `ping ${i}`, at: t0 + i * 1000 });
+    expect(await checkFlood(env, A.id, A.thread)).toBe(false);
+    expect(env.d1.one("SELECT auto_paused FROM threads WHERE id = ?", A.thread)).toEqual({ auto_paused: 0 });
+    // Same pattern between two agents of A does trip it (sanity).
+    for (let i = 0; i < 30; i++)
+      crossPost(env, { team: A.id, thread: A.thread, author: i % 2 ? A.alice.id : A.bob.id, body: `pong ${i}`, at: t0 + 60_000 + i * 1000 });
+    expect(await checkFlood(env, A.id, A.thread)).toBe(true);
+  });
+
+  it("idempotency replays are looked up in the author's team only", async () => {
+    const { env, A, B } = await twoTeams();
+    // Normal replay inside the team returns the original post.
+    const first = await A.alice.call("POST", "/posts", { thread_id: A.thread, body: "fresh", idempotency_key: "k-own" });
+    const again = await A.alice.call("POST", "/posts", { thread_id: A.thread, body: "fresh", idempotency_key: "k-own" });
+    expect(again.json.post.id).toBe(first.json.post.id);
+    // A (corrupt) row in B with the same author+key is never returned. Member ids are per team, so
+    // the UNIQUE (author_id, idempotency_key) index makes this unreachable in practice.
+    const foreign = crossPost(env, { team: B.id, thread: B.thread, author: A.alice.id, body: "zebra secret", idem: "k-x" });
+    const r = await A.alice.call("POST", "/posts", { thread_id: A.thread, body: "other", idempotency_key: "k-x" });
+    expect(JSON.stringify(r.json)).not.toContain(foreign);
+    expect(JSON.stringify(r.json)).not.toContain("zebra");
+  });
+
+  it("deciding a confirmation names the requester from the same team", async () => {
+    const { env, A } = await twoTeams();
+    const r = await api(env, "POST", `/confirmations/${A.conf}`, { decision: "approve", note: "ok" });
+    expect(r.status).toBe(200);
+    expect(env.d1.one("SELECT status, team_id FROM confirmations WHERE id = ?", A.conf)).toEqual({ status: "approved", team_id: A.id });
+  });
+
+  it("deleting a revoked member removes its reactions too", async () => {
+    const env = makeEnv();
+    const ws = await workspace(env);
+    const alice = await makeAgent(env, "alice");
+    const p = (await alice.post({ workspace_id: ws, title: "t", body: "x" })).json.post.id as string;
+    const bobId = await joinByInvite(env, (m, q, b) => api(env, m, q, b), "bob-human@example.com");
+    expect((await api(env, "POST", `/posts/${p}/reactions`, { emoji: "👍" }, { email: "bob-human@example.com" })).status).toBe(200);
+    expect((await api(env, "POST", `/members/${bobId}/revoke`, {})).status).toBe(200);
+    expect((await api(env, "DELETE", `/members/${bobId}`)).status).toBe(200);
+    expect(env.d1.q("SELECT * FROM reactions WHERE member_id = ?", bobId)).toHaveLength(0);
+    expect(env.d1.q("SELECT * FROM members WHERE id = ?", bobId)).toHaveLength(0);
+  });
+
+  it("PATCH /me (profile, avatar) changes only the current team's row of a multi-team human", async () => {
+    const env = makeEnv();
+    const tb = makeTeam(env);
+    const myB = await joinByInvite(env, tb.api, ADMIN_EMAIL);
+    const r = await api(env, "PATCH", "/me", { display_name: "甲队的我", avatar_url: "https://example.com/a.png" }, { team: env.teamId });
+    expect(r.status).toBe(200);
+    expect(env.d1.one("SELECT display_name, avatar_url FROM members WHERE id = ?", env.team.ownerId)).toEqual({
+      display_name: "甲队的我",
+      avatar_url: "https://example.com/a.png",
+    });
+    expect(env.d1.one<{ display_name: string; avatar_url: string | null }>("SELECT display_name, avatar_url FROM members WHERE id = ?", myB)).toMatchObject({
+      avatar_url: null,
+    });
+    expect(env.d1.one<{ display_name: string }>("SELECT display_name FROM members WHERE id = ?", myB)!.display_name).not.toBe("甲队的我");
+  });
+
+  it("an email-change token applies to the team it was requested in", async () => {
+    const env = makeEnv();
+    const tb = makeTeam(env);
+    await joinByInvite(env, tb.api, ADMIN_EMAIL);
+    setTeamSetting(env, env.teamId, "notify_email", "a-notify@example.com");
+    // Requested while acting in B …
+    expect((await api(env, "POST", "/settings/email", { email: "b-new@example.com" }, { team: tb.team.id })).status).toBe(200);
+    const token = env.sent.at(-1)!.text.match(/token=([A-Za-z0-9_%-]+)/)![1];
+    // … confirmed while the browser has A selected: B changes, A doesn't.
+    const ok = await api(env, "GET", `/settings/email/confirm?token=${token}`, undefined, { team: env.teamId });
+    expect(ok.res.headers.get("location")).toBe(`/settings?email=ok&team=${tb.team.id}`);
+    const val = (t: string) => env.d1.one<{ value: string }>("SELECT value FROM team_settings WHERE team_id = ? AND key = 'notify_email'", t)?.value;
+    expect(val(tb.team.id)).toBe("b-new@example.com");
+    expect(val(env.teamId)).toBe("a-notify@example.com");
+    expect(env.d1.q("SELECT * FROM audit_log WHERE action = 'settings.email_changed' AND team_id = ?", env.teamId)).toHaveLength(0);
+  });
+});
+
 // ---------------------------------------------------------------- join codes
 
 describe("join codes", () => {
@@ -254,7 +379,7 @@ describe("join codes", () => {
     expect((await api(env, "DELETE", `/join-codes/${c.json.code.id}`)).json.code.revoked_at).toBeGreaterThan(0);
     await expect(makeAgent(env, "late", { join: { join_code: c.json.secret } })).rejects.toThrow(/403.*bad_join_code/);
 
-    env.d1.x("UPDATE join_codes SET expires_at = ? WHERE code_hash <> ''", Date.now() - 1);
+    env.d1.x("UPDATE join_codes SET expires_at = ? WHERE code_hash <> ''", Date.now() - 60_000);
     await expect(makeAgent(env, "expired")).rejects.toThrow(/403.*bad_join_code/);
     expect(env.d1.q("SELECT * FROM members WHERE name IN ('nocode', 'wrong', 'junk', 'late', 'expired')")).toHaveLength(0);
   });
@@ -731,5 +856,156 @@ describe("0002 migration of legacy single-tenant data", () => {
     expect(d1.q("SELECT * FROM teams")).toHaveLength(0);
     expect(d1.q("SELECT * FROM team_settings")).toHaveLength(0);
     expect(d1.one("SELECT team_id FROM members WHERE id = 'm_a'")).toEqual({ team_id: null });
+  });
+
+  const LEGACY = "o_0000000000000000000000000l";
+  const teamSettings = (d1: FakeD1, team: string) =>
+    Object.fromEntries(d1.q<{ key: string; value: string }>("SELECT key, value FROM team_settings WHERE team_id = ?", team).map((r) => [r.key, r.value]));
+  const indexes = (d1: FakeD1) =>
+    d1.q<{ name: string; tbl_name: string }>("SELECT name, tbl_name FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite_autoindex%' ORDER BY name");
+
+  it("the migration file avoids D1-unsafe statements", () => {
+    const sql = readFileSync(join(MIGRATIONS, "0002_teams.sql"), "utf8").replace(/--.*$/gm, "");
+    expect(sql).not.toMatch(/PRAGMA\s+foreign_keys/i);
+    expect(sql).not.toMatch(/\bTEMP(ORARY)?\b/i);
+    expect(sql).not.toMatch(/\bVIRTUAL\b/i);
+    expect(sql).not.toMatch(/\b(BEGIN|COMMIT)\b/i);
+  });
+
+  it("applies cleanly to an empty database", () => {
+    const d1 = new FakeD1(); // 0001 + 0002 on nothing
+    expect(d1.q("SELECT * FROM teams")).toEqual([]);
+    expect(d1.q("SELECT * FROM team_settings")).toEqual([]);
+    expect(d1.q("SELECT id, team_id FROM members")).toEqual([{ id: "m_system", team_id: null }]);
+    expect(d1.q("SELECT key, value FROM settings")).toEqual([{ key: "min_client_version", value: "0.5.0" }]);
+    expect(d1.q("PRAGMA integrity_check")).toEqual([{ integrity_check: "ok" }]);
+    // Every pre-0002 index still exists (members had none; its UNIQUEs became per-team) plus the team indexes.
+    const names = indexes(d1).map((i) => i.name);
+    for (const n of [
+      "threads_ws", "threads_lease", "posts_thread", "posts_created", "deliveries_member", "deliveries_state", "confirmations_status",
+      "runs_member", "runs_started", "notifications_unsent", "notifications_dedupe",
+      "members_team", "members_email", "workspaces_team", "threads_team", "posts_team", "deliveries_team", "confirmations_team",
+      "runs_team", "audit_team", "join_codes_team", "invites_team",
+    ]) expect(names, n).toContain(n);
+    const before = new FakeD1({ upTo: "0001" });
+    for (const i of indexes(before)) expect(names, i.name).toContain(i.name);
+    // Per-team uniqueness on the rebuilt members table.
+    d1.x("INSERT INTO members (id, team_id, kind, role, name, display_name, status, created_at) VALUES ('m_1', 'o_a', 'agent', 'agent', 'x', 'x', 'active', 1)");
+    d1.x("INSERT INTO members (id, team_id, kind, role, name, display_name, status, created_at) VALUES ('m_2', 'o_b', 'agent', 'agent', 'x', 'x', 'active', 1)");
+    expect(() => d1.x("INSERT INTO members (id, team_id, kind, role, name, display_name, status, created_at) VALUES ('m_3', 'o_a', 'agent', 'agent', 'x', 'x', 'active', 1)")).toThrow(/UNIQUE/);
+  });
+
+  it("prod-shaped data: one human admin + m_system, no workspaces", async () => {
+    const d1 = new FakeD1({ upTo: "0001" });
+    d1.x("UPDATE settings SET value = '7' WHERE key = 'change_seq'");
+    d1.x("UPDATE settings SET value = '{\"join_request\":false}' WHERE key = 'notify_kinds'");
+    d1.x("INSERT INTO settings (key, value) VALUES ('notify_email', 'ops@example.com')");
+    d1.x("INSERT INTO members (id, kind, role, name, display_name, email, status, created_at) VALUES ('m_admin', 'human', 'admin', 'admin-user', 'admin', ?, 'active', 100)", ADMIN_EMAIL);
+    d1.x("INSERT INTO audit_log (actor_id, action, created_at) VALUES ('m_admin', 'settings.update', 5)");
+    d1.applyMigration("0002_teams.sql");
+
+    expect(d1.q("SELECT id, name, owner_id, change_seq, created_at FROM teams")).toEqual([
+      { id: LEGACY, name: "默认团队", owner_id: "m_admin", change_seq: 7, created_at: 100 },
+    ]);
+    expect(d1.q("SELECT id, team_id, role FROM members ORDER BY id")).toEqual([
+      { id: "m_admin", team_id: LEGACY, role: "owner" },
+      { id: "m_system", team_id: null, role: "agent" },
+    ]);
+    expect(teamSettings(d1, LEGACY)).toEqual({
+      notify_email: "ops@example.com",
+      notify_kinds: '{"join_request":false}',
+      global_pause: "0",
+      default_pause_pct: "100",
+      merge_window_min: "15",
+    });
+    expect(d1.q("SELECT key, value FROM settings")).toEqual([{ key: "min_client_version", value: "0.5.0" }]);
+    expect(d1.q("SELECT team_id FROM audit_log")).toEqual([{ team_id: LEGACY }]);
+    expect(d1.q("PRAGMA integrity_check")).toEqual([{ integrity_check: "ok" }]);
+
+    const env = makeEnv();
+    Object.assign(env, { DB: d1 as unknown as D1Database, d1 });
+    const me = await api(env, "GET", "/me");
+    expect(me.json).toMatchObject({ role: "owner", team: { id: LEGACY, name: "默认团队" } });
+    expect((await api(env, "GET", "/changes")).json.seq).toBe(7);
+    const settings = (await api(env, "GET", "/settings")).json;
+    expect(settings.notify_email_masked).toMatch(/^o.*@example\.com$/);
+    expect(settings.notify_kinds.join_request).toBe(false);
+    // A 0.4 client is now told to upgrade.
+    const old = await new Agent(env, "x", await newKey()).call("GET", "/state", undefined, { version: "0.4.9", member: "m_x" });
+    expect(old.status).toBe(426);
+  });
+
+  it("staging-shaped data: 6 members incl. the e2e identity, 2 workspaces, 2 threads, 5 posts", async () => {
+    const d1 = new FakeD1({ upTo: "0001" });
+    d1.x("UPDATE settings SET value = '311' WHERE key = 'change_seq'");
+    d1.x("INSERT INTO settings (key, value) VALUES ('notify_email', 'staging-notify@example.com')");
+    const key = await newKey();
+    const ins = (id: string, kind: string, role: string, name: string, email: string | null, status: string, at: number) =>
+      d1.x("INSERT INTO members (id, kind, role, name, display_name, email, cli, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        id, kind, role, name, name, email, kind === "agent" ? "claude" : null, status, at);
+    // The e2e service identity logged in first; it must not become the owner.
+    ins("m_e2e", "human", "admin", "e2e", E2E_EMAIL, "active", 10);
+    ins("m_admin", "human", "admin", "admin-user", ADMIN_EMAIL, "active", 20);
+    ins("m_a", "agent", "manager", "alice", null, "active", 30);
+    ins("m_b", "agent", "agent", "bob", null, "active", 31);
+    ins("m_c", "agent", "agent", "carol", null, "pending", 32);
+    ins("m_d", "agent", "agent", "dave", null, "revoked", 33);
+    d1.x("INSERT INTO member_keys (member_id, public_key, created_at) VALUES ('m_a', ?, 30)", key.publicB64);
+    d1.x("INSERT INTO manager_scopes (manager_id, workspace_id) VALUES ('m_a', 'w_1')");
+    for (const w of ["w_1", "w_2"]) d1.x("INSERT INTO workspaces (id, name, updated_at, created_at) VALUES (?, ?, 1, 1)", w, w);
+    for (const [t, w] of [["t_1", "w_1"], ["t_2", "w_2"]]) {
+      d1.x("INSERT INTO threads (id, workspace_id, title, created_by, created_at, updated_at) VALUES (?, ?, ?, 'm_a', 1, 1)", t, w, `title ${t}`);
+      d1.x("INSERT INTO thread_members (thread_id, member_id) VALUES (?, 'm_a'), (?, 'm_b')", t, t);
+    }
+    for (const [p, t, a] of [["p_1", "t_1", "m_a"], ["p_2", "t_1", "m_b"], ["p_3", "t_1", "m_a"], ["p_4", "t_2", "m_a"], ["p_5", "t_2", "m_admin"]])
+      d1.x("INSERT INTO posts (id, thread_id, author_id, body, created_at) VALUES (?, ?, ?, 'hello', 1)", p, t, a);
+    d1.x("INSERT INTO reactions (post_id, member_id, emoji) VALUES ('p_1', 'm_admin', '👍')");
+    d1.x("INSERT INTO deliveries (id, member_id, thread_id, post_id, reason, state, created_at, updated_at) VALUES ('d_1', 'm_b', 't_1', 'p_1', 'mention', 'pending', 1, 1)");
+    d1.x("INSERT INTO runs (id, member_id, thread_id, started_at, ended_at, created_at) VALUES ('r_1', 'm_a', 't_1', 1, 1, 1)");
+    d1.x("INSERT INTO notifications (id, kind, dedupe_key, payload, created_at) VALUES ('n_1', 'join_request', 'join:m_c', '{\"title\":\"x\"}', 1)");
+    const idxBefore = indexes(d1).map((i) => i.name);
+    d1.applyMigration("0002_teams.sql");
+
+    expect(d1.q("SELECT id, owner_id, change_seq FROM teams")).toEqual([{ id: LEGACY, owner_id: "m_admin", change_seq: 311 }]);
+    expect(d1.q("SELECT id, role, status FROM members WHERE kind = 'human' ORDER BY id")).toEqual([
+      { id: "m_admin", role: "owner", status: "active" },
+      { id: "m_e2e", role: "admin", status: "active" },
+    ]);
+    expect(d1.one<{ n: number }>("SELECT COUNT(*) AS n FROM members WHERE team_id = ?", LEGACY)!.n).toBe(6);
+    expect(d1.q("SELECT id, status, role FROM members WHERE kind = 'agent' ORDER BY id")).toEqual([
+      { id: "m_a", status: "active", role: "manager" },
+      { id: "m_b", status: "active", role: "agent" },
+      { id: "m_c", status: "pending", role: "agent" },
+      { id: "m_d", status: "revoked", role: "agent" },
+    ]);
+    const count = (t: string) => d1.one<{ n: number }>(`SELECT COUNT(*) AS n FROM ${t} WHERE team_id = ?`, LEGACY)!.n;
+    expect({ ws: count("workspaces"), threads: count("threads"), posts: count("posts"), deliveries: count("deliveries"), runs: count("runs"), notifications: count("notifications") })
+      .toEqual({ ws: 2, threads: 2, posts: 5, deliveries: 1, runs: 1, notifications: 1 });
+    // Member-keyed children are untouched.
+    expect(d1.q("SELECT * FROM thread_members")).toHaveLength(4);
+    expect(d1.q("SELECT * FROM reactions")).toHaveLength(1);
+    expect(d1.q("SELECT * FROM manager_scopes")).toHaveLength(1);
+    expect(teamSettings(d1, LEGACY)).toMatchObject({ notify_email: "staging-notify@example.com", notify_kinds: "{}" });
+    expect(d1.one("SELECT value FROM settings WHERE key = 'min_client_version'")).toEqual({ value: "0.5.0" });
+    expect(d1.q("SELECT * FROM settings WHERE key = 'change_seq'")).toEqual([]);
+    for (const n of idxBefore) expect(indexes(d1).map((i) => i.name), n).toContain(n);
+    expect(d1.q("PRAGMA integrity_check")).toEqual([{ integrity_check: "ok" }]);
+
+    // change_seq is per team from here on: a new team starts at 1 and activity in it leaves 默认团队 alone.
+    const env = makeEnv();
+    Object.assign(env, { DB: d1 as unknown as D1Database, d1 });
+    const created = await api(env, "POST", "/teams", { name: "e2e" });
+    expect(created.status).toBe(200);
+    const fresh = created.json.team.id as string;
+    expect(d1.one("SELECT change_seq FROM teams WHERE id = ?", fresh)).toEqual({ change_seq: 1 });
+    await api(env, "POST", "/workspaces", { name: "fresh-ws" }, { team: fresh });
+    expect(d1.one("SELECT change_seq FROM teams WHERE id = ?", LEGACY)).toEqual({ change_seq: 311 });
+    expect((await api(env, "GET", "/changes", undefined, { team: LEGACY })).json.seq).toBe(311);
+    // The legacy agent keeps working and sees only 默认团队.
+    const alice = new Agent(env, "alice", key);
+    alice.id = "m_a";
+    const st = await alice.call("GET", "/state");
+    expect(st.json.team).toEqual({ id: LEGACY, name: "默认团队" });
+    expect((await alice.call("GET", "/workspaces")).json.workspaces.map((w: { id: string }) => w.id).sort()).toEqual(["w_1", "w_2"]);
   });
 });

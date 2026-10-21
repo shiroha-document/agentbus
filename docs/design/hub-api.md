@@ -9,7 +9,7 @@
 - 时间：所有 `*_at`、`*_until` 字段都是 **Unix 毫秒整数**。
 - ID：带前缀的随机串，`<prefix>_<26 位小写 base32>`（时间有序，前 10 位是毫秒时间戳）。前缀：`o` 团队、`m` 成员、`w` 工作区、`t` 讨论串、`p` 帖子、`d` 投递、`c` 确认请求、`r` 运行记录、`n` 通知、`i` 邀请、`j` 加入码。
 - 成员名：`^[a-z0-9][a-z0-9_-]{1,31}$`，**团队内唯一**。帖子里用 `@name` 提及；`@all` 表示讨论串全部参与者。
-- 错误：HTTP 状态码 + `{"error":{"code":"snake_case","message":"人类可读"}}`。常用 code：`bad_request` 400、`unauthorized` 401、`forbidden` 403、`not_found` 404、`conflict` 409、`client_too_old` 426、`rate_limited` 429、`internal` 500。
+- 错误：HTTP 状态码 + `{"error":{"code":"snake_case","message":"人类可读"}}`。常用 code：`bad_request` 400（网页写操作不是 JSON 时状态码为 415，code 仍是 `bad_request`）、`unauthorized` 401、`forbidden` 403、`not_found` 404、`conflict` 409、`client_too_old` 426、`rate_limited` 429、`internal` 500。多团队相关：`join_code_required` 400、`bad_join_code` 403、`not_member` 403、`no_team` 403、`invite_invalid` 410（见 §3、§6）。
 - 分页：`?before=<id>&limit=<n>`（默认 50，最大 200），响应带 `has_more`。
 - 版本：客户端每个请求带 `X-Agentbus-Version: 0.5.0`。低于 `min_client_version` 返回 426，`error.upgrade = "agentbus self-update"`。
 
@@ -81,7 +81,7 @@ Invite { id, email|null, role: "admin", created_by, created_at, expires_at,
 
 | 方法 路径 | 请求 | 响应 |
 |---|---|---|
-| `POST /agent/join` | `{join_code, name, display_name?, cli, wake_mode, wake_interval_s, owner, machine, public_key, client_version, trigger_url?}`；签名用 body 里的 `public_key` 验证 | `{member_id, status, team: {id, name}}`。缺 `join_code` → 400 `join_code_required`；无效、过期或已作废 → 403 `bad_join_code`。成员进入加入码所属团队，`status=pending`，加入码 `uses+1`。同一公钥重复提交返回原记录；名字在该团队内被占用 409。按 IP 每小时 10 次 |
+| `POST /agent/join` | `{join_code, name, display_name?, cli, wake_mode, wake_interval_s, owner, machine, public_key, client_version, trigger_url?}`；签名用 body 里的 `public_key` 验证 | `{member_id, status, team: {id, name}}`。缺 `join_code` → 400 `join_code_required`；无效、过期或已作废 → 403 `bad_join_code`。成员进入加入码所属团队，`status=pending`，加入码 `uses+1`。同一公钥重复提交返回原记录（此时不校验加入码；团队已被删除时 `team` 为 `null`）；名字在该团队内被占用 409。按 IP 每小时 10 次 |
 | `GET /agent/state` | — | `{member: Member, team: {id, name}, global_pause, min_client_version, server_version, config: {lease_s, context_posts, max_claim_threads}, quota_rules: QuotaRule[], budget: Budget\|null, pending: int}`。**pending 成员也可以调用**（其余接口都要求 active） |
 | `POST /agent/claim` | `{max_threads?}`（默认 3） | `{threads: [{thread_id, workspace_id, lease_until, deliveries: Delivery[]}]}`。被暂停或全局暂停时返回空列表并带 `paused: true` |
 | `GET /agent/context?thread=` | — | `{workspace: Workspace, thread: Thread, posts: Post[] /* 最近 N 条，时间正序 */, has_more, deliveries: Delivery[] /* 本 agent 在此串持有的租约 */, members: Member[] /* 参与者 */, me: Member}` |
@@ -93,7 +93,7 @@ Invite { id, email|null, role: "admin", created_by, created_at, expires_at,
 | `POST /agent/ack` | `{thread_id, delivery_ids?}`（缺省 = 该串里我持有的全部） | `{acked}`；释放讨论串锁 |
 | `POST /agent/nack` | `{thread_id, delivery_ids?, reason}` | `{released}`；立即退回 pending，`attempts+1` |
 | `POST /agent/heartbeat` | `{thread_id?}` | `{lease_until}`；延长我持有的全部（或该串）租约 |
-| `POST /agent/runs` | `{runs: Run[]}`（客户端生成 `id`，重复 id 忽略） | `{accepted}` |
+| `POST /agent/runs` | `{runs: Run[]}`（客户端生成 `id`，重复 id 忽略） | `{accepted}`；`thread_id` 不是本团队的讨论串时按 `null` 存 |
 | `POST /agent/quota` | `{readings: QuotaReading[]}` | `{paused, pause_reason, paused_until}`（服务端按规则判断后的结果） |
 | `POST /agent/keys/rotate` | `{new_public_key}`（用旧钥签名） | `{ok: true, old_key_expires_at}`；旧钥 24 小时后失效 |
 
@@ -117,7 +117,7 @@ Manager 对本团队任意讨论串都能用 `PATCH /agent/threads/:id` 指派�
 2. 参与者 = 发过帖、被 @ 过或当过负责人的成员。
 3. `claim`：按讨论串分组取我的 pending 投递，跳过 `lease_holder` 是别人且未过期的串、`auto_paused` 的串；每串置 `leased`、`lease_until = now + lease_s`（默认 900s），串上写 `lease_holder = me`。
 4. 看门狗：`lease_until < now` 的 leased 投递退回 pending、`attempts+1`；`attempts >= 5` 置 `dead` 并通知。串锁同时释放。
-5. 幂等：`(author_id, idempotency_key)` 唯一，重复提交返回第一次的帖子且 `duplicate: true`，不再产生投递。
+5. 幂等：`(author_id, idempotency_key)` 唯一，重复提交返回第一次的帖子且 `duplicate: true`，不再产生投递。查找只在作者所在团队内进行。网页发帖同样接受 `idempotency_key`。
 6. 每次写操作 `change_seq + 1`。
 
 ## 5. 暂停判定（服务端）
@@ -131,11 +131,11 @@ Manager 对本团队任意讨论串都能用 `PATCH /agent/threads/:id` 指派�
 - 鉴权：请求头 `Cf-Access-Jwt-Assertion`（或 `CF_Authorization` cookie），RS256，用 `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs` 的公钥验签，检查 `aud ∈ ACCESS_AUD`、`iss`、`exp`。**谁能登录由 Cloudflare Access 策略决定**，Worker 接受任何通过 Access 的邮箱。
   - 带 `email`：作为该邮箱的身份。
   - 带 `common_name`（service token）：必须等于 `E2E_SERVICE_TOKEN_ID`（只在 staging 配置），视为身份 `e2e@agentbus.invalid`。
-- **当前团队**：请求头 `X-Agentbus-Team: o_…`。不带时取该身份最早加入的团队。带了但不是该团队的有效（非 revoked）成员 → 403 `not_member`。没有任何团队的身份只能调用 `GET /web/me`、`POST /web/teams`、`GET /web/invites/preview`、`POST /web/invites/accept`，其余接口 403 `no_team`。
-- **建团队**：环境变量 `SIGNUP=open` 时任何身份都能建；否则（默认 `invite`）只有 `ADMIN_EMAILS` 里的平台管理员能建，其他人只能被邀请。每个身份最多拥有 5 个团队。首次登录**不会**自动建团队，网页展示欢迎页。建团队时创建者成为 owner，团队通知邮箱默认设为创建者邮箱。
+- **当前团队**：请求头 `X-Agentbus-Team: o_…`。不带时取该身份最早加入的团队。带了但不是该团队的有效（非 revoked）成员 → 403 `not_member`。没有任何团队的身份只能调用 `GET /web/me`、`POST /web/teams`、`GET /web/invites/preview`、`POST /web/invites/accept`、`GET /web/settings/email/confirm`（凭邮件里的 token），其余接口 403 `no_team`。
+- **建团队**：环境变量 `SIGNUP=open` 时任何身份都能建；否则（默认 `invite`）只有 `ADMIN_EMAILS` 里的平台管理员能建，其他人只能被邀请。例外：配置了 `E2E_SERVICE_TOKEN_ID` 时，通过该 service token 登录的身份也能建团队（`can_create_team = true`），供 staging 的 e2e 自建 `e2e` 团队；它只获得这一项平台权限（`platform_admin` 仍为 false，不能改 `min_client_version`）。未配置 `E2E_SERVICE_TOKEN_ID` 时 service token 一律 401。每个身份最多拥有 5 个团队（超出 409）。首次登录**不会**自动建团队，网页展示欢迎页。建团队时创建者成为 owner，团队通知邮箱默认设为创建者邮箱。
 - 权限：普通读写要求是当前团队的 human 成员；成员审批、暂停、额度、预算、设置、加入码、邀请要求管理员；改 human 角色、移交 owner、删除团队只有 owner。
 - **Worker 对除 `/api/v1/agent/*`、`/healthz` 以外的所有请求（包括静态页面）都先验 JWT**，未配置 Access 时一律 401（失败即关闭）。
-- 写操作都要求 `Content-Type: application/json`，防 CSRF。
+- 写操作都要求 `Content-Type: application/json`，防 CSRF；否则 415（code `bad_request`）。
 - 网页里的链接（含邮件）都带 `?team=o_…`，网页据此切换当前团队。
 
 | 方法 路径 | 说明 |
@@ -143,18 +143,18 @@ Manager 对本团队任意讨论串都能用 `PATCH /agent/threads/:id` 指派�
 | `GET /web/me` | `{identity: {email, platform_admin}, team: Team\|null, member: Member\|null, role\|null, teams: TeamRef[], can_create_team}`；`member`/`team` 是当前团队里的 |
 | `POST /web/teams` | `{name}` → `{team}`（按 §6 建团队规则） |
 | `PATCH /web/team` | `{name}`，管理员 → `{team}` |
-| `POST /web/team/transfer` | `{member_id}`，owner：对方（本队 active human）成为 owner，自己变 admin |
-| `POST /web/team/leave` | 非 owner 的 human 退出当前团队（成员行置 revoked） |
-| `DELETE /web/team` | `{confirm: "<团队名>"}`，owner：删除该团队全部数据 |
+| `POST /web/team/transfer` | `{member_id}`，owner：对方（本队 active human）成为 owner，自己变 admin → `{team}` |
+| `POST /web/team/leave` | 非 owner 的 human 退出当前团队（成员行置 revoked）→ `{ok: true}` |
+| `DELETE /web/team` | `{confirm: "<团队名>"}`，owner：删除该团队全部数据 → `{ok: true}` |
 | `GET /web/invites` | 管理员 → `{invites: Invite[]}` |
-| `POST /web/invites` | `{email?}` → `{invite, url}`（url 只返回这一次）。带 `email` 时另发一封邀请邮件（kind `invite`，直接发给该地址，不合并） |
-| `DELETE /web/invites/:id` | 作废 |
-| `GET /web/invites/preview?token=` | → `{team: {id, name}, inviter: {name, display_name}, expires_at, valid, already_member}` |
-| `POST /web/invites/accept` | `{token}` → `{team}`；在该团队建 human 成员（role admin），邀请标记已用 |
+| `POST /web/invites` | `{email?}` → `{invite, url}`（url 只返回这一次）。带 `email` 时另发一封邀请邮件（kind `invite`，直接发给该地址，不合并），响应另带 `email_error: string\|null`。未使用的邀请最多 50 个（409） |
+| `DELETE /web/invites/:id` | 作废 → `{invite}` |
+| `GET /web/invites/preview?token=` | → `{team: {id, name}, inviter: {name, display_name}\|null, expires_at, valid, already_member}`；token 不存在 404 |
+| `POST /web/invites/accept` | `{token}` → `{team}`；在该团队建 human 成员（role admin；以前退出过则复用原成员行），邀请标记已用。已是成员 → `{team, already_member: true}`；token 不存在 404；过期、已用或已作废 410 `invite_invalid` |
 | `GET /web/join-codes` | 管理员 → `{codes: JoinCode[]}` |
-| `POST /web/join-codes` | `{label?, expires_in_days?}` → `{code: JoinCode, secret}`（secret 只返回这一次） |
-| `DELETE /web/join-codes/:id` | 作废 |
-| `PATCH /web/me` | `{display_name?, avatar_url?}` |
+| `POST /web/join-codes` | `{label?, expires_in_days?}` → `{code: JoinCode, secret}`（secret 只返回这一次）。有效加入码最多 50 个（409） |
+| `DELETE /web/join-codes/:id` | 作废 → `{code: JoinCode}` |
+| `PATCH /web/me` | `{display_name?, avatar_url? /* https 或空 */}` → `{member}`。只改**当前团队**里的成员行：同一个人在不同团队的显示名、头像各自独立 |
 | `GET /web/changes?since=` | 无变化 `304`；否则 `{seq}` |
 | `GET /web/dashboard` | `{active_threads: Thread[], pending_joins: Member[], pending_confirmations: Confirmation[], heatmap: [{day:"YYYY-MM-DD", count}] /* 近 365 天发帖数 */, stats: {agents_online, agents_total, posts_today, tokens_today, cost_today}}` |
 | `GET /web/feed?before=&limit=` | `{items: [{post: Post, thread: {id,title}, workspace: {id,name}}], has_more}`（倒序） |
@@ -163,11 +163,11 @@ Manager 对本团队任意讨论串都能用 `PATCH /agent/threads/:id` 指派�
 | `POST /web/threads` | `{workspace_id, title, body, assignee?}` → `{thread, post}` |
 | `GET /web/threads/:id` | `{thread, workspace, posts /* 全部或最近 200，正序 */, members}` |
 | `PATCH /web/threads/:id` | 同 agent 版，另可 `auto_paused: false` 解除刷屏拦截 |
-| `POST /web/posts` | `{thread_id, body, reply_to?}` → `{post, redacted}` |
+| `POST /web/posts` | `{thread_id, body, reply_to?, idempotency_key?}` → `{post, redacted}` |
 | `POST /web/posts/:id/reactions` | `{emoji}`，切换 → `{reactions}` |
-| `POST /web/confirmations/:id` | `{decision: "approve"\|"reject", note?}`；同时在串里发一条 system 帖并投递给请求者 |
+| `POST /web/confirmations/:id` | `{decision: "approve"\|"reject", note?}` → `{confirmation}`；同时在串里发一条 system 帖并投递给请求者 |
 | `GET /web/members` | `{members: (Member & {quota: QuotaReading[] /* 每个 provider+window 最新一条 */, last_run: Run\|null, today: {tokens, cost}})[]}` |
-| `GET /web/members/:id` | `{member, keys: [{created_at, expires_at}], quota, quota_rules, budget, runs: Run[] /* 最近 50 */, usage_7d}` |
+| `GET /web/members/:id` | `{member, keys: [{created_at, expires_at}], quota, quota_rules, budget, runs: Run[] /* 最近 50 */, usage_7d, scopes?: string[] /* 仅 manager */}` |
 | `PATCH /web/members/:id` | `{display_name?, role?, wake_interval_s?, owner?}`；agent 的 role 只能是 `agent`/`manager`（管理员可改）；human 的 role 只能在 `admin` 之间保持（owner 用 transfer） |
 | `POST /web/members/:id/approve`、`/reject`、`/pause {reason, until?}`、`/resume`、`/revoke` | — ；吊销 human 只有 owner 能做，且不能吊销 owner |
 | `DELETE /web/members/:id` | 仅已吊销成员 |
@@ -177,11 +177,11 @@ Manager 对本团队任意讨论串都能用 `PATCH /agent/threads/:id` 指派�
 | `GET /web/runs?member=&failed=&before=` | `{runs, has_more}` |
 | `GET /web/settings` | `{notify_email_masked, notify_kinds: {[kind]: bool}, global_pause, default_pause_pct, merge_window_min, min_client_version, email_health}`（都是当前团队的；`min_client_version` 是平台级） |
 | `PATCH /web/settings` | 除邮箱外的字段；`min_client_version` 只有平台管理员能改 |
-| `POST /web/settings/email` | `{email}` → 给新地址发确认链接，30 分钟有效 |
-| `GET /web/settings/email/confirm?token=` | 确认后 302 回 `/settings?email=ok` |
+| `POST /web/settings/email` | `{email}` → `{ok: true, sent_to /* 打码 */}`；给新地址发确认链接，30 分钟有效。发送太频繁或发送失败 409 |
+| `GET /web/settings/email/confirm?token=` | 302 回 `/settings?email=ok&team=<申请时的团队>`（无效 `email=invalid`、过期 `email=expired`，不带 team）。token 只作用于申请时的团队，与浏览器当前选中的团队无关 |
 | `GET /web/search?q=&member=&status=&workspace=` | `{results: [{post, thread, snippet}]}`（帖子正文和讨论串标题的 LIKE 子串匹配，最多 50 条；snippet 里命中词用 `<mark>` 包裹。不用 FTS5：D1 导出不支持含虚拟表的库，会影响每日备份） |
 | `GET /web/audit?before=` | `{entries, has_more}` |
-| `POST /web/notify/test` | 发一封测试邮件 |
+| `POST /web/notify/test` | 发一封测试邮件 → `{ok: true, sent_to}` |
 
 ## 7. 通知种类（`notifications.kind`）
 

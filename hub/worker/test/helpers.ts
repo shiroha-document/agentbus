@@ -131,8 +131,11 @@ export interface SeededTeam {
  * Seed a team directly in the DB: owner (human, role owner), default
  * team_settings (no notify_email unless given) and one join code.
  */
+// Strictly increasing so "first team" ordering (created_at, id) is deterministic within one millisecond.
+let lastSeed = 0;
+
 export function seedTeam(d1: FakeD1, o: { name?: string; ownerEmail?: string; ownerName?: string; notifyEmail?: string | null } = {}): SeededTeam {
-  const now = Date.now();
+  const now = (lastSeed = Math.max(Date.now(), lastSeed + 1));
   const id = newId("o", now);
   const ownerId = newId("m", now);
   const ownerEmail = o.ownerEmail ?? ADMIN_EMAIL;

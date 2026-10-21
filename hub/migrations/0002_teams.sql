@@ -95,11 +95,13 @@ ALTER TABLE audit_log ADD COLUMN team_id TEXT;
 ALTER TABLE email_changes ADD COLUMN team_id TEXT;
 
 -- Legacy data -> one team, only if a human ever logged in.
+-- Owner: the earliest active admin; real people (not the e2e service identity, *.invalid) win.
 INSERT INTO teams (id, name, owner_id, change_seq, created_at)
 SELECT 'o_0000000000000000000000000l', '默认团队',
   COALESCE(
-    (SELECT id FROM members WHERE kind = 'human' AND role = 'admin' AND status = 'active' ORDER BY created_at, id LIMIT 1),
-    (SELECT id FROM members WHERE kind = 'human' ORDER BY created_at, id LIMIT 1)),
+    (SELECT id FROM members WHERE kind = 'human' AND role = 'admin' AND status = 'active'
+      ORDER BY COALESCE(email, '') LIKE '%.invalid', created_at, id LIMIT 1),
+    (SELECT id FROM members WHERE kind = 'human' ORDER BY COALESCE(email, '') LIKE '%.invalid', created_at, id LIMIT 1)),
   COALESCE((SELECT CAST(value AS INTEGER) FROM settings WHERE key = 'change_seq'), 1),
   COALESCE((SELECT MIN(created_at) FROM members WHERE kind = 'human'), 0)
 WHERE EXISTS (SELECT 1 FROM members WHERE kind = 'human');

@@ -35,6 +35,8 @@ jobs:
           cache-dependency-path: docs-site/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+      - name: custom domain survives the build
+        run: test "$(cat .vitepress/dist/CNAME)" = docs.hub.shiroha.tech
       - if: github.event_name != 'pull_request'
         uses: actions/configure-pages@v5
       - if: github.event_name != 'pull_request'
