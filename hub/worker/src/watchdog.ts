@@ -1,6 +1,7 @@
 // Cron watchdog (hub.md §9), runs every minute.
 import type { Env } from "./env";
 import { DB } from "./db";
+import { EVENTS_RETENTION_MS } from "./analytics";
 import { createPost, deadNotice, systemFor } from "./core";
 import { decryptUrl } from "./crypto";
 import { errText, flushNotifications, notify } from "./notify";
@@ -253,4 +254,18 @@ export async function cleanup(env: Env, now: number) {
     db.stmt("DELETE FROM notifications WHERE sent_at IS NOT NULL AND sent_at < ?", now - 30 * day),
     db.stmt("DELETE FROM audit_log WHERE action = 'join.attempt' AND created_at < ?", now - day),
   ]);
+  // Analytics retention (90 days) and stale live-activity rows, at most once an hour per isolate.
+  if (now - lastEventsPrune >= 3600_000) {
+    lastEventsPrune = now;
+    await db.batch([
+      db.stmt("DELETE FROM events WHERE created_at < ?", now - EVENTS_RETENTION_MS),
+      db.stmt("DELETE FROM activity WHERE updated_at < ?", now - 7 * day),
+    ]);
+  }
+}
+
+let lastEventsPrune = 0;
+/** Test hook: forget when events were last pruned. */
+export function resetEventsPrune() {
+  lastEventsPrune = 0;
 }

@@ -2,6 +2,8 @@
 import { createHash, generateKeyPairSync, randomBytes, sign, type KeyObject } from "node:crypto";
 
 export const CLIENT_VERSION = "0.5.0";
+/** Hub version the deployed worker reports on /healthz. */
+export const SERVER_VERSION = "0.6.0";
 
 export class TestAgent {
   id = "join";

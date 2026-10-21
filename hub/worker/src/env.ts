@@ -6,6 +6,8 @@ export interface Env {
   RL?: RateLimit;
   /** Static SPA (web/dist). */
   ASSETS?: Fetcher;
+  /** Attachment storage (R2). */
+  FILES?: R2Bucket;
 
   /** Zero Trust team name ("shiroha") or full domain ("shiroha.cloudflareaccess.com"). */
   ACCESS_TEAM?: string;
@@ -45,7 +47,7 @@ export interface Me {
   service_token?: boolean;
 }
 
-export type Vars = { me: Me; body: unknown; rawBody: string };
+export type Vars = { me: Me; body: unknown; rawBody: string; rawBytes?: Uint8Array };
 export type AppEnv = { Bindings: Env; Variables: Vars };
 
-export const SERVER_VERSION = "0.5.0";
+export const SERVER_VERSION = "0.6.0";

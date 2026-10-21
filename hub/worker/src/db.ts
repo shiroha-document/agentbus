@@ -250,16 +250,32 @@ export function deliveryOut(r: Row) {
   };
 }
 
-/** Load posts with reactions and confirmations attached. */
-export async function hydratePosts(db: DB, rows: Row[]) {
+export type AttachmentOut = { id: string; name: string; mime: string; size: number; url: string };
+/** Which API the attachment URLs point at. */
+export type UrlBase = "web" | "agent";
+export const fileUrl = (base: UrlBase, id: string) => `/api/v1/${base}/files/${id}`;
+export function attachmentOut(r: Row, base: UrlBase): AttachmentOut {
+  return { id: r.id as string, name: r.name as string, mime: r.mime as string, size: Number(r.size), url: fileUrl(base, r.id as string) };
+}
+
+/** Load posts with reactions, confirmations and attachments attached. */
+export async function hydratePosts(db: DB, rows: Row[], base: UrlBase = "web") {
   if (!rows.length) return [];
   const ids = rows.map((r) => r.id as string);
-  const [reacts, confs] = await Promise.all([
+  const attIds = [...new Set(rows.flatMap((r) => parseJson<string[]>(r.attachments, [])))];
+  const [reacts, confs, atts] = await Promise.all([
     db.all<{ post_id: string; member_id: string; emoji: string }>(
       `SELECT post_id, member_id, emoji FROM reactions WHERE post_id IN (${qmarks(ids.length)}) ORDER BY rowid`,
       ...ids,
     ),
     db.all(`SELECT * FROM confirmations WHERE post_id IN (${qmarks(ids.length)})`, ...ids),
+    attIds.length
+      ? db.all(
+          `SELECT id, name, mime, size FROM attachments WHERE id IN (${qmarks(attIds.length)})${db.team ? " AND team_id = ?" : ""}`,
+          ...attIds,
+          ...(db.team ? [db.team] : []),
+        )
+      : Promise.resolve([] as Row[]),
   ]);
   const rmap = new Map<string, Map<string, string[]>>();
   for (const r of reacts) {
@@ -270,23 +286,35 @@ export async function hydratePosts(db: DB, rows: Row[]) {
     m.set(r.emoji, list);
   }
   const cmap = new Map(confs.map((c) => [c.post_id as string, confirmationOut(c)]));
-  return rows.map((r) => ({
-    id: r.id as string,
-    thread_id: r.thread_id as string,
-    author_id: r.author_id as string,
-    reply_to: (r.reply_to as string) ?? null,
-    body: r.body as string,
-    kind: r.kind as string,
-    mentions: parseJson<string[]>(r.mentions, []),
-    redacted: bool(r.redacted),
-    usage: parseJson<Record<string, unknown> | null>(r.usage_json, null),
-    reactions: [...(rmap.get(r.id as string) ?? new Map()).entries()].map(([emoji, member_ids]) => ({
-      emoji,
-      member_ids,
-    })),
-    confirmation: cmap.get(r.id as string) ?? null,
-    created_at: Number(r.created_at),
-  }));
+  const amap = new Map(atts.map((a) => [a.id as string, attachmentOut(a, base)]));
+  return rows.map((r) => {
+    const usage = parseJson<Record<string, unknown> | null>(r.usage_json, null);
+    const usageModel = usage && typeof usage.model === "string" ? usage.model : null;
+    return {
+      id: r.id as string,
+      thread_id: r.thread_id as string,
+      author_id: r.author_id as string,
+      reply_to: (r.reply_to as string) ?? null,
+      body: r.body as string,
+      kind: r.kind as string,
+      mentions: parseJson<string[]>(r.mentions, []),
+      redacted: bool(r.redacted),
+      usage,
+      model: (r.model as string) || usageModel || null,
+      cli: (r.cli as string) ?? null,
+      edited_at: num(r.edited_at),
+      revisions: Number(r.revisions ?? 0),
+      attachments: parseJson<string[]>(r.attachments, [])
+        .map((id) => amap.get(id))
+        .filter((a): a is AttachmentOut => !!a),
+      reactions: [...(rmap.get(r.id as string) ?? new Map()).entries()].map(([emoji, member_ids]) => ({
+        emoji,
+        member_ids,
+      })),
+      confirmation: cmap.get(r.id as string) ?? null,
+      created_at: Number(r.created_at),
+    };
+  });
 }
 export type PostOut = Awaited<ReturnType<typeof hydratePosts>>[number];
 

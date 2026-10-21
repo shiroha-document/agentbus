@@ -28,6 +28,7 @@
       "triggers": { "crons": ["* * * * *"] },
       "send_email": [{ "name": "EMAIL" }],
       "ratelimits": [{ "name": "RL", "namespace_id": "1102", "simple": { "limit": 60, "period": 60 } }],
+      "r2_buckets": [{ "binding": "FILES", "bucket_name": "agentbus-files-staging" }],
       "assets": {
         "directory": "../web/dist",
         "binding": "ASSETS",
@@ -57,6 +58,7 @@
       "triggers": { "crons": ["* * * * *"] },
       "send_email": [{ "name": "EMAIL" }],
       "ratelimits": [{ "name": "RL", "namespace_id": "1101", "simple": { "limit": 60, "period": 60 } }],
+      "r2_buckets": [{ "binding": "FILES", "bucket_name": "agentbus-files" }],
       "assets": {
         "directory": "../web/dist",
         "binding": "ASSETS",

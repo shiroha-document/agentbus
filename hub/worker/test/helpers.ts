@@ -99,6 +99,35 @@ export class FakeD1 {
   }
 }
 
+/** In-memory R2 bucket (put / get / delete / head). */
+export class FakeR2 {
+  readonly objects = new Map<string, { bytes: Uint8Array; contentType?: string }>();
+  async put(key: string, value: Uint8Array | ArrayBuffer | string, o: { httpMetadata?: { contentType?: string } } = {}) {
+    const bytes = typeof value === "string" ? new TextEncoder().encode(value) : new Uint8Array(value instanceof ArrayBuffer ? value : value.slice());
+    this.objects.set(key, { bytes, contentType: o.httpMetadata?.contentType });
+    return { key, size: bytes.byteLength };
+  }
+  async get(key: string) {
+    const o = this.objects.get(key);
+    if (!o) return null;
+    return {
+      key,
+      size: o.bytes.byteLength,
+      httpMetadata: { contentType: o.contentType },
+      body: new Blob([o.bytes]).stream(),
+      arrayBuffer: async () => o.bytes.slice().buffer,
+      text: async () => new TextDecoder().decode(o.bytes),
+    };
+  }
+  async head(key: string) {
+    const o = this.objects.get(key);
+    return o ? { key, size: o.bytes.byteLength, httpMetadata: { contentType: o.contentType } } : null;
+  }
+  async delete(key: string | string[]) {
+    for (const k of Array.isArray(key) ? key : [key]) this.objects.delete(k);
+  }
+}
+
 export function migrationFiles(): string[] {
   return readdirSync(MIGRATIONS)
     .filter((x) => x.endsWith(".sql"))
@@ -180,8 +209,10 @@ export function makeEnv(over: Partial<Env> = {}) {
   const sent: SentMail[] = [];
   const key = new Uint8Array(32).fill(7);
   const team = seedTeam(d1);
-  const env: Env & { sent: SentMail[]; d1: FakeD1; failMail?: boolean; team: SeededTeam; teamId: string; joinCode: string } = {
+  const r2 = new FakeR2();
+  const env: Env & { sent: SentMail[]; d1: FakeD1; r2: FakeR2; failMail?: boolean; team: SeededTeam; teamId: string; joinCode: string } = {
     DB: d1 as unknown as D1Database,
+    FILES: r2 as unknown as R2Bucket,
     EMAIL: {
       async send(m: { to: string; subject: string; text: string; html: string }) {
         if (env.failMail) throw new Error("mail down");
@@ -204,6 +235,7 @@ export function makeEnv(over: Partial<Env> = {}) {
     ...over,
     sent,
     d1,
+    r2,
     team,
     teamId: team.id,
     joinCode: team.joinCode,
@@ -234,7 +266,13 @@ export interface SignOpts {
   tamper?: boolean;
 }
 
+export interface RawBody {
+  bytes: Uint8Array;
+  headers?: Record<string, string>;
+}
+
 export async function signedRequest(key: AgentKey, member: string, method: string, path: string, body?: unknown, o: SignOpts = {}) {
+  if (body instanceof Object && (body as RawBody).bytes instanceof Uint8Array) return signedRaw(key, member, method, path, body as RawBody, o);
   const raw = body === undefined ? "" : JSON.stringify(body);
   const ts = String(o.ts ?? Math.floor(Date.now() / 1000));
   const nonce = o.nonce ?? `nonce-${Date.now()}-${++nonceN}-abcdef`;
@@ -249,6 +287,24 @@ export async function signedRequest(key: AgentKey, member: string, method: strin
   };
   if (raw) headers["content-type"] = "application/json";
   return new Request(`https://hub.test${path}`, { method, headers, body: o.tamper ? raw + " " : raw || undefined });
+}
+
+/** Signed request with a raw (non-JSON) body; the body hash covers the bytes. */
+async function signedRaw(key: AgentKey, member: string, method: string, path: string, body: RawBody, o: SignOpts) {
+  const ts = String(o.ts ?? Math.floor(Date.now() / 1000));
+  const nonce = o.nonce ?? `nonce-${Date.now()}-${++nonceN}-abcdef`;
+  const msg = signingString(method, path, ts, nonce, await sha256Hex(body.bytes));
+  const sig = new Uint8Array(await crypto.subtle.sign({ name: "Ed25519" }, key.priv, new TextEncoder().encode(msg)));
+  const headers: Record<string, string> = {
+    "x-agentbus-version": o.version ?? CLIENT_VERSION,
+    "x-agentbus-member": o.member ?? member,
+    "x-agentbus-timestamp": ts,
+    "x-agentbus-nonce": nonce,
+    "x-agentbus-signature": b64encode(sig),
+    ...body.headers,
+  };
+  const bytes = o.tamper ? new Uint8Array([...body.bytes, 32]) : body.bytes;
+  return new Request(`https://hub.test${path}`, { method, headers, body: bytes });
 }
 
 export class Agent {
@@ -371,6 +427,23 @@ export async function web(env: TestEnv, method: string, path: string, body?: unk
 
 export const api = (env: TestEnv, method: string, path: string, body?: unknown, o?: WebOpts) =>
   web(env, method, `/api/v1/web${path}`, body, o);
+
+/** Raw-body web request (uploads). Returns status/json/res; `headers` are sent as-is. */
+export async function webRaw(env: TestEnv, method: string, path: string, bytes: Uint8Array, headers: Record<string, string>, o: WebOpts = {}) {
+  const token = o.token === undefined ? (o.email ? await jwt({ email: o.email }) : await adminToken()) : o.token;
+  const h: Record<string, string> = { ...headers };
+  if (token) h["cf-access-jwt-assertion"] = token;
+  if (o.team) h["x-agentbus-team"] = o.team;
+  const res = await app.request(`https://hub.test/api/v1/web${path}`, { method, headers: h, body: bytes }, env);
+  const text = await res.text();
+  let json: any = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    json = text;
+  }
+  return { status: res.status, json, res, text };
+}
 
 /** A second team in the same env, owned by `ownerEmail`; returns helpers acting in it. */
 export function makeTeam(env: TestEnv, o: { name?: string; ownerEmail?: string; ownerName?: string; notifyEmail?: string | null } = {}) {

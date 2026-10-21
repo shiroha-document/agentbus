@@ -4,6 +4,9 @@ import { DB } from "./db";
 import { HttpError, b64decode, b64urlDecode, cmpVersion, sha256Hex, NAME_RE, RESERVED_NAMES, newId } from "./util";
 
 const MAX_BODY = 256 * 1024;
+/** Attachment uploads (raw bytes, not JSON). */
+export const MAX_UPLOAD = 10 * 1024 * 1024;
+export const UPLOAD_PATHS = new Set(["/api/v1/web/uploads", "/api/v1/agent/uploads"]);
 const SKEW_S = 300;
 const NONCE_TTL_MS = 10 * 60_000;
 const NONCE_RE = /^[A-Za-z0-9_-]{16,64}$/;
@@ -40,6 +43,37 @@ async function readBody(c: Context<AppEnv>): Promise<string> {
   if (text.length > MAX_BODY) throw new HttpError(413, "bad_request", "请求体过大");
   return text;
 }
+
+/** Raw upload body, never buffering more than MAX_UPLOAD + 1 bytes. */
+async function readUpload(c: Context<AppEnv>): Promise<Uint8Array> {
+  const tooBig = () => new HttpError(413, "too_large", `附件不能超过 ${MAX_UPLOAD / 1024 / 1024} MB`);
+  const len = Number(c.req.header("content-length") ?? 0);
+  if (len > MAX_UPLOAD) throw tooBig();
+  const stream = c.req.raw.body;
+  if (!stream) return new Uint8Array(0);
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_UPLOAD) {
+      await reader.cancel().catch(() => {});
+      throw tooBig();
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const ch of chunks) {
+    out.set(ch, off);
+    off += ch.byteLength;
+  }
+  return out;
+}
+
+const isUpload = (c: Context<AppEnv>, path: string) => c.req.method === "POST" && UPLOAD_PATHS.has(path.replace(/\/$/, ""));
 
 function parseBody(text: string): unknown {
   if (!text) return {};
@@ -78,9 +112,11 @@ export const agentAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   const now = Date.now();
   if (Math.abs(now / 1000 - Number(ts)) > SKEW_S) throw unauthorized("时间戳偏差超过 300 秒，请校准本机时间");
 
-  const raw = await readBody(c);
-  const body = parseBody(raw);
-  const msg = signingString(c.req.method, pathWithQuery, ts, nonce, await sha256Hex(raw));
+  const upload = isUpload(c, url.pathname);
+  const bytes = upload ? await readUpload(c) : null;
+  const raw = upload ? "" : await readBody(c);
+  const body = upload ? {} : parseBody(raw);
+  const msg = signingString(c.req.method, pathWithQuery, ts, nonce, await sha256Hex(bytes ?? raw));
 
   let me: Me;
   const isJoin = memberId === "join";
@@ -139,6 +175,7 @@ export const agentAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   c.set("me", me);
   c.set("rawBody", raw);
   c.set("body", body);
+  if (bytes) c.set("rawBytes", bytes);
   await next();
 };
 
@@ -361,6 +398,14 @@ export const accessAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       if (!TEAMLESS_ALLOWED.has(`${c.req.method} ${rel}`)) {
         throw new HttpError(403, "no_team", "你还没有加入任何团队：请新建团队或通过邀请链接加入");
       }
+    }
+    if (isUpload(c, path)) {
+      // Raw file body; the custom header is the CSRF guard (forms cannot set it).
+      if (c.req.header("x-agentbus-upload") !== "1") throw new HttpError(403, "forbidden", "上传请求缺少 x-agentbus-upload: 1 头");
+      c.set("rawBytes", await readUpload(c));
+      c.set("rawBody", "");
+      c.set("body", {});
+      return next();
     }
     const m = c.req.method;
     if (m !== "GET" && m !== "HEAD") {

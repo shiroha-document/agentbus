@@ -2,7 +2,7 @@
 // the hub lets that identity create teams (E2E_SERVICE_TOKEN_ID, hub-api.md §6) so the suite owns
 // a team named "e2e" and never touches anyone else's data.
 import { expect, test, type APIRequestContext } from "@playwright/test";
-import { CLIENT_VERSION, TestAgent } from "./agent";
+import { CLIENT_VERSION, SERVER_VERSION, TestAgent } from "./agent";
 
 const BASE = process.env.HUB_URL ?? "https://staging-hub.shiroha.tech";
 const TEAM_NAME = "e2e";
@@ -43,11 +43,11 @@ async function ensureTeam(req: APIRequestContext): Promise<string> {
 
 test.describe.configure({ mode: "serial" });
 
-test("healthz reports 0.5.0; unauthenticated requests are rejected", async ({ playwright }) => {
+test("healthz reports the server version; unauthenticated requests are rejected", async ({ playwright }) => {
   const anon = await playwright.request.newContext({ baseURL: BASE, extraHTTPHeaders: {} });
   const hz = await anon.get("/healthz");
   expect(hz.status()).toBe(200);
-  expect((await hz.json()).version).toBe(CLIENT_VERSION);
+  expect((await hz.json()).version).toBe(SERVER_VERSION);
   const page = await anon.get("/", { maxRedirects: 0 });
   // Access either redirects to its login page or the worker answers 401.
   expect([302, 401, 403]).toContain(page.status());

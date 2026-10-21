@@ -1,6 +1,10 @@
 // Web (admin) API — hub-api.md §6. Mounted at /api/v1/web behind accessAuth.
 import { Hono } from "hono";
 import type { AppEnv, Env } from "../env";
+import { SERVER_VERSION } from "../env";
+import { analytics, ingestEvents } from "../analytics";
+import { handleDownload, handleUpload } from "../files";
+import { receiptsSummary, threadLive } from "../live";
 import {
   DB,
   WORKSPACE_SELECT,
@@ -138,7 +142,7 @@ web.get("/feed", async (c) => {
     ? await db.all("SELECT * FROM posts WHERE team_id = ? AND id < ? ORDER BY id DESC LIMIT ?", db.team, before, limit + 1)
     : await db.all("SELECT * FROM posts WHERE team_id = ? ORDER BY id DESC LIMIT ?", db.team, limit + 1);
   const page = rows.slice(0, limit);
-  const posts = await hydratePosts(db, page);
+  const [posts, receipts] = await Promise.all([hydratePosts(db, page), receiptsSummary(db, page.map((p) => p.id as string))]);
   const tids = [...new Set(page.map((p) => p.thread_id as string))];
   const threads = tids.length
     ? await db.all<{ id: string; title: string; workspace_id: string; ws_name: string }>(
@@ -157,6 +161,7 @@ web.get("/feed", async (c) => {
         post: p,
         thread: { id: p.thread_id, title: t?.title ?? "" },
         workspace: { id: t?.workspace_id ?? "", name: t?.ws_name ?? "" },
+        ...(receipts.has(p.id) ? { receipts_summary: receipts.get(p.id) } : {}),
       };
     }),
     has_more: rows.length > limit,
@@ -194,6 +199,7 @@ web.post("/threads", async (c) => {
     title: typeof b.title === "string" ? b.title : undefined,
     assignee: str(b.assignee, 40) || null,
     body: b.body as string,
+    attachments: b.attachments,
   });
   return c.json({ thread: r.thread, post: r.post, redacted: r.redacted });
 });
@@ -202,13 +208,26 @@ web.get("/threads/:id", async (c) => {
   const db = new DB(c.env.DB, c.get("me").team_id);
   const id = c.req.param("id");
   const t = await loadThread(db, id);
-  const rows = await db.all("SELECT * FROM posts WHERE thread_id = ? AND team_id = ? ORDER BY id DESC LIMIT 200", id, db.team);
+  // Default page: newest 200; ?before=<post_id>: the 100 posts older than it. Always ascending.
+  const before = str(c.req.query("before"), 40);
+  const limit = before ? 100 : 200;
+  const rows = before
+    ? await db.all("SELECT * FROM posts WHERE thread_id = ? AND team_id = ? AND id < ? ORDER BY id DESC LIMIT ?", id, db.team, before, limit + 1)
+    : await db.all("SELECT * FROM posts WHERE thread_id = ? AND team_id = ? ORDER BY id DESC LIMIT ?", id, db.team, limit + 1);
   const [posts, ws, members] = await Promise.all([
-    hydratePosts(db, rows.reverse()),
+    hydratePosts(db, rows.slice(0, limit).reverse()),
     db.first(`${WORKSPACE_SELECT} WHERE w.id = ? AND w.team_id = ?`, t.workspace_id as string, db.team),
     threadParticipants(db, id, [t.assignee_id as string]),
   ]);
-  return c.json({ thread: threadOut(t), workspace: ws ? workspaceOut(ws) : null, posts, members });
+  return c.json({ thread: threadOut(t), workspace: ws ? workspaceOut(ws) : null, posts, members, has_more: rows.length > limit });
+});
+
+web.get("/threads/:id/live", async (c) => {
+  const db = new DB(c.env.DB, c.get("me").team_id);
+  const id = c.req.param("id");
+  await loadThread(db, id);
+  c.header("cache-control", "no-store");
+  return c.json(await threadLive(db, id));
 });
 
 web.patch("/threads/:id", async (c) => {
@@ -224,8 +243,30 @@ web.post("/posts", async (c) => {
     body: b.body as string,
     reply_to: str(b.reply_to, 40) || null,
     idempotency_key: str(b.idempotency_key, 200) || null,
+    attachments: b.attachments,
   });
   return c.json({ post: r.post, redacted: r.redacted });
+});
+
+// ---------------------------------------------------------------- attachments / events / version
+
+web.post("/uploads", (c) => handleUpload(c, "web"));
+web.get("/files/:id", (c) => handleDownload(c));
+
+web.post("/events", async (c) => {
+  const me = c.get("me");
+  return c.json({ accepted: await ingestEvents(new DB(c.env.DB, me.team_id), "web", me.id || null, body(c)) });
+});
+
+web.get("/analytics", async (c) => {
+  const me = c.get("me");
+  if (!isAdmin(me)) throw forbidden("只有团队所有者或管理员能查看统计");
+  return c.json(await analytics(new DB(c.env.DB, me.team_id), c.req.query("days") ?? 30));
+});
+
+web.get("/version", async (c) => {
+  const db = new DB(c.env.DB, c.get("me").team_id);
+  return c.json({ server_version: SERVER_VERSION, min_client_version: (await db.setting("min_client_version")) ?? "0.0.0" });
 });
 
 web.post("/posts/:id/reactions", async (c) => {

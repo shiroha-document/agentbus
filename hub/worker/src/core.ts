@@ -1,6 +1,8 @@
 // Shared domain logic: posts, inbox, thread updates, permissions.
 import type { Env, Me } from "./env";
-import { DB, hydratePosts, qmarks, threadOut, type Row, type PostOut } from "./db";
+import { DB, hydratePosts, qmarks, threadOut, type Row, type PostOut, type UrlBase } from "./db";
+import { hubEvent, logEvents } from "./analytics";
+import { checkAttachments, MAX_ATTACHMENTS } from "./files";
 import { notify } from "./notify";
 import { redact } from "./redact";
 import { HttpError, bad, conflict, forbidden, newId, notFound } from "./util";
@@ -10,6 +12,8 @@ export const DEFAULTS = { lease_s: 900, context_posts: 30, max_claim_threads: 3 
 export const MAX_BODY_CHARS = 64_000;
 export const MAX_STATE_CHARS = 32_000;
 const FLOOD_LIMIT = 10;
+/** Progress / state posts by the same author within this window are collapsed (v06-contract §2). */
+export const COLLAPSE_MS = 6 * 3600_000;
 
 export async function hubConfig(db: DB) {
   const s = await db.settings();
@@ -89,6 +93,15 @@ export interface CreatePostInput {
   extra?: Target[];
   /** Skip participant bookkeeping for system posts. */
   system?: boolean;
+  /** Model / coding CLI that produced the post (≤ 64 chars; cli defaults to the member's cli). */
+  model?: string | null;
+  cli?: string | null;
+  /** Attachment ids (uploaded by this team, not yet used). */
+  attachments?: unknown;
+  /** Attachment URL flavour in the returned post. */
+  urlBase?: UrlBase;
+  /** Internal: kind "state" post from patchThread (no deliveries / notifications). */
+  stateUpdate?: boolean;
 }
 
 export interface CreatePostResult {
@@ -96,6 +109,8 @@ export interface CreatePostResult {
   thread: ReturnType<typeof threadOut>;
   duplicate: boolean;
   redacted: string[];
+  /** True when an existing progress/state post was updated instead of inserting a new one. */
+  collapsed?: boolean;
 }
 
 function cleanUsage(u: unknown): string | null {
@@ -121,11 +136,13 @@ export async function loadThread(db: DB, id: string): Promise<Row> {
   return t;
 }
 
-export async function loadPost(db: DB, id: string): Promise<PostOut> {
+export async function loadPost(db: DB, id: string, base: UrlBase = "web"): Promise<PostOut> {
   const r = await db.first("SELECT * FROM posts WHERE id = ? AND team_id = ?", id, db.team);
   if (!r) throw notFound("帖子");
-  return (await hydratePosts(db, [r]))[0];
+  return (await hydratePosts(db, [r], base))[0];
 }
+
+const short = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim().slice(0, 64) : null);
 
 /**
  * Create a post (and optionally a new thread), redact secrets, compute
@@ -136,9 +153,13 @@ export async function createPost(env: Env, me: Me, input: CreatePostInput): Prom
   const db = teamDb(env, me);
   const team = me.team_id;
   const now = Date.now();
-  const kind = input.kind ?? "msg";
-  if (!["msg", "progress", "confirm", "system"].includes(kind)) throw bad("kind 只能是 msg / progress / confirm");
+  const kind = input.stateUpdate ? "state" : (input.kind ?? "msg");
+  if (!["msg", "progress", "confirm", "system", "state"].includes(kind) || (kind === "state" && !input.stateUpdate)) {
+    throw bad("kind 只能是 msg / progress / confirm");
+  }
   if (kind === "system" && me.id !== SYSTEM_ID) throw bad("不能手动发 system 帖");
+  const quiet = kind === "state";
+  const base = input.urlBase ?? "web";
   if (typeof input.body !== "string" || !input.body.trim()) throw bad("body 不能为空");
   if (input.body.length > MAX_BODY_CHARS) throw bad(`body 超过 ${MAX_BODY_CHARS} 个字符`);
   const idem = input.idempotency_key ? String(input.idempotency_key).slice(0, 200) : null;
@@ -147,16 +168,22 @@ export async function createPost(env: Env, me: Me, input: CreatePostInput): Prom
     const dup = await db.first("SELECT * FROM posts WHERE author_id = ? AND idempotency_key = ? AND team_id = ?", me.id, idem, team);
     if (dup) {
       const thread = threadOut(await loadThread(db, dup.thread_id as string));
-      return { post: (await hydratePosts(db, [dup]))[0], thread, duplicate: true, redacted: [] };
+      return { post: (await hydratePosts(db, [dup], base))[0], thread, duplicate: true, redacted: [] };
     }
   }
+  const model = short(input.model);
+  let cli = short(input.cli);
+  if (!cli && me.kind === "agent") {
+    cli = (await db.first<{ cli: string | null }>("SELECT cli FROM members WHERE id = ? AND team_id = ?", me.id, team))?.cli ?? null;
+  }
+  const attachments = await checkAttachments(db, me, input.attachments);
 
   const stmts: D1PreparedStatement[] = [];
   let thread: Row;
   let newThread = false;
   if (input.thread_id) {
     thread = await loadThread(db, input.thread_id);
-    if (thread.status === "closed" && me.id !== SYSTEM_ID) {
+    if (thread.status === "closed" && me.id !== SYSTEM_ID && !quiet) {
       if (me.kind !== "human") throw conflict("讨论串已关闭");
       stmts.push(db.stmt("UPDATE threads SET status = 'open' WHERE id = ?", thread.id as string));
       thread.status = "open";
@@ -223,6 +250,13 @@ export async function createPost(env: Env, me: Me, input: CreatePostInput): Prom
 
   const { text: body, kinds: redactedKinds } = redact(input.body);
 
+  if ((kind === "progress" || kind === "state") && !newThread) {
+    const last = await db.first("SELECT * FROM posts WHERE thread_id = ? AND team_id = ? ORDER BY id DESC LIMIT 1", threadId, team);
+    if (last && last.author_id === me.id && last.kind === kind && now - Number(last.created_at) < COLLAPSE_MS) {
+      return collapseInto(env, me, db, last, thread, { body, redactedKinds, usage: cleanUsage(input.usage), model, cli, attachments, base });
+    }
+  }
+
   // Mentions → member ids.
   const names = parseMentions(body);
   const mentionAll = names.includes("all");
@@ -250,6 +284,7 @@ export async function createPost(env: Env, me: Me, input: CreatePostInput): Prom
   add(replyAuthor, "reply");
   for (const e of input.extra ?? []) add(e.id, e.reason);
   targets.delete(me.id);
+  if (quiet) targets.clear();
 
   const ids = [...targets.keys()];
   const eligible = ids.length
@@ -267,7 +302,7 @@ export async function createPost(env: Env, me: Me, input: CreatePostInput): Prom
   const postId = newId("p", now);
   stmts.push(
     db.stmt(
-      "INSERT INTO posts (id, team_id, thread_id, author_id, reply_to, body, kind, mentions, idempotency_key, redacted, usage_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO posts (id, team_id, thread_id, author_id, reply_to, body, kind, mentions, idempotency_key, redacted, usage_json, model, cli, attachments, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       postId,
       team,
       threadId,
@@ -279,9 +314,13 @@ export async function createPost(env: Env, me: Me, input: CreatePostInput): Prom
       idem,
       redactedKinds.length ? 1 : 0,
       cleanUsage(input.usage),
+      model,
+      cli,
+      JSON.stringify(attachments),
       now,
     ),
   );
+  if (attachments.length) stmts.push(attachStmt(db, postId, attachments));
   for (const [id, reason] of targets) {
     if (!eligible.has(id)) continue;
     stmts.push(
@@ -298,7 +337,7 @@ export async function createPost(env: Env, me: Me, input: CreatePostInput): Prom
       ),
     );
   }
-  if (!input.system) {
+  if (!input.system && !quiet) {
     stmts.push(participant(db, threadId, me.id));
     for (const m of mentioned) stmts.push(participant(db, threadId, m.id));
   }
@@ -334,7 +373,10 @@ export async function createPost(env: Env, me: Me, input: CreatePostInput): Prom
       db.audit(me.id, "post.redacted", postId, redactedKinds),
     );
   }
-  stmts.push(db.bumpSeq());
+  stmts.push(
+    db.bumpSeq(),
+    hubEvent(db, "post.create", { kind, author_kind: me.kind, attachments: attachments.length, mentions: mentioned.length }, me.id, now),
+  );
 
   try {
     await db.batch(stmts);
@@ -343,7 +385,7 @@ export async function createPost(env: Env, me: Me, input: CreatePostInput): Prom
       const dup = await db.first("SELECT * FROM posts WHERE author_id = ? AND idempotency_key = ? AND team_id = ?", me.id, idem, team);
       if (dup) {
         const t = threadOut(await loadThread(db, dup.thread_id as string));
-        return { post: (await hydratePosts(db, [dup]))[0], thread: t, duplicate: true, redacted: [] };
+        return { post: (await hydratePosts(db, [dup], base))[0], thread: t, duplicate: true, redacted: [] };
       }
     }
     throw e;
@@ -360,10 +402,83 @@ export async function createPost(env: Env, me: Me, input: CreatePostInput): Prom
       extra: me.kind === "agent" ? [{ id: me.id, reason: "event" }] : [],
     });
   }
-  if (me.kind === "agent") await checkFlood(env, team, threadId);
+  if (me.kind === "agent" && !quiet) await checkFlood(env, team, threadId);
 
-  const post = await loadPost(db, postId);
+  const post = await loadPost(db, postId, base);
   return { post, thread: threadOut(await loadThread(db, threadId)), duplicate: false, redacted: redactedKinds };
+}
+
+function attachStmt(db: DB, postId: string, ids: string[]) {
+  return db.stmt(
+    `UPDATE attachments SET post_id = ? WHERE id IN (${qmarks(ids.length)}) AND team_id = ? AND post_id IS NULL`,
+    postId,
+    ...ids,
+    db.team,
+  );
+}
+
+/** Update the newest progress/state post in place (no deliveries, idempotency key ignored). */
+async function collapseInto(
+  env: Env,
+  me: Me,
+  db: DB,
+  last: Row,
+  thread: Row,
+  u: { body: string; redactedKinds: string[]; usage: string | null; model: string | null; cli: string | null; attachments: string[]; base: UrlBase },
+): Promise<CreatePostResult> {
+  const now = Date.now();
+  const postId = last.id as string;
+  const threadId = thread.id as string;
+  let atts: string[] = [];
+  try {
+    atts = JSON.parse(String(last.attachments ?? "[]"));
+  } catch {
+    atts = [];
+  }
+  const merged = [...new Set([...atts, ...u.attachments])];
+  if (merged.length > MAX_ATTACHMENTS) throw bad(`每条帖子最多 ${MAX_ATTACHMENTS} 个附件`);
+  const mentions = parseMentions(u.body);
+  const named = mentions.filter((n) => n !== "all");
+  const mentionedIds = named.length
+    ? (
+        await db.all<{ id: string }>(
+          `SELECT id FROM members WHERE name IN (${qmarks(named.length)}) AND kind != 'system' AND team_id = ?`,
+          ...named,
+          db.team,
+        )
+      ).map((m) => m.id)
+    : [];
+  const stmts: D1PreparedStatement[] = [
+    db.stmt(
+      "UPDATE posts SET body = ?, usage_json = ?, model = ?, cli = ?, mentions = ?, attachments = ?, redacted = ?, edited_at = ?, revisions = revisions + 1 WHERE id = ? AND team_id = ?",
+      u.body,
+      u.usage,
+      u.model,
+      u.cli,
+      JSON.stringify(mentionedIds),
+      JSON.stringify(merged),
+      u.redactedKinds.length || Number(last.redacted) ? 1 : 0,
+      now,
+      postId,
+      db.team,
+    ),
+    db.stmt("UPDATE threads SET last_post_at = ?, updated_at = ? WHERE id = ?", now, now, threadId),
+  ];
+  if (u.attachments.length) stmts.push(attachStmt(db, postId, u.attachments));
+  if (u.redactedKinds.length) {
+    stmts.push(
+      notify(db, "secret_redacted", {
+        title: `${me.name || me.id} 的帖子里扫描到密钥（${u.redactedKinds.join(", ")}）`,
+        text: "已打码后入库，原文未保存。建议立即轮换相关凭据。",
+        link: `/threads/${threadId}`,
+      }),
+      db.audit(me.id, "post.redacted", postId, u.redactedKinds),
+    );
+  }
+  stmts.push(db.bumpSeq());
+  await db.batch(stmts);
+  const post = await loadPost(db, postId, u.base);
+  return { post, thread: threadOut(await loadThread(db, threadId)), duplicate: false, redacted: u.redactedKinds, collapsed: true };
 }
 
 export const systemMe: Me = { id: SYSTEM_ID, kind: "system", role: "agent", name: "system", status: "system", team_id: null };
@@ -468,6 +583,7 @@ export async function patchThread(env: Env, me: Me, id: string, p: ThreadPatchIn
   const events: string[] = [];
   let redactedKinds: string[] = [];
   let newAssignee: Row | null = null;
+  let newState: string | null = null;
 
   if (p.state !== undefined) {
     if (typeof p.state !== "string" || p.state.length > MAX_STATE_CHARS) throw bad(`state 必须是不超过 ${MAX_STATE_CHARS} 字符的字符串`);
@@ -475,6 +591,7 @@ export async function patchThread(env: Env, me: Me, id: string, p: ThreadPatchIn
     redactedKinds = r.kinds;
     sets.push("state = ?");
     args.push(r.text);
+    if (r.text !== String(t.state ?? "")) newState = r.text;
   }
   if (p.title !== undefined) {
     if (typeof p.title !== "string" || !p.title.trim()) throw bad("title 不能为空");
@@ -554,6 +671,9 @@ export async function patchThread(env: Env, me: Me, id: string, p: ThreadPatchIn
     const cur = await loadThread(db, id);
     throw new HttpError(409, "conflict", `讨论串已被其他人修改（当前版本 ${cur.version}），请刷新后重试`, { thread: threadOut(cur) });
   }
+  if (newState !== null && me.team_id) {
+    await createPost(env, me, { thread_id: id, kind: "state", stateUpdate: true, system: true, body: newState.trim() ? newState : "（已清空）" });
+  }
   if (events.length) {
     await createPost(env, systemFor(me.team_id), {
       thread_id: id,
@@ -588,6 +708,8 @@ export async function decideConfirmation(env: Env, me: Me, id: string, decision:
   );
   if (!changed) throw conflict("这个确认请求已经处理过了");
   await db.batch([db.audit(me.id, `confirmation.${decision}`, id, cleanNote), db.bumpSeq()]);
+  const asked = await db.first<{ created_at: number }>("SELECT created_at FROM posts WHERE id = ? AND team_id = ?", c.post_id as string, db.team);
+  await logEvents(db, [hubEvent(db, "confirm.decide", { decision, wait_ms: asked ? Math.max(0, now - Number(asked.created_at)) : 0 }, me.id, now)]);
   const requester = await db.first<{ name: string }>("SELECT name FROM members WHERE id = ? AND team_id = ?", c.requester_id as string, db.team);
   await createPost(env, systemFor(me.team_id), {
     thread_id: c.thread_id as string,
@@ -623,6 +745,8 @@ export async function claim(env: Env, me: Me, maxThreads: number) {
     max,
   );
   const threads = [];
+  const analytics: D1PreparedStatement[] = [];
+  const live: D1PreparedStatement[] = [];
   for (const c of cands) {
     const got = await db.run(
       "UPDATE threads SET lease_holder = ?, lease_until = ? WHERE id = ? AND (lease_holder IS NULL OR lease_holder = ? OR lease_until < ?)",
@@ -645,6 +769,10 @@ export async function claim(env: Env, me: Me, maxThreads: number) {
       me.id,
       c.thread_id,
     );
+    live.push(activityUpsert(db, me.id, c.thread_id, "claimed", now));
+    analytics.push(
+      ...ds.map((d) => hubEvent(db, "delivery.claim", { wait_ms: Math.max(0, now - Number(d.created_at)) }, me.id, now)),
+    );
     threads.push({
       thread_id: c.thread_id,
       workspace_id: c.workspace_id,
@@ -652,19 +780,20 @@ export async function claim(env: Env, me: Me, maxThreads: number) {
       deliveries: ds.map((d) => ({ id: d.id, thread_id: d.thread_id, post_id: d.post_id, reason: d.reason, attempts: Number(d.attempts) })),
     });
   }
-  if (threads.length) await db.bumpSeq().run();
+  if (threads.length) await db.batch([...live, db.bumpSeq()]);
+  if (analytics.length) await logEvents(db, analytics);
   return threads;
 }
 
 async function selectDeliveries(db: DB, me: Me, threadId: string, ids: unknown, states: string[]) {
-  let sql = `SELECT id, attempts FROM deliveries WHERE member_id = ? AND thread_id = ? AND state IN (${qmarks(states.length)})`;
+  let sql = `SELECT id, attempts, created_at FROM deliveries WHERE member_id = ? AND thread_id = ? AND state IN (${qmarks(states.length)})`;
   const args: (string | number)[] = [me.id, threadId, ...states];
   if (Array.isArray(ids) && ids.length) {
     if (ids.length > 500) throw bad("delivery_ids 太多");
     sql += ` AND id IN (${qmarks(ids.length)})`;
     args.push(...ids.map(String));
   }
-  return db.all<{ id: string; attempts: number }>(sql, ...args);
+  return db.all<{ id: string; attempts: number; created_at: number }>(sql, ...args);
 }
 
 async function releaseThreadIfIdle(db: DB, me: Me, threadId: string) {
@@ -690,11 +819,44 @@ export async function ack(env: Env, me: Me, threadId: string, ids: unknown) {
         now,
         ...rows.map((r) => r.id),
       ),
+      activityUpsert(db, me.id, threadId, "done", now),
       db.bumpSeq(),
+    ]);
+    await logEvents(db, [
+      ...rows.map((r) => hubEvent(db, "delivery.done", { latency_ms: Math.max(0, now - Number(r.created_at)) }, me.id, now)),
     ]);
   }
   await releaseThreadIfIdle(db, me, threadId);
   return rows.length;
+}
+
+export const ACTIVITY_STATES = ["claimed", "running", "typing", "done", "failed"] as const;
+
+/** Upsert the live activity row for (member, thread); started_at resets on "claimed". */
+export function activityUpsert(
+  db: DB,
+  memberId: string,
+  threadId: string,
+  state: string,
+  now: number,
+  extra: { detail?: string | null; cli?: string | null; model?: string | null } = {},
+) {
+  const keep = (col: string) => (extra[col as keyof typeof extra] === undefined ? `activity.${col}` : `excluded.${col}`);
+  return db.stmt(
+    `INSERT INTO activity (team_id, member_id, thread_id, state, detail, cli, model, started_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(member_id, thread_id) DO UPDATE SET state = excluded.state, detail = ${extra.detail === undefined && state !== "claimed" ? "activity.detail" : "excluded.detail"},
+       cli = ${keep("cli")}, model = ${keep("model")},
+       started_at = CASE WHEN excluded.state = 'claimed' THEN excluded.started_at ELSE activity.started_at END, updated_at = excluded.updated_at`,
+    db.team,
+    memberId,
+    threadId,
+    state,
+    extra.detail ?? null,
+    extra.cli ?? null,
+    extra.model ?? null,
+    now,
+    now,
+  );
 }
 
 export async function nack(env: Env, me: Me, threadId: string, ids: unknown, reason: string) {
@@ -745,6 +907,13 @@ export async function heartbeat(env: Env, me: Me, threadId?: string | null) {
   await db.batch([
     db.stmt(`UPDATE deliveries SET lease_until = ?, updated_at = ? WHERE member_id = ? AND state = 'leased'${tf}`, until, now, me.id, ...targs),
     db.stmt(`UPDATE threads SET lease_until = ? WHERE lease_holder = ?${threadId ? " AND id = ?" : ""}`, until, me.id, ...targs),
+    db.stmt(
+      `UPDATE activity SET updated_at = ? WHERE member_id = ? AND thread_id IN (SELECT id FROM threads WHERE lease_holder = ?${threadId ? " AND id = ?" : ""})`,
+      now,
+      me.id,
+      me.id,
+      ...targs,
+    ),
   ]);
   return until;
 }

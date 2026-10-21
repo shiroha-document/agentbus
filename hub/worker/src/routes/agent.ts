@@ -3,7 +3,9 @@ import type { AppEnv, Me } from "../env";
 import { SERVER_VERSION } from "../env";
 import { DB, WORKSPACE_SELECT, deliveryOut, hydratePosts, memberOut, qmarks, threadOut, workspaceOut } from "../db";
 import {
+  ACTIVITY_STATES,
   ack,
+  activityUpsert,
   canManageWorkspace,
   claim,
   createPost,
@@ -16,6 +18,8 @@ import {
   requireManager,
 } from "../core";
 import { isValidPublicKey } from "../auth";
+import { hubEvent, ingestEvents } from "../analytics";
+import { handleDownload, handleUpload } from "../files";
 import { encryptUrl, validTriggerUrl } from "../crypto";
 import {
   approveMember,
@@ -132,6 +136,7 @@ agent.post("/join", async (c) => {
     }),
     db.audit(null, "member.join", id, { name, cli, wake, interval, join_code: jc.id }),
     db.bumpSeq(),
+    hubEvent(db, "member.join", {}, id, now),
   ];
   if (trigger) {
     stmts.push(db.stmt("INSERT INTO triggers (member_id, url_ciphertext, iv) VALUES (?, ?, ?)", id, trigger.ciphertext, trigger.iv));
@@ -226,7 +231,7 @@ agent.get("/context", async (c) => {
   const n = clampLimit(c.req.query("limit"), cfg.context_posts, 200);
   const rows = await db.all("SELECT * FROM posts WHERE thread_id = ? ORDER BY id DESC LIMIT ?", id, n + 1);
   const hasMore = rows.length > n;
-  const posts = await hydratePosts(db, rows.slice(0, n).reverse());
+  const posts = await hydratePosts(db, rows.slice(0, n).reverse(), "agent");
   const [ws, ds, members, meRow] = await Promise.all([
     db.first(`${WORKSPACE_SELECT} WHERE w.id = ? AND w.team_id = ?`, t.workspace_id as string, db.team),
     db.all("SELECT * FROM deliveries WHERE member_id = ? AND thread_id = ? AND state = 'leased' ORDER BY created_at", me.id, id),
@@ -249,7 +254,7 @@ export async function postsPage(db: DB, threadId: string, before: string | undef
   const rows = before
     ? await db.all("SELECT * FROM posts WHERE thread_id = ? AND id < ? ORDER BY id DESC LIMIT ?", threadId, before, limit + 1)
     : await db.all("SELECT * FROM posts WHERE thread_id = ? ORDER BY id DESC LIMIT ?", threadId, limit + 1);
-  return { posts: await hydratePosts(db, rows.slice(0, limit).reverse()), has_more: rows.length > limit };
+  return { posts: await hydratePosts(db, rows.slice(0, limit).reverse(), "agent"), has_more: rows.length > limit };
 }
 
 agent.get("/posts", async (c) => {
@@ -270,8 +275,42 @@ agent.post("/posts", async (c) => {
     reply_to: str(b.reply_to, 40) || null,
     idempotency_key: String(b.idempotency_key),
     usage: b.usage,
+    model: str(b.model, 64) || null,
+    cli: str(b.cli, 64) || null,
+    attachments: b.attachments,
+    urlBase: "agent",
   });
   return c.json(r);
+});
+
+// ---------------------------------------------------------------- live status + files
+
+agent.post("/activity", async (c) => {
+  const me = c.get("me");
+  const db = new DB(c.env.DB, me.team_id);
+  const b = body(c);
+  const state = str(b.state, 16);
+  if (!(ACTIVITY_STATES as readonly string[]).includes(state)) throw bad("state 只能是 claimed / running / typing / done / failed");
+  if (b.detail != null && (typeof b.detail !== "string" || b.detail.length > 200)) throw bad("detail 不能超过 200 个字符");
+  const threadId = str(b.thread_id, 40);
+  if (!threadId) throw bad("需要 thread_id");
+  await loadThread(db, threadId);
+  const opt = (v: unknown) => (v == null ? undefined : str(v, 64) || null);
+  const now = Date.now();
+  await activityUpsert(db, me.id, threadId, state, now, {
+    detail: b.detail == null ? undefined : redact(String(b.detail)).text,
+    cli: opt(b.cli),
+    model: opt(b.model),
+  }).run();
+  return c.json({ ok: true, at: now });
+});
+
+agent.post("/uploads", (c) => handleUpload(c, "agent"));
+agent.get("/files/:id", (c) => handleDownload(c));
+
+agent.post("/events", async (c) => {
+  const me = c.get("me");
+  return c.json({ accepted: await ingestEvents(new DB(c.env.DB, me.team_id), "cli", me.id, body(c)) });
 });
 
 agent.patch("/threads/:id", async (c) => {
@@ -373,8 +412,27 @@ agent.post("/runs", async (c) => {
       ),
     );
   }
+  // Attribute this member's posts written during a run to the run's model (v06-contract §2).
+  for (const raw of runs as Body[]) {
+    const tid = str(raw.thread_id, 40);
+    const model = str(raw.model, 64);
+    if (!tid || !model || !ownThreads.has(tid)) continue;
+    const started = Math.floor(Number(raw.started_at));
+    const ended = Math.floor(Number(raw.ended_at ?? raw.started_at));
+    stmts.push(
+      db.stmt(
+        "UPDATE posts SET model = ? WHERE author_id = ? AND thread_id = ? AND team_id = ? AND model IS NULL AND created_at BETWEEN ? AND ?",
+        model,
+        me.id,
+        tid,
+        db.team,
+        started,
+        ended + 60_000,
+      ),
+    );
+  }
   const res = await db.batch(stmts);
-  const accepted = res.reduce((n, r) => n + (r.meta?.changes ?? 0), 0);
+  const accepted = res.slice(0, runs.length).reduce((n, r) => n + (r.meta?.changes ?? 0), 0);
   if (accepted) {
     await db.bumpSeq().run();
     await checkRunFailures(c.env, me);

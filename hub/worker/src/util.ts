@@ -17,10 +17,12 @@ export const conflict = (msg: string) => new HttpError(409, "conflict", msg);
 const ALPHA = "0123456789abcdefghjkmnpqrstvwxyz";
 
 /** `<prefix>_<26 base32>`; first 10 chars encode the ms timestamp, so ids sort by time.
- * Ids created in the same millisecond (same isolate) increment the random part, so they stay ordered. */
+ * Ids created in the same millisecond (same isolate) increment the random part, so they stay ordered.
+ * A small backwards clock step (< 1s) reuses the last timestamp so ids never go backwards. */
 let lastMs = -1;
 const lastRand = new Uint8Array(16);
 export function newId(prefix: string, ms = Date.now()): string {
+  if (ms < lastMs && lastMs - ms < 1000) ms = lastMs;
   const out: string[] = new Array(26);
   let t = ms;
   for (let i = 9; i >= 0; i--) {
