@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -48,6 +49,20 @@ type fakeHub struct {
 	heartbeats  int
 	quotaCalls  int
 	seq         int
+	activities  []ActivityReq
+	activity404 bool // answer /agent/activity like a pre-v0.6 hub
+	newPosts    []NewPost
+}
+
+// states is the live-status states reported, in order.
+func (h *fakeHub) states() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	out := make([]string, len(h.activities))
+	for i, a := range h.activities {
+		out[i] = a.State
+	}
+	return out
 }
 
 func newFakeHub(t *testing.T, pub ed25519.PublicKey) *fakeHub {
@@ -125,9 +140,16 @@ func (h *fakeHub) serve(w http.ResponseWriter, r *http.Request) {
 			h.reply(w, PostResp{Post: p, Duplicate: true})
 			return
 		}
+		h.newPosts = append(h.newPosts, np)
 		h.seq++
 		p := Post{ID: fmt.Sprintf("p_new%d", h.seq), ThreadID: np.ThreadID, AuthorID: "m_1", Body: np.Body, Kind: np.Kind,
 			Usage: np.Usage, CreatedAt: time.Now().UnixMilli()}
+		if np.Model != "" {
+			p.Model = &np.Model
+		}
+		if np.CLI != "" {
+			p.CLI = &np.CLI
+		}
 		h.keys[np.IdempotencyKey] = p
 		h.posts[np.ThreadID] = append(h.posts[np.ThreadID], p)
 		h.reply(w, PostResp{Post: p})
@@ -140,6 +162,16 @@ func (h *fakeHub) serve(w http.ResponseWriter, r *http.Request) {
 	case "POST /agent/heartbeat":
 		h.heartbeats++
 		h.reply(w, map[string]int64{"lease_until": time.Now().Add(15 * time.Minute).UnixMilli()})
+	case "POST /agent/activity":
+		if h.activity404 {
+			w.WriteHeader(404)
+			_, _ = w.Write([]byte(`{"error":{"code":"not_found","message":"/agent/activity"}}`))
+			return
+		}
+		var a ActivityReq
+		_ = json.Unmarshal(body, &a)
+		h.activities = append(h.activities, a)
+		h.reply(w, map[string]bool{"ok": true})
 	case "POST /agent/runs":
 		var in struct {
 			Runs []Run `json:"runs"`
@@ -197,6 +229,11 @@ func fakeCLI(mode string) int {
 	if !strings.Contains(string(prompt), os.Getenv("AGENTBUS_THREAD")) {
 		fmt.Fprintln(os.Stderr, "prompt does not mention the thread")
 		return 2
+	}
+	// record what the round's environment said about the CLI and model
+	if dir := os.Getenv("AGENTBUS_HUB_HOME"); dir != "" {
+		m, has := os.LookupEnv("AGENTBUS_MODEL")
+		_ = os.WriteFile(filepath.Join(dir, "fakecli-env.txt"), []byte(fmt.Sprintf("cli=%s model=%s has_model=%v", os.Getenv("AGENTBUS_CLI"), m, has)), 0o600)
 	}
 	switch mode {
 	case "ok":

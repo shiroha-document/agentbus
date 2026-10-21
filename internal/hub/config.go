@@ -47,13 +47,14 @@ type Config struct {
 	CLIBinary     string            `json:"cli_binary,omitempty"`
 	CLITemplate   string            `json:"cli_template,omitempty"`    // custom: argv template with {prompt_file}
 	CLIUsagePaths map[string]string `json:"cli_usage_paths,omitempty"` // custom: field -> dotted JSON path
+	Model         string            `json:"model,omitempty"`           // the CLI's model, when known (a label only; not passed to the CLI)
 	Wake          string            `json:"wake"`                      // poll | trigger
 	WakeIntervalS int64             `json:"wake_interval_s"`
 	TriggerURL    string            `json:"trigger_url,omitempty"`
 	Owner         string            `json:"owner,omitempty"`
 	Machine       string            `json:"machine,omitempty"`
 	Tier          string            `json:"permission_tier"`     // readonly | workspace | full
-	QuotaSource   string            `json:"quota_source"`        // auto | native | magpie | both
+	QuotaSource   string            `json:"quota_source"`        // auto | native (magpie, both: deprecated, read natively)
 	Telemetry     *bool             `json:"telemetry,omitempty"` // nil = on; false = opt out (contract §5)
 	JoinedAt      int64             `json:"joined_at,omitempty"`
 }

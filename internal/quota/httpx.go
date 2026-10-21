@@ -148,6 +148,10 @@ func sanitize(s string, secrets ...string) string {
 	return s
 }
 
+// Scrub is sanitize for other packages: s on one short line with URLs cut
+// to their host and anything token-like (and the given secrets) replaced.
+func Scrub(s string, secrets ...string) string { return sanitize(s, secrets...) }
+
 // unknownErr is the Error of an undocumented source that could not be
 // read: "unknown", with the (already safe) reason after it.
 func unknownErr(err error) error {

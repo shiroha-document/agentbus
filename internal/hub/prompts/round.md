@@ -23,7 +23,9 @@
 **@{{.Author}}** · {{.Kind}} · `{{.ID}}` · {{.When}}{{if .ReplyTo}} · 回复 `{{.ReplyTo}}`{{end}}{{if .Mine}} · （你自己）{{end}}
 
 {{.Body}}
-
+{{if .Attachments}}
+{{range .Attachments}}附件：{{.}}
+{{end}}{{end}}
 {{end}}---
 
 ## 本轮要处理的消息
@@ -31,6 +33,7 @@
 {{range .Deliveries}}- `{{.PostID}}`（{{.ReasonText}}{{if gt .Attempts 0}}，第 {{.Attempt}} 次投递{{end}}）{{if .Author}}：@{{.Author}} 说{{end}}
 {{if .Body}}
 {{.Quoted}}
+{{end}}{{range .Attachments}}  附件：{{.}}
 {{end}}
 {{end}}
-处理完上面的消息，按规则发进度帖{{if .IAmAssignee}}、更新当前状态{{end}}，然后结束。
+处理完上面的消息，有实际进展或卡住了就按规则发（或更新）进度帖{{if .IAmAssignee}}、更新当前状态{{end}}；什么都没变就不要发进度帖。然后结束。

@@ -50,6 +50,9 @@ type Ticker struct {
 	// LookPath resolves CLI binaries (default exec.LookPath).
 	LookPath func(string) (string, error)
 	Now      func() time.Time
+
+	activityOff bool   // the hub answered 404 to a live-status report
+	lastModel   string // the model the last run of this tick reported
 }
 
 // Outcome is what one tick did.
@@ -61,12 +64,15 @@ type Outcome struct {
 
 // ThreadOutcome describes one processed thread.
 type ThreadOutcome struct {
-	ThreadID     string
-	Acked        bool
-	Nacked       bool
-	TimedOut     bool
-	AgentPosted  bool
-	TickPosted   bool
+	ThreadID    string
+	Acked       bool
+	Nacked      bool
+	TimedOut    bool
+	AgentPosted bool
+	TickPosted  bool
+	// SkippedPost: a no-op re-delivery round, so no fallback progress post
+	// (see noopRedelivery)
+	SkippedPost  bool
 	ErrorSummary string
 	Run          *Run
 }
@@ -164,6 +170,9 @@ func (t *Ticker) run(ctx context.Context) (Outcome, error) {
 	if len(cr.Threads) == 0 {
 		return Outcome{Code: ExitNothing, Message: "nothing to do"}, nil
 	}
+	for _, ct := range cr.Threads {
+		t.activity(ctx, ct.ThreadID, "claimed", "", "")
+	}
 	out := Outcome{Code: ExitOK}
 	var runs []Run
 	for _, ct := range cr.Threads {
@@ -251,6 +260,17 @@ func RoundKey(ds []Delivery) string {
 
 func (t *Ticker) processThread(ctx context.Context, ct ClaimedThread) (to ThreadOutcome) {
 	to.ThreadID = ct.ThreadID
+	model := t.knownModel()
+	defer func() {
+		if to.Run != nil && to.Run.Model != nil && *to.Run.Model != "" {
+			model = *to.Run.Model
+		}
+		if to.ErrorSummary != "" {
+			t.activity(ctx, ct.ThreadID, "failed", failDetail(to.ErrorSummary), model)
+		} else {
+			t.activity(ctx, ct.ThreadID, "done", "", model)
+		}
+	}()
 	c, err := t.Client.Context(ctx, ct.ThreadID)
 	if err != nil {
 		to.ErrorSummary = "context: " + err.Error()
@@ -310,11 +330,11 @@ func (t *Ticker) processThread(ctx context.Context, ct ClaimedThread) (to Thread
 	to.Run = run
 	if err != nil {
 		// the CLI could not even be built/found: say so, and let the message retry
-		msg := fmt.Sprintf("agentbus tick 无法启动 %s：%v\n\n请在这台机器上运行 `agentbus doctor` 排查。", t.Cfg.CLI, err)
+		msg := fmt.Sprintf(noticeStart+"%s：%v\n\n请在这台机器上运行 `agentbus doctor` 排查。", t.Cfg.CLI, err)
 		run.EndedAt, run.ExitCode = t.now().UnixMilli(), -1
 		run.ErrorSummary = ptr(truncate1("start: "+err.Error(), 500))
 		to.ErrorSummary = *run.ErrorSummary
-		t.tickPost(ctx, &to, ct.ThreadID, round, msg, nil, 0)
+		t.tickPost(ctx, &to, ct.ThreadID, round, msg, nil, t.Cfg.Model)
 		t.release(ctx, &to, ct.ThreadID, ids, "cli unavailable: "+err.Error())
 		return to
 	}
@@ -327,7 +347,7 @@ func (t *Ticker) processThread(ctx context.Context, ct ClaimedThread) (to Thread
 			cutoff = p.CreatedAt
 		}
 	}
-	env := childEnv(map[string]string{
+	env := childEnv(roundEnv(map[string]string{
 		"AGENTBUS_THREAD":    ct.ThreadID,
 		"AGENTBUS_ROUND":     round,
 		"AGENTBUS_WORKSPACE": c.Workspace.ID,
@@ -335,11 +355,12 @@ func (t *Ticker) processThread(ctx context.Context, ct ClaimedThread) (to Thread
 		"AGENTBUS_IN_TICK":   "1",
 		"AGENTBUS_PROMPT":    promptFile,
 		"PATH":               pathWithExe(t.Exe),
-	})
+	}, t.Cfg.CLI, model))
 	hb := t.HeartbeatEvery
 	if hb <= 0 {
 		hb = 5 * time.Minute
 	}
+	t.activity(ctx, ct.ThreadID, "running", runningDetail(t.Cfg.CLI, model), model)
 	t.logf("%s: running %s in %s", ct.ThreadID, t.Cfg.CLI, dir)
 	res := RunSpec(ctx, spec, ExecOptions{
 		Dir: dir, Env: env, Timeout: t.Timeout, Every: hb, Grace: t.KillGrace,
@@ -362,6 +383,11 @@ func (t *Ticker) processThread(ctx context.Context, ct ClaimedThread) (to Thread
 		run.Output, run.Reasoning, run.CostUSD = u.Output, u.Reasoning, u.CostUSD
 	}
 	run.Model = u.Model
+	postModel := strings.TrimSpace(t.Cfg.Model) // the model the run reported, else the configured one
+	if u.Model != nil && strings.TrimSpace(*u.Model) != "" {
+		postModel = strings.TrimSpace(*u.Model)
+		t.lastModel = postModel
+	}
 
 	failed := res.TimedOut || res.Err != nil || res.ExitCode != 0 || parsed.IsError
 	if failed {
@@ -381,27 +407,32 @@ func (t *Ticker) processThread(ctx context.Context, ct ClaimedThread) (to Thread
 	switch {
 	case res.TimedOut:
 		to.TimedOut = true
-		msg := fmt.Sprintf("⏱ 本轮超时：%s 运行超过 %s 被终止，消息已退回收件箱，稍后重试。", t.Cfg.CLI, FmtDuration(t.timeout()))
+		msg := fmt.Sprintf(noticeTimeout+"%s 运行超过 %s 被终止，消息已退回收件箱，稍后重试。", t.Cfg.CLI, FmtDuration(t.timeout()))
 		if txt := strings.TrimSpace(parsed.Text); txt != "" {
 			msg += "\n\n最后的输出：\n\n" + quote(truncate1(txt, 2000))
 		}
-		t.tickPost(ctx, &to, ct.ThreadID, round, msg+"\n\n---\n"+footer, uptr, 0)
+		t.tickPost(ctx, &to, ct.ThreadID, round, msg+"\n\n---\n"+footer, uptr, postModel)
 		t.release(ctx, &to, ct.ThreadID, ids, "timeout")
 		return to
 	case to.AgentPosted:
 		// the agent wrote its own progress post; usage goes to the run record
 	case failed:
-		msg := fmt.Sprintf("本轮失败：%s 退出码 %d。\n\n%s", t.Cfg.CLI, res.ExitCode, quote(truncate1(firstNonEmpty(to.ErrorSummary, "（没有错误输出）"), 2000)))
+		msg := fmt.Sprintf(noticeFailed+"%s 退出码 %d。\n\n%s", t.Cfg.CLI, res.ExitCode, quote(truncate1(firstNonEmpty(to.ErrorSummary, "（没有错误输出）"), 2000)))
 		if txt := strings.TrimSpace(parsed.Text); txt != "" && !strings.Contains(to.ErrorSummary, txt) {
 			msg += "\n\n输出：\n\n" + truncate1(txt, 4000)
 		}
-		t.tickPost(ctx, &to, ct.ThreadID, round, msg+"\n\n---\n"+footer, uptr, 0)
+		t.tickPost(ctx, &to, ct.ThreadID, round, msg+"\n\n---\n"+footer, uptr, postModel)
+	case noopRedelivery(c, ds, firstNonEmpty(c.Me.ID, t.Cfg.MemberID)):
+		// a re-delivery an earlier attempt already answered: nothing new to
+		// say, so no fallback post (the run record still carries the usage)
+		to.SkippedPost = true
+		t.logf("%s: re-delivery already answered; no fallback progress post", ct.ThreadID)
 	default:
 		txt := strings.TrimSpace(parsed.Text)
 		if txt == "" {
 			txt = "（本轮结束，agent 没有留下说明。）"
 		}
-		t.tickPost(ctx, &to, ct.ThreadID, round, truncate1(txt, 30000)+"\n\n---\n"+footer, uptr, 0)
+		t.tickPost(ctx, &to, ct.ThreadID, round, truncate1(txt, 30000)+"\n\n---\n"+footer, uptr, postModel)
 	}
 	if err := t.Client.Ack(ctx, ct.ThreadID, ids); err != nil {
 		t.logf("%s: ack: %v", ct.ThreadID, err)
@@ -419,9 +450,11 @@ func (t *Ticker) timeout() time.Duration {
 	return t.Timeout
 }
 
-// tickPost writes a progress post authored by tick (idempotency key = round).
-func (t *Ticker) tickPost(ctx context.Context, to *ThreadOutcome, thread, round, body string, u *adapter.Usage, _ int) {
-	_, err := t.Client.Post(ctx, NewPost{ThreadID: thread, Body: body, Kind: "progress", IdempotencyKey: round, Usage: u})
+// tickPost writes a progress post authored by tick (idempotency key =
+// round), labelled with the CLI and model ("" = unknown).
+func (t *Ticker) tickPost(ctx context.Context, to *ThreadOutcome, thread, round, body string, u *adapter.Usage, model string) {
+	_, err := t.Client.Post(ctx, NewPost{ThreadID: thread, Body: body, Kind: "progress", IdempotencyKey: round, Usage: u,
+		CLI: label64(t.Cfg.CLI), Model: label64(model)})
 	if err != nil {
 		t.logf("%s: posting progress: %v", thread, err)
 		return
@@ -515,6 +548,16 @@ func sanitizeFile(s string) string {
 		return "x"
 	}
 	return s
+}
+
+// roundEnv adds AGENTBUS_CLI, and AGENTBUS_MODEL when the model is known,
+// to a round's environment.
+func roundEnv(env map[string]string, cli, model string) map[string]string {
+	env["AGENTBUS_CLI"] = cli
+	if model != "" {
+		env["AGENTBUS_MODEL"] = model
+	}
+	return env
 }
 
 func pathWithExe(exe string) string {
