@@ -79,7 +79,8 @@ test("two agents: join code → approve → mention → claim → reply → ack 
   try {
     const bogus = new TestAgent(BASE, `e2e-x-${run}`);
     await expect(bogus.join("abj_definitely-not-valid")).rejects.toThrow(/403.*bad_join_code/);
-    const noCode = await new TestAgent(BASE, `e2e-y-${run}`).call("POST", "/join", { name: `e2e-y-${run}`, cli: "custom", public_key: new TestAgent(BASE, "k").publicB64 });
+    const y = new TestAgent(BASE, `e2e-y-${run}`); // signs with its own key, so only the missing code is wrong
+    const noCode = await y.call("POST", "/join", { name: y.name, cli: "custom", public_key: y.publicB64 });
     expect(noCode.status).toBe(400);
     expect(noCode.json.error.code).toBe("join_code_required");
 
