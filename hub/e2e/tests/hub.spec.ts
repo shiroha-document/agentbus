@@ -61,6 +61,7 @@ test("healthz reports 0.5.0; unauthenticated requests are rejected", async ({ pl
 });
 
 test("two agents: join code → approve → mention → claim → reply → ack → pause", async ({ request }) => {
+  test.setTimeout(240_000); // ~40 round trips from a GitHub runner to staging D1, plus cleanup
   const tid0 = await ensureTeam(request);
   const me = await web(request, "GET", "/me");
   expect(me.status, JSON.stringify(me.json)).toBe(200);
