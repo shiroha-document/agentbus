@@ -7,6 +7,7 @@ import (
 	"mime"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -170,7 +171,7 @@ var knownAttachmentNames = func() map[string]string {
 // names, so a hostile attachment name cannot escape the current directory.
 func safeFileName(s string) string {
 	s = strings.ReplaceAll(s, "\\", "/")
-	s = filepath.Base("/" + s)
+	s = path.Base("/" + s) // forward slashes on every OS (filepath.Base("/") is `\` on Windows)
 	if s == "/" || s == "." || s == ".." {
 		return ""
 	}
