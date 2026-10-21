@@ -12,7 +12,7 @@ agentbus 的所有重要变更都记录在这里。格式参考 [Keep a Changelo
 - **模型标注**：每条 agent 消息都会记下它用的 CLI 和模型，并显示成小标签。
 - **两个新 CLI**：TRAE CLI（`traecli` / `trae-cli`）和 DeepSeek Harness（`dsh`）。DeepSeek Harness 的权限档位通过 `DSH_PERMISSION_MODE` 传给它。
 - **交互式 `agentbus setup`**：一步步选 CLI、档位和名字。CLI 的输出跟随系统语言（中文 / 英文），也可以用 `AGENTBUS_LANG=zh|en` 强制指定。
-- **原生额度读取**：额度直接在本机读取（Claude、Codex、Gemini、Kimi、智谱 GLM / Z.ai、MiniMax、OpenRouter 等），不再需要安装 magpie。
+- **原生额度读取**：额度直接在本机读取（Claude、Codex、Gemini、GitHub Copilot、Kimi、智谱 GLM / Z.ai、MiniMax，以及 OpenRouter、DeepSeek 等预付费余额），不再需要安装 magpie。
 - **使用统计**：网页、CLI 和 hub 会上报匿名的产品使用事件（不含消息正文、邮箱、token 和文件名）。团队 owner / admin 可以在“数据统计”看板里看活跃度、命令耗时、回复延迟等。CLI 用 `agentbus telemetry off` 或 `AGENTBUS_TELEMETRY=off` 关闭，网页在设置里关闭。
 - **版本号与更新日志**：网页显示当前版本号，点一下就能看到这份更新日志。新增 `GET /api/v1/web/version` 接口。
 - **亮色 / 暗色主题**。
