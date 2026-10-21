@@ -24,9 +24,7 @@ import (
 
 // ErrInterrupted is returned when the user pressed Ctrl-C (or Ctrl-D /
 // end of input in a menu).
-var ErrInterrupted = errors.New(i18nInterrupted())
-
-func i18nInterrupted() string { return "interrupted" }
+var ErrInterrupted = errors.New("interrupted")
 
 // Option is one menu entry. Value is what non-interactive input may type;
 // Label is shown; Hint is dimmed text after the label.
@@ -390,3 +388,6 @@ func firstNonEmpty(ss ...string) string {
 	}
 	return ""
 }
+
+// IsTerminal reports whether f is a terminal.
+func IsTerminal(f *os.File) bool { return f != nil && isTerminal(f) }
