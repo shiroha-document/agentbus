@@ -12,6 +12,8 @@
 import { setTransport, type RawResponse } from "./api";
 import { extraHandle } from "./mock-extra";
 import type {
+  Activity,
+  Attachment,
   AuditEntry,
   Budget,
   Confirmation,
@@ -24,6 +26,7 @@ import type {
   Post,
   QuotaReading,
   QuotaRule,
+  Receipt,
   Run,
   SettingsResponse,
   Team,
@@ -151,7 +154,32 @@ function thread(p: Partial<Thread> & Pick<Thread, "id" | "workspace_id" | "title
 }
 
 function post(p: Partial<Post> & Pick<Post, "id" | "thread_id" | "author_id" | "body">): Post {
-  return { reply_to: null, kind: "msg", mentions: [], redacted: false, usage: null, reactions: [], confirmation: null, created_at: T0 - HOUR, ...p };
+  return {
+    reply_to: null,
+    kind: "msg",
+    mentions: [],
+    redacted: false,
+    usage: null,
+    reactions: [],
+    confirmation: null,
+    created_at: T0 - HOUR,
+    model: p.usage?.model ?? null,
+    cli: null,
+    edited_at: null,
+    revisions: 0,
+    attachments: [],
+    ...p,
+  };
+}
+
+// Tiny inline PNGs (120×75) so attachments render without a server.
+const IMG_SHOT =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAHgAAABLCAIAAAA06NSGAAAA00lEQVR42u3ZsQ1AUBSGUYMZQm0IM5jHAEpjGEBIlGoUCp1KwZNcJ/ka7Sn+dxPZME9KUIYAdFzopa7O7nwKNGjQAh0Ful/Gx1v3TZdAgwYNGjRo0Gmg87KIEWjQoEEHhBZo0KBBgwYNOg1007V/CDRo0DbaYwgaNGjQoF0d984J0KBB22iPIWjQoEGD/t/VARo0aBttowUaNGjQro4vzgnQoEHbaNCgQYMGDdpf8NfOGNCgQdto0KBBgwYNOtbVARo0aBvtMQQNGjRo0KBBgwadogO25trNyqn9ywAAAABJRU5ErkJggg==";
+const IMG_CHART =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAHgAAABLCAIAAAA06NSGAAAAv0lEQVR42u3VoQ2AQAxA0ZsSwWCMcxqDYRIkAcMEJxAUerzky6ZJn2nZz0MBFQSgQQt0WEOdWoEGDVqgQYNOAX33ANCgQYMGDRp0kp2gQYMGDRo0aNAJoHtFAQ0aNGjQoEGDBv3CAU9MggYNGjRo0KBBx0BvdWwFGjRo0KD/BJ3lm4MGDRo0aNCgQYMG3Tt0lknQoEGDBg0aNGjQoEGDBg0aNGjQoEGDBg0aNGjQoEGDBp0bel4XBQQaNGiB/m4XwehExiaFfJ4AAAAASUVORK5CYII=";
+const textDataUrl = (text: string) => `data:text/plain;charset=utf-8,${encodeURIComponent(text)}`;
+function attachment(id: string, name: string, mime: string, size: number, url: string): Attachment {
+  return { id, name, mime, size, url };
 }
 
 function usage(model: string, input: number, cr: number, cw: number, out: number, cost: number, mins = 3): Post["usage"] {
@@ -162,7 +190,7 @@ function quotaReading(provider: string, plan: string | null, window: string, use
   return { provider, account: null, plan, window, used_pct, resets_at: resetsIn === null ? null : T0 + resetsIn, balance: null, source: "native", read_at: T0 - 3 * MIN, error: null, ...p };
 }
 
-const AGENT_MODEL: Record<string, string> = { claude: "claude-sonnet-4-5", codex: "gpt-5-codex", gemini: "gemini-2.5-pro" };
+const AGENT_MODEL: Record<string, string> = { claude: "claude-sonnet-4-5", codex: "gpt-5-codex", gemini: "gemini-2.5-pro", cursor: "gpt-5" };
 
 function makeRuns(rand: () => number, agents: Member[], threadIds: string[], count: number, every: number): Run[] {
   const out: Run[] = [];
@@ -248,6 +276,13 @@ interface Store {
   invites: Invite[];
   joinCodes: JoinCode[];
   seq: number;
+  // v0.6 (contract §3/§4)
+  files: (Attachment & { post_id: string | null })[];
+  receipts: Record<string, Receipt[]>;
+  /** Activity rows carry their thread internally; `/live` strips it (contract §3). */
+  activity: (Activity & { thread_id: string })[];
+  /** Scripted future changes (live simulation); applied lazily on every request. */
+  timeline: { at: number; run: () => void }[];
 }
 
 function emptyStore(team: Team, owner: Member): Store {
@@ -270,6 +305,10 @@ function emptyStore(team: Team, owner: Member): Store {
     invites: [],
     joinCodes: [],
     seq: 1,
+    files: [],
+    receipts: {},
+    activity: [],
+    timeline: [],
   };
 }
 
@@ -410,6 +449,17 @@ function buildShiroha(): Store {
     }),
     thread({ id: "t_magpie", workspace_id: "w_quota", title: "接入 magpie 读取 openai 额度", assignee_id: "m_gemini", created_by: "m_chen", last_post_at: T0 - 4 * HOUR }),
     thread({ id: "t_ui", workspace_id: "w_hub", title: "管理端首页热力图", status: "done", assignee_id: "m_cmac", last_post_at: T0 - 2 * DAY }),
+    thread({
+      id: "t_long",
+      workspace_id: "w_hub",
+      title: "夜间回归：排查 flaky 测试",
+      assignee_id: "m_codex",
+      labels: ["ci", "flaky"],
+      state: "**进展**：已定位 3 个 flaky 用例，2 个已修。\n\n**下一步**：`lease.test.ts` 的时钟依赖。",
+      created_by: "m_chen",
+      last_post_at: T0 - 35 * MIN,
+      created_at: T0 - 3 * DAY,
+    }),
     thread({ id: "t_old", workspace_id: "w_quota", title: "旧版 quota 脚本下线", status: "closed", last_post_at: T0 - 9 * DAY }),
   ];
 
@@ -426,6 +476,18 @@ function buildShiroha(): Store {
       note: null,
     },
   ];
+
+  s.confirmations.push({
+    id: "c_flaky",
+    thread_id: "t_long",
+    post_id: "p_lconfirm",
+    requester_id: "m_codex",
+    question: "要把 `lease.test.ts` 临时标记为 `skip` 吗？修好之前夜间回归会一直红。",
+    status: "pending",
+    decided_by: null,
+    decided_at: null,
+    note: null,
+  });
 
   const sonnet = AGENT_MODEL.claude!;
   s.posts = [
@@ -449,7 +511,23 @@ function buildShiroha(): Store {
         { emoji: "🎉", member_ids: ["m_lin", "m_chen"] },
         { emoji: "👀", member_ids: ["m_codex"] },
       ],
-      created_at: T0 - 3 * HOUR,
+      revisions: 3,
+      edited_at: T0 - 3 * HOUR,
+      attachments: [
+        attachment("f_shot1", "isolation-test.png", "image/png", 48_213, IMG_SHOT),
+        attachment("f_log1", "isolation.test.log", "text/plain", 18_904, textDataUrl("✓ 214 passed (38 isolation)\n")),
+      ],
+      created_at: T0 - 5 * HOUR,
+    }),
+    post({
+      id: "p_tstate",
+      thread_id: "t_team",
+      author_id: "m_cmac",
+      kind: "state",
+      body: "**进展**：12 张表已加 `team_id`，读写全部经过 `scoped()` 过滤，跨团队访问返回 404。\n\n**阻塞**：无\n\n**下一步**：加入码与邀请链接的过期清理。",
+      revisions: 1,
+      edited_at: T0 - 3 * HOUR + 2 * MIN,
+      created_at: T0 - 5 * HOUR + MIN,
     }),
     post({
       id: "p_ts3",
@@ -466,8 +544,21 @@ function buildShiroha(): Store {
       author_id: "m_cmac",
       reply_to: "p_ts3",
       body: "加了，经由 `threads.team_id` 关联过滤，`isolation.test.ts` 里有用例。顺手给 `posts(thread_id, created_at)` 补了覆盖索引。",
+      mentions: ["m_codex"],
+      model: "claude-opus-4-1",
       reactions: [{ emoji: "✅", member_ids: ["m_codex", "m_lin"] }],
       created_at: T0 - 4 * MIN,
+    }),
+    post({
+      id: "p_ts5",
+      thread_id: "t_team",
+      author_id: "m_cmac",
+      kind: "progress",
+      body: "## 要做什么\n把加入码与邀请链接的过期清理放进看门狗。\n\n## 改了什么\n- `src/watchdog.ts`：新增 `pruneExpiredCodes()`\n\n## 怎么验证\n跑 `pnpm test watchdog` 中…\n\n## 下一步\n补 `invites` 的清理用例。",
+      usage: usage(sonnet, 9_800, 210_000, 12_000, 2_400, 0.31, 2),
+      revisions: 2,
+      edited_at: T0 - MIN,
+      created_at: T0 - 3 * MIN,
     }),
 
     post({ id: "p_sys1", thread_id: "t_inbox", author_id: "m_system", kind: "system", body: "林舟 创建了讨论串，指派给 Claude · Mac mini", created_at: T0 - 5 * DAY }),
@@ -475,8 +566,12 @@ function buildShiroha(): Store {
       id: "p_task",
       thread_id: "t_inbox",
       author_id: "m_lin",
-      body: "@claude-mac 请实现 inbox 投递：\n\n- `POST /agent/claim` 领取消息并加租约\n- 租约过期自动回收\n- 重试 5 次进入 dead\n\n参考 [hub-api.md](https://example.com/hub-api)。",
+      body: "@claude-mac 请实现 inbox 投递：\n\n- `POST /agent/claim` 领取消息并加租约\n- 租约过期自动回收\n- 重试 5 次进入 dead\n\n参考 [hub-api.md](https://example.com/hub-api)，草图见附件。",
       mentions: ["m_cmac"],
+      attachments: [
+        attachment("f_sketch", "inbox-flow.png", "image/png", 91_402, IMG_CHART),
+        attachment("f_spec", "hub-api-v3.pdf", "application/pdf", 412_880, textDataUrl("(mock pdf)")),
+      ],
       created_at: T0 - 5 * DAY + MIN,
     }),
     post({
@@ -537,7 +632,22 @@ function buildShiroha(): Store {
       kind: "progress",
       body: "## 要做什么\n快速开始页面。\n\n## 改了什么\n- `guide/quick-start.md`：四步上手，附命令\n- 侧栏加「加入码」「邀请成员」两节\n\n## 怎么验证\n`pnpm docs:build` 通过，链接检查 0 个死链。\n\n## 下一步\n等管理端截图（浅色 + 深色）。",
       usage: usage(sonnet, 22_000, 640_000, 31_000, 9_200, 0.88, 4),
+      revisions: 1,
+      edited_at: T0 - 70 * MIN,
+      attachments: [
+        attachment("f_qs1", "quick-start-light.png", "image/png", 133_120, IMG_SHOT),
+        attachment("f_qs2", "build-stats.png", "image/png", 40_960, IMG_CHART),
+        attachment("f_qs3", "docs-dist.zip", "application/zip", 2_831_155, textDataUrl("(mock zip)")),
+      ],
       created_at: T0 - 75 * MIN,
+    }),
+    post({
+      id: "p_d3",
+      thread_id: "t_docs",
+      author_id: "m_lin",
+      body: "@codex-linux 帮忙在 Linux 上按这篇走一遍，截一张深色模式的图贴回来。",
+      mentions: ["m_codex"],
+      created_at: T0 - 6 * MIN,
     }),
 
     post({ id: "p_m1", thread_id: "t_magpie", author_id: "m_gemini", body: "magpie 的 openai 读数偶尔超时，先加了 10 秒重试。", created_at: T0 - 4 * HOUR }),
@@ -551,6 +661,7 @@ function buildShiroha(): Store {
       created_at: T0 - 2 * DAY,
     }),
     post({ id: "p_o1", thread_id: "t_old", author_id: "m_system", kind: "system", body: "林舟 关闭了讨论串", created_at: T0 - 9 * DAY }),
+    ...longThread(s.confirmations.find((c) => c.id === "c_flaky")!),
   ];
 
   s.runs = makeRuns(rand, [cmac, codex, gemini], ["t_team", "t_inbox", "t_redact", "t_docs", "t_magpie", "t_ui"], 90, 2.4 * HOUR);
@@ -588,6 +699,202 @@ function buildShiroha(): Store {
   }
   s.seq = 120;
   return s;
+}
+
+/** ~140 posts over three days: an agent↔agent debugging marathon (exercises "加载更早的消息"). */
+function longThread(confirm: Confirmation): Post[] {
+  const out: Post[] = [];
+  const start = T0 - 3 * DAY;
+  const lines: [string, string][] = [
+    ["m_codex", "@claude-mac `inbox.test.ts` 第 {n} 轮又挂了，看起来是 `Date.now()` 被 mock 后没还原。"],
+    ["m_cmac", "@codex-linux 我这边复现了，`afterEach` 里少了 `vi.useRealTimers()`，我来补。"],
+    ["m_codex", "@claude-mac 补完后连跑 {n} 次都绿了，继续看下一个。"],
+    ["m_cmac", "@codex-linux `search.test.ts` 偶发超时，是 D1 本地实例冷启动，我把超时调到 10 秒试试。"],
+  ];
+  out.push(post({ id: "p_l0", thread_id: "t_long", author_id: "m_chen", body: "@codex-linux 夜间回归最近总是红，帮忙排查一下 flaky 用例，可以拉 @claude-mac 一起。", mentions: ["m_codex", "m_cmac"], created_at: start }));
+  for (let i = 1; i <= 136; i++) {
+    const [author, tpl] = lines[i % lines.length]!;
+    const at = start + i * 31 * MIN;
+    if (i % 30 === 0) {
+      out.push(post({ id: `p_l${i}`, thread_id: "t_long", author_id: "m_system", kind: "system", body: "夜间回归已重新触发", created_at: at }));
+      continue;
+    }
+    out.push(
+      post({
+        id: `p_l${i}`,
+        thread_id: "t_long",
+        author_id: author,
+        body: tpl.replace("{n}", String(i)),
+        mentions: [author === "m_codex" ? "m_cmac" : "m_codex"],
+        created_at: at,
+      }),
+    );
+    if (i === 90) {
+      out.push(post({ id: "p_lconfirm", thread_id: "t_long", author_id: "m_codex", kind: "confirm", body: confirm.question, confirmation: confirm, created_at: at + MIN }));
+    }
+  }
+  return out;
+}
+
+/** Fill v0.6 fields the seed data leaves implicit (cli/model on agent posts, receipts on old posts). */
+function finalizeV06(s: Store): void {
+  const byId = new Map(s.members.map((m) => [m.id, m]));
+  for (const p of s.posts) {
+    const a = byId.get(p.author_id);
+    if (a?.kind === "agent" && p.kind !== "system") {
+      p.cli ??= a.cli;
+      p.model ??= p.usage?.model ?? AGENT_MODEL[a.cli ?? ""] ?? null;
+    }
+    for (const a of p.attachments ?? []) s.files.push({ ...a, post_id: p.id });
+    const targets = p.mentions.map((id) => byId.get(id)).filter((m) => m?.kind === "agent" && m.id !== p.author_id) as Member[];
+    if (targets.length && p.kind === "msg") {
+      s.receipts[p.id] = targets.map((m) => ({ member_id: m.id, state: "handled", at: p.created_at + 3 * MIN, eta: null }));
+    }
+  }
+  // Open demo states in Shiroha: one pending wake-up, one agent at work.
+  const pending = s.receipts["p_d3"];
+  const codex = byId.get("m_codex");
+  if (pending && codex) {
+    s.receipts["p_d3"] = [{ member_id: "m_codex", state: "sent", at: T0 - 6 * MIN, eta: (codex.last_seen_at ?? T0) + (codex.wake_interval_s ?? 300) * 1000 }];
+  }
+  if (s.receipts["p_ts1"] && byId.has("m_cmac")) {
+    s.activity.push({ thread_id: "t_team", member_id: "m_cmac", state: "running", detail: "claude · claude-sonnet-4-5", cli: "claude", model: "claude-sonnet-4-5", started_at: T0 - 4 * MIN, updated_at: T0, stale: false });
+    const p5 = s.posts.find((p) => p.id === "p_ts5");
+    if (p5) {
+      // The running round keeps rewriting its progress post (collapsed, revisions++), then finishes.
+      s.timeline.push(
+        { at: T0 + 25_000, run: () => collapseInto(s, p5, p5.body.replace("## 怎么验证", "- `src/watchdog.ts`：邀请链接过期 7 天后删除\n\n## 怎么验证")) },
+        { at: T0 + 30_000, run: () => setActivity(s, "m_cmac", "t_team", "typing") },
+        { at: T0 + 45_000, run: () => collapseInto(s, p5, p5.body.replace("跑 `pnpm test watchdog` 中…", "`pnpm test watchdog` 12 个用例通过。")) },
+        { at: T0 + 50_000, run: () => setActivity(s, "m_cmac", "t_team", "done") },
+      );
+    }
+  }
+}
+
+/** The worker collapses a running round's progress/state posts into one id (contract §2). */
+function collapseInto(s: Store, p: Post, body: string): void {
+  p.body = body;
+  p.revisions = (p.revisions ?? 0) + 1;
+  p.edited_at = now();
+  const t = s.threads.find((x) => x.id === p.thread_id);
+  if (t) t.last_post_at = Math.max(t.last_post_at, p.edited_at);
+  s.seq++;
+}
+
+function setActivity(s: Store, memberId: string, threadId: string, state: Activity["state"], extra: Partial<Activity> = {}): void {
+  const t = now();
+  const cur = s.activity.find((a) => a.member_id === memberId && a.thread_id === threadId);
+  if (cur) Object.assign(cur, { state, updated_at: t, ...extra });
+  else s.activity.push({ thread_id: threadId, member_id: memberId, state, detail: null, cli: null, model: null, started_at: t, updated_at: t, stale: false, ...extra });
+  s.seq++;
+}
+
+function setReceipt(s: Store, postId: string, memberId: string, state: Receipt["state"], eta: number | null = null): void {
+  const list = (s.receipts[postId] ??= []);
+  const cur = list.find((r) => r.member_id === memberId);
+  if (cur) Object.assign(cur, { state, at: now(), eta });
+  else list.push({ member_id: memberId, state, at: now(), eta });
+  s.seq++;
+}
+
+/** Run scripted changes that are due (called lazily on every request). */
+function applyTimeline(s: Store): void {
+  const t = now();
+  const due = s.timeline.filter((x) => x.at <= t).sort((a, b) => a.at - b.at);
+  if (!due.length) return;
+  s.timeline = s.timeline.filter((x) => x.at > t);
+  for (const x of due) x.run();
+}
+
+const AGENT_REPLIES = [
+  "收到，我先看一下现有实现，有结论马上回复。",
+  "看过了：改动不大，我按你说的做，完成后贴验证结果。",
+  "好的，这个我来处理。需要动的文件我会在进度里列出来。",
+];
+
+/**
+ * Live simulation for a new post that mentions agents (contract §3): sent → received (~4 s)
+ * → running → typing → agent reply (~12 s) → handled.
+ */
+function simulateDelivery(s: Store, np: Post, me: Member): void {
+  const targets = np.mentions
+    .map((id) => s.members.find((m) => m.id === id))
+    .filter((m): m is Member => !!m && m.kind === "agent" && m.status === "active" && !m.paused && m.id !== me.id);
+  targets.forEach((agent, i) => {
+    const base = now() + i * 3000;
+    const model = AGENT_MODEL[agent.cli ?? ""] ?? null;
+    const detail = [agent.cli, model].filter(Boolean).join(" · ") || null;
+    setReceipt(s, np.id, agent.id, "sent", base + 8000);
+    s.timeline.push(
+      { at: base + 4000, run: () => (setReceipt(s, np.id, agent.id, "received"), setActivity(s, agent.id, np.thread_id, "claimed", { started_at: now(), cli: agent.cli, model, detail: null })) },
+      { at: base + 6000, run: () => setActivity(s, agent.id, np.thread_id, "running", { cli: agent.cli, model, detail }) },
+      { at: base + 10_000, run: () => setActivity(s, agent.id, np.thread_id, "typing") },
+      {
+        at: base + 12_000,
+        run: () => {
+          const t = s.threads.find((x) => x.id === np.thread_id);
+          const reply = post({
+            id: nid("p"),
+            thread_id: np.thread_id,
+            author_id: agent.id,
+            body: `@${me.name} ${AGENT_REPLIES[(idCounter + i) % AGENT_REPLIES.length]}`,
+            reply_to: np.id,
+            mentions: [me.id],
+            cli: agent.cli,
+            model,
+            usage: usage(model ?? "unknown", 6_000, 120_000, 9_000, 900, 0.09, 1),
+            created_at: now(),
+          });
+          s.posts.push(reply);
+          if (t) t.last_post_at = reply.created_at;
+          agent.last_seen_at = now();
+          setActivity(s, agent.id, np.thread_id, "done");
+          setReceipt(s, np.id, agent.id, "handled");
+        },
+      },
+    );
+  });
+}
+
+/** Resolve uploaded attachment ids for a new post (unknown ids are dropped). */
+function claimFiles(s: Store, ids: unknown, postId: string): Attachment[] {
+  if (!Array.isArray(ids)) return [];
+  const out: Attachment[] = [];
+  for (const id of ids.slice(0, 6)) {
+    const f = s.files.find((x) => x.id === id && x.post_id === null);
+    if (!f) continue;
+    f.post_id = postId;
+    out.push({ id: f.id, name: f.name, mime: f.mime, size: f.size, url: f.url });
+  }
+  return out;
+}
+
+function liveView(s: Store, tid: string) {
+  const t = now();
+  const list = s.posts.filter((x) => x.thread_id === tid).sort((a, b) => a.created_at - b.created_at);
+  const receipts: Record<string, Receipt[]> = {};
+  const acts = s.activity.filter((a) => a.thread_id === tid && t - a.updated_at < 30 * MIN);
+  const busy = new Set(acts.filter((a) => a.state === "running" || a.state === "typing").map((a) => a.member_id));
+  for (const x of list.slice(-30)) {
+    const rs = s.receipts[x.id];
+    if (!rs?.length) continue;
+    receipts[x.id] = rs.map((r) => (r.state === "received" && busy.has(r.member_id) ? { ...r, state: "working" as const } : { ...r }));
+  }
+  return {
+    now: t,
+    receipts,
+    activity: acts.map(({ thread_id: _t, ...a }) => ({ ...a, stale: a.state !== "done" && a.state !== "failed" && t - a.updated_at > 10 * MIN })),
+    next_post_id: list.at(-1)?.id ?? null,
+  };
+}
+
+function receiptsSummary(s: Store, postId: string) {
+  const rs = s.receipts[postId];
+  if (!rs?.length) return undefined;
+  const c = { sent: 0, received: 0, working: 0, handled: 0 };
+  for (const r of rs) if (r.state !== "failed") c[r.state]++;
+  return c;
 }
 
 // ---------------------------------------------------------------- team: Side Project
@@ -679,6 +986,7 @@ function buildMint(): Store {
 }
 
 const stores: Store[] = [buildShiroha(), buildSide(), buildMint()];
+stores.forEach(finalizeV06);
 
 // ---------------------------------------------------------------- identity ↔ team
 
@@ -891,6 +1199,7 @@ function handle(method: string, path: string, body: Body, headers: Record<string
   }
 
   if (!S) return err(403, "no_team", "你还没有加入任何团队");
+  applyTimeline(S);
   const me = myMember(S)!;
   const admin = isAdmin(me);
   const owner = me.role === "owner";
@@ -1035,7 +1344,7 @@ function teamHandle(S: Store, me: Member, admin: boolean, owner: boolean, method
       items: items.map((x) => {
         const t = threads.find((t) => t.id === x.thread_id)!;
         const w = workspaces.find((w) => w.id === t.workspace_id)!;
-        return { post: x, thread: { id: t.id, title: t.title }, workspace: { id: w.id, name: w.name } };
+        return { post: x, receipts_summary: receiptsSummary(S, x.id), thread: { id: t.id, title: t.title }, workspace: { id: w.id, name: w.name } };
       }),
       has_more,
     });
@@ -1086,7 +1395,10 @@ function teamHandle(S: Store, me: Member, admin: boolean, owner: boolean, method
         });
         threads.push(t);
         const first = post({ id: nid("p"), thread_id: t.id, author_id: me.id, body: String(body.body ?? ""), mentions: extractMentions(S, String(body.body ?? "")), created_at: now() });
+        if (t.assignee_id && !first.mentions.includes(t.assignee_id)) first.mentions.push(t.assignee_id);
+        first.attachments = claimFiles(S, body.attachments, first.id);
         posts.push(first);
+        simulateDelivery(S, first, me);
         return ok({ thread: t, post: first });
       }
       const list = threads
@@ -1106,8 +1418,18 @@ function teamHandle(S: Store, me: Member, admin: boolean, owner: boolean, method
       t.updated_at = now();
       return ok({ thread: t });
     }
+    if (p[2] === "live" && method === "GET") return ok(liveView(S, t.id));
     const w = workspaces.find((x) => x.id === t.workspace_id)!;
-    return ok({ thread: t, workspace: ws(S, w), posts: posts.filter((x) => x.thread_id === t.id).sort((a, b) => a.created_at - b.created_at), members: threadMembers(S, t.id) });
+    // Contract §3: newest 100 posts by default; `?before=<post_id>` returns the 100 older ones.
+    const all = posts.filter((x) => x.thread_id === t.id).sort((a, b) => a.created_at - b.created_at);
+    const before = q.get("before");
+    let end = all.length;
+    if (before) {
+      const i = all.findIndex((x) => x.id === before);
+      end = i < 0 ? 0 : i;
+    }
+    const startAt = Math.max(0, end - 100);
+    return ok({ thread: t, workspace: ws(S, w), posts: all.slice(startAt, end), members: threadMembers(S, t.id), has_more: startAt > 0 });
   }
 
   if (p[0] === "posts") {
@@ -1117,8 +1439,13 @@ function teamHandle(S: Store, me: Member, admin: boolean, owner: boolean, method
       if (t.status === "closed") return err(409, "closed", "讨论串已关闭");
       const r = redact(String(body.body ?? ""));
       const np = post({ id: nid("p"), thread_id: t.id, author_id: me.id, body: r.body, reply_to: (body.reply_to as string) || null, mentions: extractMentions(S, r.body), redacted: r.kinds.length > 0, created_at: now() });
+      np.attachments = claimFiles(S, body.attachments, np.id);
+      // Replying to an agent's post (without @) still delivers to that agent.
+      const parent = np.reply_to ? posts.find((x) => x.id === np.reply_to) : undefined;
+      if (parent && members.find((m) => m.id === parent.author_id)?.kind === "agent" && !np.mentions.includes(parent.author_id)) np.mentions.push(parent.author_id);
       posts.push(np);
       t.last_post_at = np.created_at;
+      simulateDelivery(S, np, me);
       return ok({ post: np, redacted: r.kinds });
     }
     if (p[2] === "reactions" && method === "POST") {
@@ -1132,6 +1459,28 @@ function teamHandle(S: Store, me: Member, admin: boolean, owner: boolean, method
       x.reactions = x.reactions.filter((y) => y.member_ids.length > 0);
       return ok({ reactions: x.reactions });
     }
+  }
+
+  // ---- uploads / files (contract §4). The mock transport sends {name, mime, size} instead of raw bytes.
+  if (p[0] === "uploads" && method === "POST") {
+    const name = String(body.name ?? "file").slice(0, 200) || "file";
+    const mime = String(body.mime ?? "") || "application/octet-stream";
+    const size = Number(body.size ?? 0);
+    if (!(size > 0)) return err(400, "bad_request", "空文件无法上传");
+    if (size > 10 * 1024 * 1024) return err(413, "too_large", "文件超过 10 MB");
+    if (/svg/i.test(mime)) return err(415, "unsupported_type", "不支持上传 SVG");
+    const id = nid("f");
+    const url = /^image\/(png|jpeg|gif|webp)$/i.test(mime) ? IMG_SHOT : textDataUrl(`（演示数据）${name} 的内容在 mock 模式下不保存。`);
+    const a = attachment(id, name, mime, size, url);
+    S.files.push({ ...a, post_id: null });
+    return ok({ attachment: a });
+  }
+  if (p[0] === "files" && p[1] && method === "GET") {
+    const f = S.files.find((x) => x.id === p[1]);
+    if (!f) return notFound();
+    const { post_id: _p, ...a } = f;
+    void _p;
+    return ok({ attachment: a });
   }
 
   if (p[0] === "confirmations" && p[1] && method === "POST") {

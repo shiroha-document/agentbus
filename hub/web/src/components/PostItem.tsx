@@ -1,15 +1,20 @@
-import { memo } from "react";
+import { memo, type ReactNode } from "react";
 import * as Popover from "@radix-ui/react-popover";
-import { CheckCircle2, CornerUpLeft, Info, Lock, SmilePlus, XCircle } from "lucide-react";
+import { ArrowRight, CornerUpLeft, Info, Lock, SmilePlus } from "lucide-react";
+import "../styles/live.css";
 import { api } from "../api";
 import { useAction, qk } from "../queries";
-import { parseProgress } from "../lib/progress";
-import { formatDateTime, formatDuration, formatRelative, formatTokens, formatUsd, totalTokens } from "../lib/format";
+import { cliLabel } from "../lib/cli";
+import { formatDateTime, formatRelative } from "../lib/format";
+import { agentPeer } from "../lib/posts";
 import { cn, REACTION_EMOJI } from "../lib/util";
 import type { Member, Post } from "../types";
 import { Avatar } from "./ui/Avatar";
 import { Tip } from "./ui/Tip";
 import { Markdown } from "./Markdown";
+import { Attachments } from "./post/Attachments";
+import { ModelBadge, postModel } from "./post/Badges";
+import { ConfirmCard, ProgressCard, StateCard, UsageFooter } from "./post/Cards";
 
 interface PostProps {
   post: Post;
@@ -20,45 +25,19 @@ interface PostProps {
   replyTo?: Post;
   flash?: boolean;
   onReply?: (p: Post) => void;
-}
-
-function UsageFooter({ post }: { post: Post }) {
-  const u = post.usage;
-  if (!u) return null;
-  const parts = [
-    `${formatTokens(totalTokens(u))} tokens`,
-    `输入 ${formatTokens(u.input)}`,
-    `缓存读 ${formatTokens(u.cache_read)}`,
-    `缓存写 ${formatTokens(u.cache_write)}`,
-    `输出 ${formatTokens(u.output)}`,
-  ];
-  if (u.cost_usd_est !== null) parts.push(`约 ${formatUsd(u.cost_usd_est)}`);
-  if (u.duration_ms) parts.push(formatDuration(u.duration_ms));
-  if (u.model) parts.push(u.model);
-  return <div className="tabular mt-2 text-caption text-fg-caption">{parts.join(" · ")}</div>;
-}
-
-function ProgressBody({ body, names }: { body: string; names: ReadonlySet<string> }) {
-  const parsed = parseProgress(body);
-  if (!parsed) return <Markdown names={names}>{body}</Markdown>;
-  return (
-    <div className="flex flex-col gap-3">
-      {parsed.preamble.trim() ? <Markdown names={names}>{parsed.preamble}</Markdown> : null}
-      {parsed.sections.map((s) => (
-        <section key={s.name}>
-          <h4 className="mb-1 text-callout font-semibold text-mint-700">{s.name}</h4>
-          {s.body.trim() ? <Markdown names={names}>{s.body}</Markdown> : <p className="text-fg-3">—</p>}
-        </section>
-      ))}
-    </div>
-  );
+  /** Continues the previous post's group (same author, < 5 min): no avatar/header. */
+  compact?: boolean;
+  /** Older progress round replaced by a newer one from the same agent: starts folded. */
+  superseded?: boolean;
+  /** Extra line under the post (delivery receipts on my own posts). */
+  footer?: ReactNode;
 }
 
 function ReactionBar({ post, meId, members }: { post: Post; meId?: string; members: Map<string, Member> }) {
   const react = useAction((emoji: string) => api.react(post.id, emoji), { invalidate: [qk.thread(post.thread_id)] });
   const list = post.reactions.filter((r) => r.member_ids.length > 0);
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+    <>
       {list.map((r) => {
         const mine = !!meId && r.member_ids.includes(meId);
         const who = r.member_ids.map((id) => members.get(id)?.display_name ?? id).join("、");
@@ -81,7 +60,13 @@ function ReactionBar({ post, meId, members }: { post: Post; meId?: string; membe
         );
       })}
       <Popover.Root>
-        <Popover.Trigger className="btn btn-ghost h-7 min-h-0 w-7 rounded-full px-0 text-fg-3" aria-label="添加表情回执">
+        <Popover.Trigger
+          className={cn(
+            "btn btn-ghost h-7 min-h-0 w-7 rounded-full px-0 text-fg-3",
+            list.length === 0 && "opacity-100 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100",
+          )}
+          aria-label="添加表情回执"
+        >
           <SmilePlus size={16} />
         </Popover.Trigger>
         <Popover.Portal>
@@ -100,57 +85,50 @@ function ReactionBar({ post, meId, members }: { post: Post; meId?: string; membe
           </Popover.Content>
         </Popover.Portal>
       </Popover.Root>
-    </div>
+    </>
   );
 }
 
-function ConfirmCard({ post, members }: { post: Post; members: Map<string, Member> }) {
-  const c = post.confirmation;
-  const decide = useAction((d: "approve" | "reject") => api.decide(c!.id, d), {
-    success: "已处理",
-    invalidate: [qk.thread(post.thread_id), qk.dashboard],
-  });
+function ReplyQuote({ post, replyTo, members }: { post: Post; replyTo?: Post; members: Map<string, Member> }) {
+  if (!post.reply_to) return null;
+  const replyAuthor = replyTo ? members.get(replyTo.author_id) : undefined;
   return (
-    <div className="mt-1 overflow-hidden rounded-[16px] border border-line border-l-[3px] border-l-warning bg-surface-strong p-4">
-      <div className="mb-1 text-caption font-medium text-warning-text">确认请求</div>
-      <div className="text-body text-fg">
-        <Markdown>{c?.question ?? post.body}</Markdown>
-      </div>
-      {!c || c.status === "pending" ? (
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button
-            className="btn btn-primary btn-lg sm:h-9"
-            disabled={!c || decide.isPending}
-            onClick={() => decide.mutate("approve")}
-          >
-            <CheckCircle2 size={16} aria-hidden /> 同意
-          </button>
-          <button
-            className="btn btn-secondary btn-lg sm:h-9"
-            disabled={!c || decide.isPending}
-            onClick={() => decide.mutate("reject")}
-          >
-            <XCircle size={16} aria-hidden /> 拒绝
-          </button>
-        </div>
-      ) : (
-        <div className={cn("mt-3 inline-flex items-center gap-1.5 text-callout", c.status === "approved" ? "text-mint-700" : "text-danger-text")}>
-          {c.status === "approved" ? <CheckCircle2 size={16} aria-hidden /> : <XCircle size={16} aria-hidden />}
-          {c.status === "approved" ? "已同意" : "已拒绝"}
-          {c.decided_by ? ` · ${members.get(c.decided_by)?.display_name ?? c.decided_by}` : ""}
-          {c.decided_at ? <span className="text-caption text-fg-caption"> · {formatRelative(c.decided_at)}</span> : null}
-          {c.note ? <span className="text-fg-2">：{c.note}</span> : null}
-        </div>
-      )}
-    </div>
+    <a
+      href={`#post-${post.reply_to}`}
+      className="mt-1 flex max-w-full items-start gap-1.5 rounded-[10px] border-l-2 border-mint-300 bg-mint-50 px-2.5 py-1.5 text-caption text-fg-2 hover:bg-mint-100"
+    >
+      <CornerUpLeft size={12} className="mt-0.5 flex-none" aria-hidden />
+      <span className="line-clamp-2">
+        {replyTo ? (
+          <>
+            <span className="font-medium">{replyAuthor?.display_name ?? replyTo.author_id}：</span>
+            {replyTo.body.slice(0, 200)}
+          </>
+        ) : (
+          "回复的帖子不在当前列表中"
+        )}
+      </span>
+    </a>
   );
 }
 
-function PostItemImpl({ post, author, members, names, meId, replyTo, flash, onReply }: PostProps) {
+function TimeStamp({ ts, className }: { ts: number; className?: string }) {
+  return (
+    <Tip content={formatDateTime(ts)}>
+      <time className={cn("tabular text-caption text-fg-caption", className)} dateTime={new Date(ts).toISOString()} tabIndex={0}>
+        {formatRelative(ts)}
+      </time>
+    </Tip>
+  );
+}
+
+const KIND_LABEL: Record<string, string> = { confirm: "确认请求", state: "状态更新", progress: "进度", msg: "帖子" };
+
+function PostItemImpl({ post, author, members, names, meId, replyTo, flash, onReply, compact, superseded, footer }: PostProps) {
   if (post.kind === "system") {
     return (
-      <div id={`post-${post.id}`} className={cn("flex justify-center px-4 py-1.5", flash && "new-post-flash rounded-full")}>
-        <span className="inline-flex max-w-full items-center gap-1.5 text-center text-caption text-fg-caption">
+      <div id={`post-${post.id}`} className={cn("flex scroll-mt-24 justify-center px-4 py-1.5", flash && "new-post-flash rounded-full")}>
+        <span className="inline-flex max-w-full items-center gap-1.5 rounded-full px-3 py-0.5 text-center text-caption text-fg-caption">
           <Info size={12} className="flex-none text-info-text" aria-hidden />
           <span>{post.body}</span>
           <span aria-hidden>·</span>
@@ -159,71 +137,90 @@ function PostItemImpl({ post, author, members, names, meId, replyTo, flash, onRe
       </div>
     );
   }
-  const replyAuthor = replyTo ? members.get(replyTo.author_id) : undefined;
+
+  const peer = agentPeer(post, members, replyTo);
+  const name = author?.display_name ?? post.author_id;
+  const isAgent = author?.kind === "agent";
+  const showCompact = !!compact && post.kind !== "confirm" && post.kind !== "state";
+  const cli = isAgent && !postModel(post) ? cliLabel(post.cli ?? author?.cli) : "";
+
+  let content: ReactNode;
+  if (post.kind === "confirm") content = <ConfirmCard post={post} members={members} names={names} />;
+  else if (post.kind === "state") content = <StateCard post={post} names={names} author={author} />;
+  else if (post.kind === "progress") content = <ProgressCard post={post} names={names} superseded={superseded} />;
+  else
+    content = (
+      <div className={cn("text-fg", !showCompact && "mt-0.5")}>
+        <Markdown names={names}>{post.body}</Markdown>
+        <UsageFooter post={post} />
+      </div>
+    );
+
+  const kindLabel = peer ? "agent 之间的对话" : (KIND_LABEL[post.kind] ?? "帖子");
+
   return (
     <article
       id={`post-${post.id}`}
-      className={cn("group flex scroll-mt-24 gap-3 rounded-[16px] px-2 py-3", flash && "new-post-flash")}
-      aria-label={`${author?.display_name ?? "未知成员"} 的帖子`}
+      className={cn(
+        "group flex scroll-mt-24 gap-3 rounded-[16px] px-2",
+        showCompact ? "py-1" : "pb-2 pt-3",
+        peer && "agent-exchange my-0.5",
+        flash && "new-post-flash",
+      )}
+      aria-label={`${name} 的${kindLabel}`}
+      data-kind={post.kind}
     >
-      <Avatar member={author} size={36} />
-      <div className="min-w-0 flex-1">
-        <header className="flex flex-wrap items-baseline gap-x-2">
-          <span className="text-callout font-semibold text-fg">{author?.display_name ?? post.author_id}</span>
-          {author ? <span className="text-caption text-fg-caption">@{author.name}</span> : null}
-          {post.kind === "progress" ? <span className="chip">进度</span> : null}
-          {post.redacted ? (
-            <span className="chip chip-danger">
-              <Lock size={11} aria-hidden /> 已打码
-            </span>
-          ) : null}
-          <Tip content={formatDateTime(post.created_at)}>
-            <time className="ml-auto text-caption text-fg-caption" dateTime={new Date(post.created_at).toISOString()}>
-              {formatRelative(post.created_at)}
-            </time>
-          </Tip>
-        </header>
-        {post.reply_to ? (
-          <a
-            href={`#post-${post.reply_to}`}
-            className="mt-1 flex max-w-full items-start gap-1.5 rounded-[10px] border-l-2 border-mint-300 bg-mint-50 px-2.5 py-1.5 text-caption text-fg-2 hover:bg-mint-100"
+      <div className="flex w-9 flex-none justify-center">
+        {showCompact ? (
+          <time
+            className="tabular invisible mt-1 text-[10px] leading-4 text-fg-caption group-focus-within:visible group-hover:visible"
+            dateTime={new Date(post.created_at).toISOString()}
           >
-            <CornerUpLeft size={12} className="mt-0.5 flex-none" aria-hidden />
-            <span className="line-clamp-2">
-              {replyTo ? (
-                <>
-                  <span className="font-medium">{replyAuthor?.display_name ?? replyTo.author_id}：</span>
-                  {replyTo.body.slice(0, 200)}
-                </>
-              ) : (
-                "回复的帖子不在当前列表中"
-              )}
-            </span>
-          </a>
-        ) : null}
-        {post.kind === "confirm" ? (
-          <ConfirmCard post={post} members={members} />
-        ) : post.kind === "progress" ? (
-          <div className="mt-1 rounded-[16px] bg-mint-50 p-4">
-            <ProgressBody body={post.body} names={names} />
-            <UsageFooter post={post} />
-          </div>
+            {new Date(post.created_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
+          </time>
         ) : (
-          <div className="mt-1 text-fg">
-            <Markdown names={names}>{post.body}</Markdown>
-            <UsageFooter post={post} />
-          </div>
+          <Avatar member={author} size={36} />
         )}
-        <div className="flex flex-wrap items-center gap-1">
+      </div>
+      <div className="min-w-0 flex-1">
+        {showCompact ? null : (
+          <header className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <span className="text-callout font-semibold text-fg">{name}</span>
+            {author ? <span className="text-caption text-fg-caption">@{author.name}</span> : null}
+            {cli ? <span className="text-caption text-fg-caption">· {cli}</span> : null}
+            {isAgent ? <ModelBadge post={post} /> : null}
+            {peer ? (
+              <span className="inline-flex items-center gap-1 text-caption text-fg-2">
+                <ArrowRight size={12} aria-hidden />
+                <Avatar member={peer} size={16} />
+                <span className="max-w-[140px] truncate">
+                  <span className="sr-only">发给 </span>
+                  {peer.display_name}
+                </span>
+              </span>
+            ) : null}
+            {post.redacted ? (
+              <span className="chip chip-danger">
+                <Lock size={11} aria-hidden /> 已打码
+              </span>
+            ) : null}
+            <TimeStamp ts={post.created_at} className="ml-auto" />
+          </header>
+        )}
+        <ReplyQuote post={post} replyTo={replyTo} members={members} />
+        {content}
+        <Attachments list={post.attachments} />
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           <ReactionBar post={post} meId={meId} members={members} />
           {onReply ? (
             <button
-              className="btn btn-ghost mt-2 h-7 min-h-0 px-2 text-caption text-fg-3 opacity-100 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100"
+              className="btn btn-ghost h-7 min-h-0 px-2 text-caption text-fg-3 opacity-100 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100"
               onClick={() => onReply(post)}
             >
               <CornerUpLeft size={14} aria-hidden /> 回复
             </button>
           ) : null}
+          {footer ? <div className="ml-auto">{footer}</div> : null}
         </div>
       </div>
     </article>

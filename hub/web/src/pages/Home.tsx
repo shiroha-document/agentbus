@@ -2,19 +2,25 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { motion, useReducedMotion } from "motion/react";
-import { AlertCircle, ArrowRight, Coins, MailWarning, MessageSquareText, Send, Sparkles, Terminal, UserPlus, Zap } from "lucide-react";
+import { AlertCircle, ArrowRight, Coins, MailWarning, MessageSquareText, Paperclip, Send, Sparkles, Terminal, UserPlus, Zap } from "lucide-react";
 import { api } from "../api";
-import { qk, useAction, useMe, useRole, useWorkspaces } from "../queries";
+import { qk, useAction, useMe, useMembers, useRole, useWorkspaces } from "../queries";
 import { useAddAgent } from "../components/AddAgentDialog";
 import { buildHeatmap } from "../lib/heatmap";
 import { formatInt, formatRelative, formatTokens, formatUsd, greeting } from "../lib/format";
 import { enterVariants } from "../lib/motion";
+import { extractMentions } from "../lib/mentions";
+import { track } from "../lib/telemetry";
 import { cn } from "../lib/util";
 import type { DashboardResponse, FeedItem, Member } from "../types";
 import { Avatar } from "../components/ui/Avatar";
 import { AnimatedNumber } from "../components/ui/AnimatedNumber";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Tip } from "../components/ui/Tip";
+import { toast } from "../components/ui/Toast";
+import { AttachButton, AttachmentTray, DropHint, RichEditor, SEND_HINT, useDropZone } from "../components/composer/RichEditor";
+import { useAttachments } from "../components/composer/useAttachments";
+import { FeedTick } from "../components/live/ReceiptTicks";
 import { Markdown } from "../components/Markdown";
 import { QueryError } from "../components/layout/RouteStates";
 import { ThreadCard, useMemberMap } from "../components/threads";
@@ -24,38 +30,57 @@ const PAGE = 30;
 function QuickPost() {
   const navigate = useNavigate();
   const workspaces = useWorkspaces();
+  const members = useMembers();
   const active = (workspaces.data?.workspaces ?? []).filter((w) => w.status === "active");
   const [ws, setWs] = useState("");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const attachments = useAttachments();
+  const drop = useDropZone(attachments);
   const wsId = ws || active[0]?.id || "";
+  const candidates = useMemo(() => (members.data?.members ?? []).filter((m) => m.status === "active"), [members.data]);
   const create = useAction(
     () => {
       const text = body.trim();
       const firstLine = text.split("\n")[0]!.replace(/^#+\s*/, "").slice(0, 80);
-      return api.createThread({ workspace_id: wsId, title: title.trim() || firstLine, body: text });
+      return api.createThread({
+        workspace_id: wsId,
+        title: title.trim() || firstLine,
+        body: text,
+        ...(attachments.ids.length ? { attachments: attachments.ids } : {}),
+      });
     },
     { success: "已发布" },
   );
+  const canSend = !!wsId && !!body.trim() && !create.isPending && !attachments.uploading;
   const submit = () => {
-    if (!wsId || !body.trim() || create.isPending) return;
+    if (!canSend) {
+      if (attachments.uploading && body.trim()) toast("附件还在上传，稍等一下再发布", "info");
+      return;
+    }
+    const nAtt = attachments.ids.length;
+    const nMentions = extractMentions(body).length;
     create.mutate(undefined, {
       onSuccess: (r) => {
+        track("post.create", { surface: "home", attachments: nAtt, mentions: nMentions, reply: false });
         setBody("");
         setTitle("");
+        attachments.clear();
         void navigate({ to: "/threads/$id", params: { id: r.thread.id } });
       },
     });
   };
   return (
     <form
-      className="glass-3 rounded-[28px] p-5 sm:p-6"
+      className="glass-3 relative rounded-[28px] p-5 sm:p-6"
       onSubmit={(e) => {
         e.preventDefault();
         submit();
       }}
       aria-label="快速发帖"
+      {...drop.handlers}
     >
+      <DropHint show={drop.dragging} />
       <div className="flex flex-col gap-3 sm:flex-row">
         <select
           className="field sm:w-48"
@@ -80,24 +105,27 @@ function QuickPost() {
           aria-label="标题"
         />
       </div>
-      <textarea
-        className="field mt-3 min-h-[96px] resize-y py-3 text-body"
-        placeholder="给 agent 布置点什么？用 @名字 指派，⌘/Ctrl + Enter 发送"
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
-        onKeyDown={(e) => {
-          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-            e.preventDefault();
-            submit();
-          }
-        }}
-        aria-label="内容"
-      />
-      <div className="mt-3 flex items-center justify-between gap-3">
-        <span className="text-caption text-fg-caption">支持 Markdown；会新建一个讨论串</span>
-        <button type="submit" className="btn btn-primary btn-lg sm:h-10" disabled={!wsId || !body.trim() || create.isPending}>
+      <div className="field relative z-10 mt-3 px-2 py-1.5">
+        <RichEditor
+          value={body}
+          onChange={setBody}
+          members={candidates}
+          attachments={attachments}
+          onSubmit={submit}
+          allowAll={false}
+          popup="below"
+          placeholder={`给 agent 布置点什么？输入 @ 选择 agent，可粘贴或拖入图片和文件，${SEND_HINT}`}
+          ariaLabel="内容"
+          className="min-h-[96px] px-1 py-1.5"
+        />
+        <AttachmentTray attachments={attachments} />
+      </div>
+      <div className="mt-3 flex items-center gap-2">
+        <AttachButton attachments={attachments} />
+        <span className="hidden text-caption text-fg-caption sm:inline">支持 Markdown；会新建一个讨论串，@ 到的 agent 会收到通知</span>
+        <button type="submit" className="btn btn-primary btn-lg ml-auto sm:h-10" disabled={!canSend}>
           <Send size={16} aria-hidden />
-          {create.isPending ? "发送中…" : "发布"}
+          {create.isPending ? "发送中…" : attachments.uploading ? "上传中…" : "发布"}
         </button>
       </div>
       {active.length === 0 && workspaces.isSuccess ? (
@@ -294,7 +322,10 @@ function FeedEntry({ item, author, names }: { item: FeedItem; author?: Member; n
               {item.workspace.name}
             </Link>
           </span>
-          <span className="ml-auto text-caption text-fg-caption">{formatRelative(p.created_at)}</span>
+          <span className="ml-auto inline-flex items-center gap-1.5 text-caption text-fg-caption">
+            <FeedTick summary={item.receipts_summary} />
+            {formatRelative(p.created_at)}
+          </span>
         </div>
         <Link
           to="/threads/$id"
@@ -312,6 +343,11 @@ function FeedEntry({ item, author, names }: { item: FeedItem; author?: Member; n
             <Markdown names={names}>{p.body}</Markdown>
           </div>
         )}
+        {p.attachments?.length ? (
+          <span className="mt-1.5 inline-flex items-center gap-1 text-caption text-fg-caption">
+            <Paperclip size={12} aria-hidden /> {p.attachments.length} 个附件
+          </span>
+        ) : null}
       </div>
     </article>
   );
@@ -440,7 +476,7 @@ export function HomePage() {
         {d ? <StatChips stats={d.stats} /> : <div className="skeleton h-10 w-80 max-w-full rounded-full" />}
       </motion.header>
 
-      <motion.div variants={v} initial="hidden" animate="show" custom={1}>
+      <motion.div variants={v} initial="hidden" animate="show" custom={1} className="relative z-20">
         <QuickPost />
       </motion.div>
 

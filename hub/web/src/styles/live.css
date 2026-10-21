@@ -1,0 +1,300 @@
+/* v0.6 live status + message area (Web-1). Only existing CSS variables, so [data-theme]
+   switches recolour everything for free. Imported from components/live and components/post. */
+
+/* ---------------------------------------------------------------- receipt ticks */
+
+.receipt {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 20px;
+  border-radius: 999px;
+  color: var(--text-cap);
+  font-size: 12px;
+  line-height: 16px;
+}
+.receipt:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.receipt-ticks {
+  position: relative;
+  display: inline-flex;
+  width: 18px;
+  height: 12px;
+  flex: none;
+}
+.receipt-ticks svg {
+  position: absolute;
+  top: 0;
+  width: 12px;
+  height: 12px;
+}
+.receipt-ticks svg:first-child {
+  left: 0;
+}
+.receipt-ticks svg + svg {
+  left: 5px;
+}
+.receipt[data-state="sent"] .receipt-ticks {
+  color: var(--text-3);
+}
+.receipt[data-state="received"] .receipt-ticks {
+  color: var(--text-2);
+}
+.receipt[data-state="working"] .receipt-ticks {
+  color: var(--mint-600);
+}
+.receipt[data-state="working"] .receipt-ticks svg + svg {
+  animation: receipt-work 1.2s ease-in-out infinite;
+}
+.receipt[data-state="handled"] .receipt-ticks {
+  color: var(--mint-600);
+}
+.receipt[data-state="handled"] {
+  color: var(--mint-700);
+}
+.receipt[data-state="failed"],
+.receipt[data-state="failed"] .receipt-ticks {
+  color: var(--danger-text);
+}
+
+/* Feed: a single tiny tick next to the timestamp. */
+.feed-tick {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-3);
+}
+.feed-tick[data-state="handled"],
+.feed-tick[data-state="working"] {
+  color: var(--mint-600);
+}
+.feed-tick[data-state="working"] {
+  animation: receipt-work 1.2s ease-in-out infinite;
+}
+
+@keyframes receipt-work {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* ---------------------------------------------------------------- activity bar */
+
+.activity-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  border-radius: 16px;
+  background: var(--surface-strong);
+  border: 1px solid var(--border);
+  box-shadow: var(--elev-1);
+}
+.activity-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--text-2);
+}
+.activity-row[data-stale="true"] {
+  color: var(--warning-text);
+}
+
+.typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 12px;
+  padding: 0 2px;
+}
+.typing-dots span {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--mint-600);
+  animation: typing-dot 1.2s ease-in-out infinite;
+}
+.typing-dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.typing-dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+.activity-row[data-stale="true"] .typing-dots span {
+  background: var(--warning);
+  animation: none;
+}
+@keyframes typing-dot {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  30% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+
+.spin-slow {
+  animation: spin-slow 1.6s linear infinite;
+}
+@keyframes spin-slow {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---------------------------------------------------------------- message area */
+
+.day-sep {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 4px 4px;
+  color: var(--text-cap);
+  font-size: 12px;
+  line-height: 16px;
+}
+.day-sep::before,
+.day-sep::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* agent ↔ agent: muted surface with a connector line on the left. */
+.agent-exchange {
+  position: relative;
+  background: color-mix(in oklch, var(--mint-50) 70%, transparent);
+}
+.agent-exchange::before {
+  content: "";
+  position: absolute;
+  left: 19px;
+  top: 44px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 2px;
+  background: linear-gradient(var(--mint-300), transparent);
+  opacity: 0.6;
+}
+
+.model-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+}
+
+.confirm-card {
+  position: relative;
+  border: 1px solid color-mix(in oklch, var(--warning) 55%, transparent);
+  background: linear-gradient(135deg, var(--warning-bg), var(--surface-strong) 60%);
+  box-shadow: var(--elev-1);
+}
+.confirm-card[data-pending="true"]::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 2px solid var(--warning);
+  opacity: 0;
+  animation: confirm-pulse 2.4s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes confirm-pulse {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.state-card {
+  border: 1px solid color-mix(in oklch, var(--info) 35%, transparent);
+  background: linear-gradient(135deg, color-mix(in oklch, var(--info) 10%, transparent), var(--surface-strong) 70%);
+}
+
+.att-thumb {
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--heat-0);
+}
+.att-thumb:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.att-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 200ms ease;
+}
+.att-thumb:hover img {
+  transform: scale(1.03);
+}
+
+.att-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--mint-500);
+  transition: width 200ms linear;
+}
+
+.drop-hint {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: inherit;
+  border: 2px dashed var(--mint-500);
+  background: color-mix(in oklch, var(--mint-100) 85%, transparent);
+  color: var(--mint-700);
+  font-weight: 600;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .receipt[data-state="working"] .receipt-ticks svg + svg,
+  .feed-tick[data-state="working"],
+  .typing-dots span,
+  .spin-slow,
+  .confirm-card[data-pending="true"]::after {
+    animation: none !important;
+  }
+  .typing-dots span {
+    opacity: 0.7;
+  }
+  .att-thumb:hover img {
+    transform: none;
+  }
+}

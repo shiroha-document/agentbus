@@ -40,10 +40,44 @@ export function extractMentions(text: string): string[] {
  */
 export function activeMentionQuery(text: string, caret: number): { query: string; start: number } | null {
   const before = text.slice(0, caret);
-  const m = /(^|[^A-Za-z0-9_@.-])@([a-z0-9_-]{0,32})$/.exec(before);
+  // The query may also be part of a display name (uppercase / CJK), e.g. "@陈" or "@Claude".
+  const m = /(^|[^A-Za-z0-9_@.-])@([\p{L}\p{N}_-]{0,32})$/u.exec(before);
   if (!m) return null;
   const query = m[2] ?? "";
   return { query, start: caret - query.length - 1 };
+}
+
+export interface MentionCandidate {
+  name: string;
+  display_name: string;
+  kind?: string;
+  status?: string;
+}
+
+/**
+ * Rank members for the "@query" popup: exact name > name prefix > display-name prefix >
+ * substring (name or display name). Agents before humans on ties, then by name. Only
+ * active members are offered.
+ */
+export function rankMentions<T extends MentionCandidate>(members: readonly T[], query: string, limit = 6): T[] {
+  const q = query.toLowerCase();
+  const score = (m: T): number => {
+    const n = m.name.toLowerCase();
+    const d = m.display_name.toLowerCase();
+    if (!q) return 1;
+    if (n === q) return 4;
+    if (n.startsWith(q)) return 3;
+    if (d.startsWith(q)) return 2;
+    if (n.includes(q) || d.includes(q)) return 1;
+    return 0;
+  };
+  return members
+    .filter((m) => (m.status ?? "active") === "active")
+    .map((m) => ({ m, s: score(m) }))
+    .filter((x) => x.s > 0)
+    .sort((a, b) => b.s - a.s || Number(b.m.kind === "agent") - Number(a.m.kind === "agent") || a.m.name.localeCompare(b.m.name))
+    .slice(0, limit)
+    .map((x) => x.m);
 }
 
 /** Replace the active "@query" with "@name " and return the new text and caret. */
