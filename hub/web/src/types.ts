@@ -65,7 +65,7 @@ export interface Thread {
   updated_at: number;
 }
 
-export type PostKind = "msg" | "progress" | "confirm" | "system";
+export type PostKind = "msg" | "progress" | "confirm" | "system" | "state";
 
 export interface Usage {
   input: number;
@@ -110,6 +110,73 @@ export interface Post {
   reactions: Reaction[];
   confirmation: Confirmation | null;
   created_at: number;
+  // v0.6 (docs/design/v06-contract.md §2)
+  model?: string | null;
+  cli?: string | null;
+  edited_at?: number | null;
+  revisions?: number;
+  attachments?: Attachment[];
+}
+
+export interface Attachment {
+  id: string;
+  name: string;
+  mime: string;
+  size: number;
+  url: string;
+}
+
+// ---- v0.6 live status (contract §3)
+export type ReceiptState = "sent" | "received" | "working" | "handled" | "failed";
+export interface Receipt {
+  member_id: string;
+  state: ReceiptState;
+  at: number;
+  eta: number | null;
+}
+export type ActivityState = "claimed" | "running" | "typing" | "done" | "failed";
+export interface Activity {
+  member_id: string;
+  state: ActivityState;
+  detail: string | null;
+  cli: string | null;
+  model: string | null;
+  started_at: number;
+  updated_at: number;
+  stale: boolean;
+}
+export interface ThreadLive {
+  now: number;
+  receipts: Record<string, Receipt[]>;
+  activity: Activity[];
+  next_post_id: string | null;
+}
+
+// ---- v0.6 analytics (contract §5)
+export interface TelemetryEvent {
+  name: string;
+  at?: number;
+  props?: Record<string, string | number | boolean>;
+  duration_ms?: number;
+  ok?: boolean;
+  client_version?: string;
+  os?: string;
+}
+export interface AnalyticsResponse {
+  days: number;
+  totals: { events: number; active_humans: number; active_agents: number; posts: number; runs: number; failed_runs: number };
+  daily: { day: string; web: number; cli: number; hub: number; posts: number }[];
+  top_events: { name: string; source: string; n: number }[];
+  cli_commands: { cmd: string; n: number; failed: number; p50_ms: number | null }[];
+  pages: { path: string; n: number }[];
+  clients: { version: string; n: number }[];
+  adapters: { cli: string; members: number; runs: number }[];
+  latency: { claim_p50_ms: number | null; claim_p90_ms: number | null; reply_p50_ms: number | null; reply_p90_ms: number | null };
+  posts_by_kind: { kind: string; n: number }[];
+}
+export interface VersionResponse {
+  server_version: string;
+  min_client_version: string;
 }
 
 export interface Run {
@@ -248,6 +315,7 @@ export interface DashboardResponse {
 
 export interface FeedItem {
   post: Post;
+  receipts_summary?: { sent: number; received: number; working: number; handled: number };
   thread: { id: string; title: string };
   workspace: { id: string; name: string };
 }
@@ -275,6 +343,7 @@ export interface ThreadDetailResponse {
   workspace: Workspace;
   posts: Post[];
   members: Member[];
+  has_more?: boolean;
 }
 
 export interface MemberWithStats extends Member {

@@ -1,5 +1,10 @@
 import type {
+  AnalyticsResponse,
   ApiErrorBody,
+  Attachment,
+  TelemetryEvent,
+  ThreadLive,
+  VersionResponse,
   AuditResponse,
   Budget,
   DashboardResponse,
@@ -214,13 +219,19 @@ export const api = {
 
   threads: (p: { workspace?: string; status?: ThreadStatus | ""; assignee?: string }) =>
     get<ThreadsResponse>(`/threads${qs(p)}`),
-  createThread: (body: { workspace_id: string; title: string; body: string; assignee?: string }) =>
+  createThread: (body: { workspace_id: string; title: string; body: string; assignee?: string; attachments?: string[] }) =>
     post<{ thread: Thread; post: Post }>("/threads", body),
-  thread: (id: string) => get<ThreadDetailResponse>(`/threads/${enc(id)}`),
+  thread: (id: string, before?: string) => get<ThreadDetailResponse>(`/threads/${enc(id)}${qs({ before })}`),
+  threadLive: (id: string) => get<ThreadLive>(`/threads/${enc(id)}/live`),
   updateThread: (id: string, body: ThreadPatch) => patch<{ thread: Thread }>(`/threads/${enc(id)}`, body),
 
-  createPost: (body: { thread_id: string; body: string; reply_to?: string }) =>
+  createPost: (body: { thread_id: string; body: string; reply_to?: string; attachments?: string[] }) =>
     post<{ post: Post; redacted: string[] }>("/posts", body),
+  /** Raw upload (not JSON): contract §4. */
+  upload: (file: File) => uploadFile(file),
+  events: (events: TelemetryEvent[]) => post<unknown>("/events", { events }),
+  analytics: (days = 30) => get<AnalyticsResponse>(`/analytics${qs({ days })}`),
+  version: () => get<VersionResponse>("/version"),
   react: (postId: string, emoji: string) => post<{ reactions: Reaction[] }>(`/posts/${enc(postId)}/reactions`, { emoji }),
   decide: (confirmationId: string, decision: "approve" | "reject", note?: string) =>
     post<unknown>(`/confirmations/${enc(confirmationId)}`, note ? { decision, note } : { decision }),
@@ -255,5 +266,42 @@ export const api = {
     get<SearchResponse>(`/search${qs(p)}`),
   audit: (before?: string) => get<AuditResponse>(`/audit${qs({ before })}`),
 };
+
+async function uploadFile(file: File): Promise<{ attachment: Attachment }> {
+  const team = getStoredTeam();
+  if (transport) {
+    const r = await transport("POST", "/uploads", { name: file.name, mime: file.type, size: file.size }, teamHeaders(team));
+    handleStatus(r.status, r.data, team);
+    if (r.status < 200 || r.status >= 300) throw errorFrom(r.status, r.data);
+    return r.data as { attachment: Attachment };
+  }
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/uploads`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": file.type || "application/octet-stream",
+        "X-Agentbus-Upload": "1",
+        "X-File-Name": encodeURIComponent(file.name),
+        ...teamHeaders(team),
+      },
+      body: file,
+    });
+  } catch {
+    throw new ApiError(0, "network", "网络连接失败，请检查网络后重试");
+  }
+  const text = await res.text();
+  let data: unknown = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = null;
+  }
+  handleStatus(res.status, data, team);
+  if (res.status < 200 || res.status >= 300) throw errorFrom(res.status, data);
+  return data as { attachment: Attachment };
+}
 
 export { qs as buildQuery };
