@@ -10,6 +10,7 @@
 // Also used for README screenshots, so the data should read like a real team.
 
 import { setTransport, type RawResponse } from "./api";
+import { extraHandle } from "./mock-extra";
 import type {
   AuditEntry,
   Budget,
@@ -893,6 +894,8 @@ function handle(method: string, path: string, body: Body, headers: Record<string
   const me = myMember(S)!;
   const admin = isAdmin(me);
   const owner = me.role === "owner";
+  const extra = extraHandle({ teamId: S.team.id, admin, method, p, q, body });
+  if (extra) return extra;
   if (method !== "GET") S.seq++;
   return teamHandle(S, me, admin, owner, method, p, q, body);
 }
