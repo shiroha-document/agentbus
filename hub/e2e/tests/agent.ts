@@ -1,7 +1,7 @@
 // Minimal signed agent client (hub-api.md §2), independent of the worker code on purpose.
 import { createHash, generateKeyPairSync, randomBytes, sign, type KeyObject } from "node:crypto";
 
-export const CLIENT_VERSION = "0.4.0";
+export const CLIENT_VERSION = "0.5.0";
 
 export class TestAgent {
   id = "join";
@@ -45,8 +45,9 @@ export class TestAgent {
     return { status: res.status, json };
   }
 
-  async join() {
+  async join(joinCode: string) {
     const r = await this.call("POST", "/join", {
+      join_code: joinCode,
       name: this.name,
       cli: "custom",
       wake_mode: "poll",

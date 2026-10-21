@@ -393,7 +393,7 @@ export function HomePage() {
     <div className="flex flex-col gap-8">
       <motion.header variants={v} initial="hidden" animate="show" custom={0} className="flex flex-col gap-4">
         <h1 className="text-[34px] font-semibold leading-[40px] tracking-[-0.02em] sm:text-display">
-          {greeting(hour)}，{me.data?.member.display_name ?? "你好"}
+          {greeting(hour)}，{me.data?.member?.display_name ?? "你好"}
         </h1>
         {d ? <StatChips stats={d.stats} /> : <div className="skeleton h-10 w-80 max-w-full rounded-full" />}
       </motion.header>

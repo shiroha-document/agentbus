@@ -16,7 +16,7 @@ import {
   type Arg,
   type Row,
 } from "../db";
-import { createPost, decideConfirmation, loadThread, patchThread, resolveMember } from "../core";
+import { createPost, decideConfirmation, isAdmin, loadThread, patchThread, resolveMember } from "../core";
 import {
   approveMember,
   budgetFor,
@@ -31,11 +31,12 @@ import {
   resumeMember,
   revokeMember,
 } from "../members";
-import { KIND_LABELS, emailHealth, flushNotifications, notify } from "../notify";
+import { DIRECT_KINDS, KIND_LABELS, emailHealth, flushNotifications, notify } from "../notify";
 import { TOKENS_SQL, evaluatePause } from "../pause";
-import { bad, clampLimit, conflict, escapeHtml, maskEmail, notFound, randomToken, sha256Hex, shDayKey, shDayStart } from "../util";
+import { bad, clampLimit, conflict, escapeHtml, forbidden, maskEmail, notFound, randomToken, sha256Hex, shDayKey, shDayStart } from "../util";
 import { listThreads, threadParticipants } from "./agent";
 import { createWorkspace, updateWorkspace, workspaceDetail } from "./shared";
+import { meOut, teams } from "./teams";
 
 type Body = Record<string, unknown>;
 const body = (c: { get: (k: "body") => unknown }) => {
@@ -48,15 +49,14 @@ const SH_DAY_SQL = (col: string) => `strftime('%Y-%m-%d', (${col} + 28800000) / 
 
 export const web = new Hono<AppEnv>();
 
+web.route("/", teams);
+
 // ---------------------------------------------------------------- me / changes
 
-web.get("/me", async (c) => {
-  const db = new DB(c.env.DB);
-  return c.json({ member: memberOut(await loadMember(db, c.get("me").id)), admin: true });
-});
+web.get("/me", async (c) => c.json(await meOut(c.env, c.get("me"))));
 
 web.patch("/me", async (c) => {
-  const db = new DB(c.env.DB);
+  const db = new DB(c.env.DB, c.get("me").team_id);
   const me = c.get("me");
   const b = body(c);
   const sets: string[] = [];
@@ -76,12 +76,13 @@ web.patch("/me", async (c) => {
   if (sets.length) {
     await db.batch([db.stmt(`UPDATE members SET ${sets.join(", ")} WHERE id = ?`, ...args, me.id), db.bumpSeq()]);
   }
-  return c.json({ member: memberOut(await loadMember(db, me.id)), admin: true });
+  return c.json({ member: memberOut(await loadMember(db, me.id)) });
 });
 
 web.get("/changes", async (c) => {
-  const db = new DB(c.env.DB);
-  const seq = Number((await db.setting("change_seq")) ?? 0);
+  const db = new DB(c.env.DB, c.get("me").team_id);
+  const row = await db.first<{ change_seq: number }>("SELECT change_seq FROM teams WHERE id = ?", db.team);
+  const seq = Number(row?.change_seq ?? 0);
   const since = Number(c.req.query("since") ?? 0);
   c.header("cache-control", "no-store");
   if (since === seq) return c.body(null, 304);
@@ -91,21 +92,23 @@ web.get("/changes", async (c) => {
 // ---------------------------------------------------------------- dashboard / feed
 
 web.get("/dashboard", async (c) => {
-  const db = new DB(c.env.DB);
+  const db = new DB(c.env.DB, c.get("me").team_id);
   const now = Date.now();
   const today = shDayStart(now);
   const [active, pending, confs, heat, agents, postsToday, usage, mail] = await Promise.all([
-    db.all("SELECT * FROM threads WHERE status = 'open' ORDER BY COALESCE(last_post_at, created_at) DESC LIMIT 20"),
-    db.all("SELECT * FROM members WHERE status = 'pending' AND kind = 'agent' ORDER BY created_at"),
-    db.all("SELECT * FROM confirmations WHERE status = 'pending' ORDER BY id"),
+    db.all("SELECT * FROM threads WHERE team_id = ? AND status = 'open' ORDER BY COALESCE(last_post_at, created_at) DESC LIMIT 20", db.team),
+    db.all("SELECT * FROM members WHERE team_id = ? AND status = 'pending' AND kind = 'agent' ORDER BY created_at", db.team),
+    db.all("SELECT * FROM confirmations WHERE team_id = ? AND status = 'pending' ORDER BY id", db.team),
     db.all<{ day: string; count: number }>(
-      `SELECT ${SH_DAY_SQL("created_at")} AS day, COUNT(*) AS count FROM posts WHERE created_at >= ? GROUP BY day ORDER BY day`,
+      `SELECT ${SH_DAY_SQL("created_at")} AS day, COUNT(*) AS count FROM posts WHERE team_id = ? AND created_at >= ? GROUP BY day ORDER BY day`,
+      db.team,
       today - 364 * DAY,
     ),
-    db.all("SELECT * FROM members WHERE kind = 'agent' AND status = 'active'"),
-    db.first<{ n: number }>("SELECT COUNT(*) AS n FROM posts WHERE created_at >= ?", today),
+    db.all("SELECT * FROM members WHERE team_id = ? AND kind = 'agent' AND status = 'active'", db.team),
+    db.first<{ n: number }>("SELECT COUNT(*) AS n FROM posts WHERE team_id = ? AND created_at >= ?", db.team, today),
     db.first<{ tokens: number; cost: number }>(
-      `SELECT ${TOKENS_SQL} AS tokens, COALESCE(SUM(cost_usd_est), 0) AS cost FROM runs WHERE started_at >= ?`,
+      `SELECT ${TOKENS_SQL} AS tokens, COALESCE(SUM(cost_usd_est), 0) AS cost FROM runs WHERE team_id = ? AND started_at >= ?`,
+      db.team,
       today,
     ),
     emailHealth(db),
@@ -127,12 +130,12 @@ web.get("/dashboard", async (c) => {
 });
 
 web.get("/feed", async (c) => {
-  const db = new DB(c.env.DB);
+  const db = new DB(c.env.DB, c.get("me").team_id);
   const limit = clampLimit(c.req.query("limit"), 30);
   const before = c.req.query("before");
   const rows = before
-    ? await db.all("SELECT * FROM posts WHERE id < ? ORDER BY id DESC LIMIT ?", before, limit + 1)
-    : await db.all("SELECT * FROM posts ORDER BY id DESC LIMIT ?", limit + 1);
+    ? await db.all("SELECT * FROM posts WHERE team_id = ? AND id < ? ORDER BY id DESC LIMIT ?", db.team, before, limit + 1)
+    : await db.all("SELECT * FROM posts WHERE team_id = ? ORDER BY id DESC LIMIT ?", db.team, limit + 1);
   const page = rows.slice(0, limit);
   const posts = await hydratePosts(db, page);
   const tids = [...new Set(page.map((p) => p.thread_id as string))];
@@ -159,12 +162,12 @@ web.get("/feed", async (c) => {
 // ---------------------------------------------------------------- workspaces
 
 web.get("/workspaces", async (c) => {
-  const db = new DB(c.env.DB);
-  const rows = await db.all(`${WORKSPACE_SELECT} ORDER BY w.status, w.updated_at DESC`);
+  const db = new DB(c.env.DB, c.get("me").team_id);
+  const rows = await db.all(`${WORKSPACE_SELECT} WHERE w.team_id = ? ORDER BY w.status, w.updated_at DESC`, db.team);
   return c.json({ workspaces: rows.map(workspaceOut) });
 });
 web.post("/workspaces", async (c) => c.json({ workspace: await createWorkspace(c.env, c.get("me"), body(c)) }));
-web.get("/workspaces/:id", async (c) => c.json(await workspaceDetail(new DB(c.env.DB), c.req.param("id"))));
+web.get("/workspaces/:id", async (c) => c.json(await workspaceDetail(new DB(c.env.DB, c.get("me").team_id), c.req.param("id"))));
 web.patch("/workspaces/:id", async (c) =>
   c.json({ workspace: await updateWorkspace(c.env, c.get("me"), c.req.param("id"), body(c)) }),
 );
@@ -172,7 +175,7 @@ web.patch("/workspaces/:id", async (c) =>
 // ---------------------------------------------------------------- threads / posts
 
 web.get("/threads", async (c) => {
-  const db = new DB(c.env.DB);
+  const db = new DB(c.env.DB, c.get("me").team_id);
   let assignee = c.req.query("assignee");
   if (assignee) assignee = ((await resolveMember(db, assignee))?.id as string) ?? assignee;
   return c.json({
@@ -192,13 +195,13 @@ web.post("/threads", async (c) => {
 });
 
 web.get("/threads/:id", async (c) => {
-  const db = new DB(c.env.DB);
+  const db = new DB(c.env.DB, c.get("me").team_id);
   const id = c.req.param("id");
   const t = await loadThread(db, id);
   const rows = await db.all("SELECT * FROM posts WHERE thread_id = ? ORDER BY id DESC LIMIT 200", id);
   const [posts, ws, members] = await Promise.all([
     hydratePosts(db, rows.reverse()),
-    db.first(`${WORKSPACE_SELECT} WHERE w.id = ?`, t.workspace_id as string),
+    db.first(`${WORKSPACE_SELECT} WHERE w.id = ? AND w.team_id = ?`, t.workspace_id as string, db.team),
     threadParticipants(db, id, [t.assignee_id as string]),
   ]);
   return c.json({ thread: threadOut(t), workspace: ws ? workspaceOut(ws) : null, posts, members });
@@ -222,12 +225,12 @@ web.post("/posts", async (c) => {
 });
 
 web.post("/posts/:id/reactions", async (c) => {
-  const db = new DB(c.env.DB);
+  const db = new DB(c.env.DB, c.get("me").team_id);
   const me = c.get("me");
   const id = c.req.param("id");
   const emoji = str(body(c).emoji, 32);
   if (!emoji || /\s/.test(emoji) || [...emoji].length > 8) throw bad("emoji 无效");
-  if (!(await db.first("SELECT 1 FROM posts WHERE id = ?", id))) throw notFound("帖子");
+  if (!(await db.first("SELECT 1 FROM posts WHERE id = ? AND team_id = ?", id, db.team))) throw notFound("帖子");
   const removed = await db.run("DELETE FROM reactions WHERE post_id = ? AND member_id = ? AND emoji = ?", id, me.id, emoji);
   if (!removed) {
     const n = await db.first<{ n: number }>("SELECT COUNT(DISTINCT emoji) AS n FROM reactions WHERE post_id = ?", id);
@@ -258,17 +261,20 @@ function latestQuota(rows: Row[]) {
 }
 
 web.get("/members", async (c) => {
-  const db = new DB(c.env.DB);
+  const db = new DB(c.env.DB, c.get("me").team_id);
   const today = shDayStart(Date.now());
   const [members, quota, lastRuns, todays] = await Promise.all([
     listMembers(db),
-    db.all("SELECT * FROM quota_readings"),
+    db.all("SELECT q.* FROM quota_readings q JOIN members m ON m.id = q.member_id WHERE m.team_id = ?", db.team),
     db.all(
-      `SELECT r.* FROM runs r JOIN (SELECT member_id, MAX(started_at) AS s FROM runs GROUP BY member_id) x
-       ON x.member_id = r.member_id AND x.s = r.started_at`,
+      `SELECT r.* FROM runs r JOIN (SELECT member_id, MAX(started_at) AS s FROM runs WHERE team_id = ? GROUP BY member_id) x
+       ON x.member_id = r.member_id AND x.s = r.started_at WHERE r.team_id = ?`,
+      db.team,
+      db.team,
     ),
     db.all<{ member_id: string; tokens: number; cost: number }>(
-      `SELECT member_id, ${TOKENS_SQL} AS tokens, COALESCE(SUM(cost_usd_est), 0) AS cost FROM runs WHERE started_at >= ? GROUP BY member_id`,
+      `SELECT member_id, ${TOKENS_SQL} AS tokens, COALESCE(SUM(cost_usd_est), 0) AS cost FROM runs WHERE team_id = ? AND started_at >= ? GROUP BY member_id`,
+      db.team,
       today,
     ),
   ]);
@@ -296,8 +302,8 @@ web.get("/members", async (c) => {
 
 async function usageSeries(db: DB, group: "day" | "agent" | "thread", since: number, days: number, memberId?: string) {
   const keyExpr = group === "day" ? SH_DAY_SQL("r.started_at") : group === "agent" ? "r.member_id" : "COALESCE(r.thread_id, '')";
-  const where = ["r.started_at >= ?"];
-  const args: Arg[] = [since];
+  const where = ["r.team_id = ?", "r.started_at >= ?"];
+  const args: Arg[] = [db.team, since];
   if (memberId) {
     where.push("r.member_id = ?");
     args.push(memberId);
@@ -334,7 +340,8 @@ async function usageSeries(db: DB, group: "day" | "agent" | "thread", since: num
   const labels = new Map<string, string>();
   if (keys.length) {
     const table = group === "agent" ? "SELECT id, name AS label FROM members" : "SELECT id, title AS label FROM threads";
-    for (const l of await db.all<{ id: string; label: string }>(`${table} WHERE id IN (${qmarks(keys.length)})`, ...keys)) labels.set(l.id, l.label);
+    for (const l of await db.all<{ id: string; label: string }>(`${table} WHERE team_id = ? AND id IN (${qmarks(keys.length)})`, db.team, ...keys))
+      labels.set(l.id, l.label);
   }
   const tokens = (x: ReturnType<typeof item>) => x.input + x.cache_read + x.cache_write + x.output + x.reasoning;
   return rows
@@ -347,7 +354,7 @@ async function usageSeries(db: DB, group: "day" | "agent" | "thread", since: num
 }
 
 web.get("/members/:id", async (c) => {
-  const db = new DB(c.env.DB);
+  const db = new DB(c.env.DB, c.get("me").team_id);
   const id = c.req.param("id");
   const m = await loadMember(db, id);
   const since = shDayStart(Date.now()) - 6 * DAY;
@@ -373,7 +380,7 @@ web.get("/members/:id", async (c) => {
 });
 
 web.patch("/members/:id", async (c) => {
-  const db = new DB(c.env.DB);
+  const db = new DB(c.env.DB, c.get("me").team_id);
   const me = c.get("me");
   const id = c.req.param("id");
   const m = await loadMember(db, id);
@@ -386,11 +393,16 @@ web.patch("/members/:id", async (c) => {
     sets.push("display_name = ?");
     args.push(d);
   }
+  if (!isAdmin(me)) throw forbidden("只有管理员能修改成员");
+  if (m.kind === "human" && m.role === "owner" && me.role !== "owner") throw forbidden("不能修改团队 owner");
   if ("role" in b) {
-    if (m.kind !== "agent") throw bad("只能修改 agent 的角色");
-    if (b.role !== "agent" && b.role !== "manager") throw bad("role 只能是 agent 或 manager");
-    sets.push("role = ?");
-    args.push(b.role);
+    if (m.kind !== "agent") {
+      if (b.role !== m.role) throw bad("只能修改 agent 的角色；移交 owner 请用「移交团队」");
+    } else {
+      if (b.role !== "agent" && b.role !== "manager") throw bad("role 只能是 agent 或 manager");
+      sets.push("role = ?");
+      args.push(b.role);
+    }
   }
   if ("wake_interval_s" in b) {
     if (m.kind !== "agent") throw bad("只有 agent 有醒来间隔");
@@ -427,16 +439,17 @@ web.put("/members/:id/quota-rules", async (c) => c.json(await putQuotaRules(c.en
 web.put("/members/:id/budget", async (c) => c.json(await putBudget(c.env, c.get("me"), c.req.param("id"), body(c))));
 
 web.put("/managers/:id/scopes", async (c) => {
-  const db = new DB(c.env.DB);
+  const db = new DB(c.env.DB, c.get("me").team_id);
   const me = c.get("me");
   const id = c.req.param("id");
+  if (!isAdmin(me)) throw forbidden("只有管理员能设置 Manager 范围");
   const m = await loadMember(db, id);
   if (m.role !== "manager") throw bad("只有 Manager 有作用范围");
   const ids = body(c).workspace_ids;
   if (!Array.isArray(ids) || ids.length > 200 || ids.some((x) => typeof x !== "string")) throw bad("workspace_ids 必须是字符串数组");
   const uniq = [...new Set(ids as string[])];
   if (uniq.length) {
-    const found = await db.all<{ id: string }>(`SELECT id FROM workspaces WHERE id IN (${qmarks(uniq.length)})`, ...uniq);
+    const found = await db.all<{ id: string }>(`SELECT id FROM workspaces WHERE team_id = ? AND id IN (${qmarks(uniq.length)})`, db.team, ...uniq);
     if (found.length !== uniq.length) throw bad("有工作区不存在");
   }
   await db.batch([
@@ -451,7 +464,7 @@ web.put("/managers/:id/scopes", async (c) => {
 // ---------------------------------------------------------------- usage / runs
 
 web.get("/usage", async (c) => {
-  const db = new DB(c.env.DB);
+  const db = new DB(c.env.DB, c.get("me").team_id);
   const days = clampLimit(c.req.query("days"), 30, 366);
   const g = c.req.query("group");
   const group = g === "agent" || g === "thread" ? g : "day";
@@ -462,16 +475,18 @@ web.get("/usage", async (c) => {
   totals.cost = Math.round(totals.cost * 10000) / 10000;
   const baseline = await db.all<{ member_id: string; tokens: number }>(
     `SELECT r.member_id, (r.input + r.cache_write + r.cache_read + r.output + r.reasoning) AS tokens FROM runs r
-     JOIN (SELECT member_id, MAX(started_at) AS s FROM runs WHERE error_summary = 'baseline' GROUP BY member_id) x
-     ON x.member_id = r.member_id AND x.s = r.started_at WHERE r.error_summary = 'baseline'`,
+     JOIN (SELECT member_id, MAX(started_at) AS s FROM runs WHERE team_id = ? AND error_summary = 'baseline' GROUP BY member_id) x
+     ON x.member_id = r.member_id AND x.s = r.started_at WHERE r.team_id = ? AND r.error_summary = 'baseline'`,
+    db.team,
+    db.team,
   );
   return c.json({ series, totals, baseline: baseline.map((b) => ({ member_id: b.member_id, tokens: Number(b.tokens) })) });
 });
 
 web.get("/runs", async (c) => {
-  const db = new DB(c.env.DB);
-  const where: string[] = [];
-  const args: Arg[] = [];
+  const db = new DB(c.env.DB, c.get("me").team_id);
+  const where: string[] = ["team_id = ?"];
+  const args: Arg[] = [db.team];
   const member = c.req.query("member");
   if (member) {
     where.push("member_id = ?");
@@ -485,7 +500,7 @@ web.get("/runs", async (c) => {
     args.push(before);
   }
   const limit = clampLimit(c.req.query("limit"));
-  const rows = await db.all(`SELECT * FROM runs ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY id DESC LIMIT ?`, ...args, limit + 1);
+  const rows = await db.all(`SELECT * FROM runs WHERE ${where.join(" AND ")} ORDER BY id DESC LIMIT ?`, ...args, limit + 1);
   return c.json({ runs: rows.slice(0, limit).map(runOut), has_more: rows.length > limit });
 });
 
@@ -500,7 +515,7 @@ async function settingsOut(db: DB) {
     kinds = {};
   }
   const notify_kinds: Record<string, boolean> = {};
-  for (const k of Object.keys(KIND_LABELS)) if (k !== "test" && k !== "email_change") notify_kinds[k] = kinds[k] !== false;
+  for (const k of Object.keys(KIND_LABELS)) if (k !== "test" && !DIRECT_KINDS.has(k)) notify_kinds[k] = kinds[k] !== false;
   return {
     notify_email_masked: maskEmail(s.notify_email),
     notify_kinds,
@@ -512,18 +527,19 @@ async function settingsOut(db: DB) {
   };
 }
 
-async function reevaluateAgents(env: Env) {
-  const db = new DB(env.DB);
-  const rows = await db.all<{ id: string }>("SELECT id FROM members WHERE kind = 'agent' AND status = 'active'");
+async function reevaluateAgents(env: Env, teamId: string | null) {
+  const db = new DB(env.DB, teamId);
+  const rows = await db.all<{ id: string }>("SELECT id FROM members WHERE team_id = ? AND kind = 'agent' AND status = 'active'", teamId);
   for (const r of rows) await evaluatePause(env, r.id);
 }
 
-web.get("/settings", async (c) => c.json(await settingsOut(new DB(c.env.DB))));
+web.get("/settings", async (c) => c.json(await settingsOut(new DB(c.env.DB, c.get("me").team_id))));
 
 web.patch("/settings", async (c) => {
-  const db = new DB(c.env.DB);
+  const db = new DB(c.env.DB, c.get("me").team_id);
   const me = c.get("me");
   const b = body(c);
+  if (!isAdmin(me)) throw forbidden("只有管理员能修改设置");
   const stmts: D1PreparedStatement[] = [];
   let reeval = false;
   if ("notify_email" in b || "notify_email_masked" in b) throw bad("邮箱要通过确认链接修改");
@@ -532,7 +548,7 @@ web.patch("/settings", async (c) => {
     if (!k || typeof k !== "object" || Array.isArray(k)) throw bad("notify_kinds 必须是对象");
     const cur = JSON.parse((await db.setting("notify_kinds")) || "{}") as Record<string, boolean>;
     for (const [name, v] of Object.entries(k as Record<string, unknown>)) {
-      if (!(name in KIND_LABELS) || name === "email_change" || name === "test") throw bad(`未知通知种类 ${name}`);
+      if (!(name in KIND_LABELS) || DIRECT_KINDS.has(name) || name === "test") throw bad(`未知通知种类 ${name}`);
       if (typeof v !== "boolean") throw bad("notify_kinds 的值必须是 true / false");
       cur[name] = v;
     }
@@ -554,6 +570,7 @@ web.patch("/settings", async (c) => {
     stmts.push(db.setSetting("merge_window_min", String(n)));
   }
   if ("min_client_version" in b) {
+    if (!me.platform_admin) throw forbidden("只有平台管理员能修改最低客户端版本");
     const v = str(b.min_client_version, 32);
     if (!/^\d+\.\d+\.\d+$/.test(v)) throw bad("min_client_version 必须形如 0.4.0");
     stmts.push(db.setSetting("min_client_version", v));
@@ -562,24 +579,31 @@ web.patch("/settings", async (c) => {
     stmts.push(db.audit(me.id, "settings.update", null, b), db.bumpSeq());
     await db.batch(stmts);
   }
-  if (reeval) await reevaluateAgents(c.env);
+  if (reeval) await reevaluateAgents(c.env, me.team_id);
   return c.json(await settingsOut(db));
 });
 
 const EMAIL_RE = /^[^\s@<>()",;:]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/;
 
 web.post("/settings/email", async (c) => {
-  const db = new DB(c.env.DB);
+  const db = new DB(c.env.DB, c.get("me").team_id);
   const me = c.get("me");
+  if (!isAdmin(me)) throw forbidden("只有管理员能修改通知邮箱");
   const email = str(body(c).email, 254).toLowerCase();
   if (!EMAIL_RE.test(email)) throw bad("邮箱格式不对");
-  const recent = await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM email_changes WHERE expires_at > ?", Date.now());
+  const recent = await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM email_changes WHERE team_id = ? AND expires_at > ?", db.team, Date.now());
   if ((recent?.n ?? 0) >= 5) throw conflict("确认邮件发得太频繁了，请稍后再试");
   const token = randomToken(24);
   const now = Date.now();
   const base = (c.env.PUBLIC_URL ?? new URL(c.req.url).origin).replace(/\/$/, "");
   await db.batch([
-    db.stmt("INSERT INTO email_changes (token_hash, new_email, expires_at) VALUES (?, ?, ?)", await sha256Hex(token), email, now + 30 * 60_000),
+    db.stmt(
+      "INSERT INTO email_changes (token_hash, team_id, new_email, expires_at) VALUES (?, ?, ?, ?)",
+      await sha256Hex(token),
+      db.team,
+      email,
+      now + 30 * 60_000,
+    ),
     notify(db, "email_change", {
       title: "确认 agentbus 通知邮箱",
       text: "有人（应该是你）在 agentbus hub 上把通知邮箱改成了这个地址。30 分钟内点下面的链接确认；不是你操作的话忽略即可。",
@@ -588,39 +612,52 @@ web.post("/settings/email", async (c) => {
     }),
     db.audit(me.id, "settings.email_requested", null, { email: maskEmail(email) }),
   ]);
-  await flushNotifications(c.env, { force: true });
+  await flushNotifications(c.env, { force: true, team: db.team ?? undefined });
   // Don't keep the confirm token around in the outbox.
   const row = await db.first<{ error: string | null }>(
-    "SELECT error FROM notifications WHERE kind = 'email_change' ORDER BY created_at DESC LIMIT 1",
+    "SELECT error FROM notifications WHERE team_id = ? AND kind = 'email_change' ORDER BY created_at DESC, id DESC LIMIT 1",
+    db.team,
   );
-  await db.run("UPDATE notifications SET payload = '{\"title\":\"确认 agentbus 通知邮箱\"}' WHERE kind = 'email_change' AND sent_at IS NOT NULL");
+  await db.run(
+    "UPDATE notifications SET payload = '{\"title\":\"确认 agentbus 通知邮箱\"}' WHERE team_id = ? AND kind = 'email_change' AND sent_at IS NOT NULL",
+    db.team,
+  );
   if (row?.error) throw conflict(`确认邮件发送失败：${row.error}`);
   return c.json({ ok: true, sent_to: maskEmail(email) });
 });
 
 web.get("/settings/email/confirm", async (c) => {
-  const db = new DB(c.env.DB);
+  const db = new DB(c.env.DB, c.get("me").team_id);
   const token = c.req.query("token") ?? "";
-  const go = (v: string) => c.redirect(`/settings?email=${v}`, 302);
+  let teamQs = "";
+  const go = (v: string) => c.redirect(`/settings?email=${v}${teamQs}`, 302);
   if (!token || token.length > 100) return go("invalid");
   const hash = await sha256Hex(token);
-  const row = await db.first<{ new_email: string; expires_at: number }>("SELECT new_email, expires_at FROM email_changes WHERE token_hash = ?", hash);
-  if (!row) return go("invalid");
+  const row = await db.first<{ new_email: string; expires_at: number; team_id: string | null }>(
+    "SELECT new_email, expires_at, team_id FROM email_changes WHERE token_hash = ?",
+    hash,
+  );
+  if (!row || !row.team_id) return go("invalid");
   if (row.expires_at < Date.now()) {
     await db.run("DELETE FROM email_changes WHERE token_hash = ?", hash);
     return go("expired");
   }
-  await db.batch([
-    db.setSetting("notify_email", row.new_email),
-    db.stmt("DELETE FROM email_changes WHERE token_hash = ?", hash),
-    db.audit(c.get("me").id, "settings.email_changed", null, { email: maskEmail(row.new_email) }),
-    db.bumpSeq(),
+  // The token belongs to the team it was requested in, whatever team the browser has selected.
+  const tdb = db.forTeam(row.team_id);
+  const me = c.get("me");
+  await tdb.batch([
+    tdb.setSetting("notify_email", row.new_email),
+    tdb.stmt("DELETE FROM email_changes WHERE token_hash = ?", hash),
+    tdb.audit(me.team_id === row.team_id ? me.id : null, "settings.email_changed", null, { email: maskEmail(row.new_email) }),
+    tdb.bumpSeq(),
   ]);
+  teamQs = `&team=${encodeURIComponent(row.team_id)}`;
   return go("ok");
 });
 
 web.post("/notify/test", async (c) => {
-  const db = new DB(c.env.DB);
+  const db = new DB(c.env.DB, c.get("me").team_id);
+  if (!isAdmin(c.get("me"))) throw forbidden("只有管理员能发测试邮件");
   const to = await db.setting("notify_email");
   if (!to) throw bad("还没有设置通知邮箱");
   await notify(db, "test", {
@@ -628,8 +665,11 @@ web.post("/notify/test", async (c) => {
     text: `如果你收到了这封邮件，说明 hub 的邮件通知是通的。（${new Date().toISOString()}）`,
     link: "/settings",
   }).run();
-  await flushNotifications(c.env, { force: true });
-  const row = await db.first<{ error: string | null }>("SELECT error FROM notifications WHERE kind = 'test' ORDER BY created_at DESC LIMIT 1");
+  await flushNotifications(c.env, { force: true, team: db.team ?? undefined });
+  const row = await db.first<{ error: string | null }>(
+    "SELECT error FROM notifications WHERE team_id = ? AND kind = 'test' ORDER BY created_at DESC, id DESC LIMIT 1",
+    db.team,
+  );
   if (row?.error) throw conflict(`发送失败：${row.error}`);
   return c.json({ ok: true, sent_to: maskEmail(to) });
 });
@@ -658,12 +698,12 @@ export function snippet(text: string, q: string, radius = 60): string {
 }
 
 web.get("/search", async (c) => {
-  const db = new DB(c.env.DB);
+  const db = new DB(c.env.DB, c.get("me").team_id);
   const q = (c.req.query("q") ?? "").trim().slice(0, 100);
   if (!q) return c.json({ results: [] });
   const pat = `%${likeEscape(q)}%`;
-  const where: string[] = [];
-  const args: Arg[] = [];
+  const where: string[] = ["p.team_id = ?", "t.team_id = ?"];
+  const args: Arg[] = [db.team, db.team];
   const member = c.req.query("member");
   if (member) {
     where.push("p.author_id = ?");
@@ -679,7 +719,7 @@ web.get("/search", async (c) => {
     where.push("t.workspace_id = ?");
     args.push(ws);
   }
-  const extra = where.length ? " AND " + where.join(" AND ") : "";
+  const extra = " AND " + where.join(" AND ");
   const [byBody, byTitle] = await Promise.all([
     db.all(
       `SELECT p.* FROM posts p JOIN threads t ON t.id = p.thread_id WHERE p.body LIKE ? ESCAPE '\\'${extra} ORDER BY p.id DESC LIMIT 50`,
@@ -718,12 +758,12 @@ web.get("/search", async (c) => {
 });
 
 web.get("/audit", async (c) => {
-  const db = new DB(c.env.DB);
+  const db = new DB(c.env.DB, c.get("me").team_id);
   const before = Number(c.req.query("before") ?? 0);
   const limit = clampLimit(c.req.query("limit"));
   const rows = before > 0
-    ? await db.all("SELECT * FROM audit_log WHERE id < ? AND action != 'join.attempt' ORDER BY id DESC LIMIT ?", before, limit + 1)
-    : await db.all("SELECT * FROM audit_log WHERE action != 'join.attempt' ORDER BY id DESC LIMIT ?", limit + 1);
+    ? await db.all("SELECT * FROM audit_log WHERE team_id = ? AND id < ? AND action != 'join.attempt' ORDER BY id DESC LIMIT ?", db.team, before, limit + 1)
+    : await db.all("SELECT * FROM audit_log WHERE team_id = ? AND action != 'join.attempt' ORDER BY id DESC LIMIT ?", db.team, limit + 1);
   return c.json({
     entries: rows.slice(0, limit).map((r) => ({
       id: Number(r.id),

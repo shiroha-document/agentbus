@@ -45,28 +45,48 @@ const body = (c: { get: (k: "body") => unknown }) => (c.get("body") ?? {}) as Bo
 // ---------------------------------------------------------------- join
 
 agent.post("/join", async (c) => {
-  const db = new DB(c.env.DB);
+  const root = new DB(c.env.DB);
   const b = body(c);
   const pk = b.public_key as string;
   if (!isValidPublicKey(pk)) throw bad("public_key 无效");
 
-  const existing = await db.first<{ member_id: string }>("SELECT member_id FROM member_keys WHERE public_key = ?", pk);
+  // Same key re-submitting: return the original record (idempotent join).
+  const existing = await root.first<{ member_id: string }>("SELECT member_id FROM member_keys WHERE public_key = ?", pk);
   if (existing) {
-    const m = await db.first<{ id: string; status: string }>("SELECT id, status FROM members WHERE id = ?", existing.member_id);
-    if (m) return c.json({ member_id: m.id, status: m.status });
+    const m = await root.first<{ id: string; status: string; team_id: string | null }>(
+      "SELECT id, status, team_id FROM members WHERE id = ?",
+      existing.member_id,
+    );
+    if (m) {
+      const t = m.team_id ? await root.first<{ id: string; name: string }>("SELECT id, name FROM teams WHERE id = ?", m.team_id) : null;
+      return c.json({ member_id: m.id, status: m.status, team: t ? { id: t.id, name: t.name } : null });
+    }
   }
+
+  const code = str(b.join_code, 100);
+  if (!code) throw new HttpError(400, "join_code_required", "需要加入码（join_code），请向团队管理员索取");
 
   // 10 join attempts per IP per hour.
   const ip = c.req.header("cf-connecting-ip") ?? "unknown";
   const ipHash = (await sha256Hex(`join:${ip}`)).slice(0, 16);
   const now = Date.now();
-  const recent = await db.first<{ n: number }>(
+  const recent = await root.first<{ n: number }>(
     "SELECT COUNT(*) AS n FROM audit_log WHERE action = 'join.attempt' AND target = ? AND created_at > ?",
     ipHash,
     now - 3600_000,
   );
   if ((recent?.n ?? 0) >= 10) throw new HttpError(429, "rate_limited", "加入申请过于频繁，请一小时后再试");
-  await db.audit(null, "join.attempt", ipHash).run();
+  await root.audit(null, "join.attempt", ipHash).run();
+
+  const jc = await root.first<{ id: string; team_id: string; expires_at: number | null; revoked_at: number | null }>(
+    "SELECT id, team_id, expires_at, revoked_at FROM join_codes WHERE code_hash = ?",
+    await sha256Hex(code),
+  );
+  const team = jc ? await root.first<{ id: string; name: string }>("SELECT id, name FROM teams WHERE id = ?", jc.team_id) : null;
+  if (!jc || !team || jc.revoked_at != null || (jc.expires_at != null && jc.expires_at <= now)) {
+    throw new HttpError(403, "bad_join_code", "加入码无效、已过期或已作废");
+  }
+  const db = root.forTeam(team.id);
 
   const name = str(b.name, 32).toLowerCase();
   if (!NAME_RE.test(name) || RESERVED_NAMES.has(name)) throw bad("名字只能用小写字母、数字、- 和 _，2–32 位，且不能是保留字");
@@ -83,15 +103,16 @@ agent.post("/join", async (c) => {
   } else if (wake === "trigger") {
     throw bad("wake_mode=trigger 时需要 trigger_url");
   }
-  if (await db.first("SELECT 1 FROM members WHERE name = ?", name)) throw conflict(`名字 ${name} 已被占用`);
+  if (await db.first("SELECT 1 FROM members WHERE team_id = ? AND name = ?", team.id, name)) throw conflict(`名字 ${name} 已被占用`);
 
   const id = newId("m", now);
   const display = str(b.display_name, 64) || name;
   const stmts = [
     db.stmt(
-      `INSERT INTO members (id, kind, role, name, display_name, cli, wake_mode, wake_interval_s, owner, machine, client_version, status, created_at)
-       VALUES (?, 'agent', 'agent', ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+      `INSERT INTO members (id, team_id, kind, role, name, display_name, cli, wake_mode, wake_interval_s, owner, machine, client_version, status, created_at)
+       VALUES (?, ?, 'agent', 'agent', ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
       id,
+      team.id,
       name,
       display,
       cli,
@@ -103,12 +124,13 @@ agent.post("/join", async (c) => {
       now,
     ),
     db.stmt("INSERT INTO member_keys (member_id, public_key, created_at) VALUES (?, ?, ?)", id, pk, now),
+    db.stmt("UPDATE join_codes SET uses = uses + 1, last_used_at = ? WHERE id = ?", now, jc.id),
     notify(db, "join_request", {
       title: `${display}（@${name}）申请加入`,
       text: `CLI：${cli} · 唤醒：${wake} / ${interval}s · 主人：${str(b.owner, 64) || "未填"} · 机器：${str(b.machine, 200) || "未填"}`,
       link: `/members/${id}`,
     }),
-    db.audit(null, "member.join", id, { name, cli, wake, interval }),
+    db.audit(null, "member.join", id, { name, cli, wake, interval, join_code: jc.id }),
     db.bumpSeq(),
   ];
   if (trigger) {
@@ -120,16 +142,16 @@ agent.post("/join", async (c) => {
     if (/UNIQUE/i.test(String((e as Error).message))) throw conflict(`名字 ${name} 已被占用`);
     throw e;
   }
-  return c.json({ member_id: id, status: "pending" });
+  return c.json({ member_id: id, status: "pending", team: { id: team.id, name: team.name } });
 });
 
 // ---------------------------------------------------------------- state
 
 agent.get("/state", async (c) => {
-  const db = new DB(c.env.DB);
+  const db = new DB(c.env.DB, c.get("me").team_id);
   const me = c.get("me");
   if (me.status === "active") await evaluatePause(c.env, me.id);
-  const [m, s, cfg, rules, budget, pending] = await Promise.all([
+  const [m, s, cfg, rules, budget, pending, team] = await Promise.all([
     loadMember(db, me.id),
     db.settings(),
     hubConfig(db),
@@ -140,9 +162,11 @@ agent.get("/state", async (c) => {
        WHERE d.member_id = ? AND d.state = 'pending' AND t.auto_paused = 0`,
       me.id,
     ),
+    db.first<{ id: string; name: string }>("SELECT id, name FROM teams WHERE id = ?", me.team_id),
   ]);
   return c.json({
     member: memberOut(m),
+    team: team ? { id: team.id, name: team.name } : null,
     global_pause: s.global_pause === "1",
     min_client_version: s.min_client_version ?? "0.0.0",
     server_version: SERVER_VERSION,
@@ -156,7 +180,7 @@ agent.get("/state", async (c) => {
 // ---------------------------------------------------------------- inbox
 
 agent.post("/claim", async (c) => {
-  const db = new DB(c.env.DB);
+  const db = new DB(c.env.DB, c.get("me").team_id);
   const me = c.get("me");
   const b = body(c);
   const p = await evaluatePause(c.env, me.id);
@@ -194,7 +218,7 @@ export async function threadParticipants(db: DB, threadId: string, extra: string
 }
 
 agent.get("/context", async (c) => {
-  const db = new DB(c.env.DB);
+  const db = new DB(c.env.DB, c.get("me").team_id);
   const me = c.get("me");
   const id = c.req.query("thread") ?? "";
   const t = await loadThread(db, id);
@@ -204,7 +228,7 @@ agent.get("/context", async (c) => {
   const hasMore = rows.length > n;
   const posts = await hydratePosts(db, rows.slice(0, n).reverse());
   const [ws, ds, members, meRow] = await Promise.all([
-    db.first(`${WORKSPACE_SELECT} WHERE w.id = ?`, t.workspace_id as string),
+    db.first(`${WORKSPACE_SELECT} WHERE w.id = ? AND w.team_id = ?`, t.workspace_id as string, db.team),
     db.all("SELECT * FROM deliveries WHERE member_id = ? AND thread_id = ? AND state = 'leased' ORDER BY created_at", me.id, id),
     threadParticipants(db, id, [t.assignee_id as string]),
     loadMember(db, me.id),
@@ -229,7 +253,7 @@ export async function postsPage(db: DB, threadId: string, before: string | undef
 }
 
 agent.get("/posts", async (c) => {
-  const db = new DB(c.env.DB);
+  const db = new DB(c.env.DB, c.get("me").team_id);
   return c.json(await postsPage(db, c.req.query("thread") ?? "", c.req.query("before"), clampLimit(c.req.query("limit"))));
 });
 
@@ -258,8 +282,8 @@ agent.patch("/threads/:id", async (c) => {
 });
 
 export async function listThreads(db: DB, q: { workspace?: string; status?: string; assignee?: string }) {
-  const where: string[] = [];
-  const args: string[] = [];
+  const where: string[] = ["team_id = ?"];
+  const args: (string | null)[] = [db.team];
   if (q.workspace) {
     where.push("workspace_id = ?");
     args.push(q.workspace);
@@ -273,14 +297,14 @@ export async function listThreads(db: DB, q: { workspace?: string; status?: stri
     args.push(q.assignee);
   }
   const rows = await db.all(
-    `SELECT * FROM threads ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY COALESCE(last_post_at, created_at) DESC LIMIT 200`,
+    `SELECT * FROM threads WHERE ${where.join(" AND ")} ORDER BY COALESCE(last_post_at, created_at) DESC LIMIT 200`,
     ...args,
   );
   return rows.map(threadOut);
 }
 
 agent.get("/threads", async (c) => {
-  const db = new DB(c.env.DB);
+  const db = new DB(c.env.DB, c.get("me").team_id);
   const me = c.get("me");
   const mine = c.req.query("mine");
   return c.json({
@@ -293,13 +317,13 @@ agent.get("/threads", async (c) => {
 });
 
 agent.get("/workspaces", async (c) => {
-  const db = new DB(c.env.DB);
-  const rows = await db.all(`${WORKSPACE_SELECT} ORDER BY w.status, w.updated_at DESC`);
+  const db = new DB(c.env.DB, c.get("me").team_id);
+  const rows = await db.all(`${WORKSPACE_SELECT} WHERE w.team_id = ? ORDER BY w.status, w.updated_at DESC`, db.team);
   return c.json({ workspaces: rows.map(workspaceOut) });
 });
 
 agent.get("/workspaces/:id", async (c) => {
-  return c.json(await workspaceDetail(new DB(c.env.DB), c.req.param("id")));
+  return c.json(await workspaceDetail(new DB(c.env.DB, c.get("me").team_id), c.req.param("id")));
 });
 
 // ---------------------------------------------------------------- telemetry
@@ -307,7 +331,7 @@ agent.get("/workspaces/:id", async (c) => {
 const RUN_INT = ["input", "cache_write", "cache_read", "output", "reasoning"] as const;
 
 agent.post("/runs", async (c) => {
-  const db = new DB(c.env.DB);
+  const db = new DB(c.env.DB, c.get("me").team_id);
   const me = c.get("me");
   const runs = body(c).runs;
   if (!Array.isArray(runs) || runs.length > 200) throw bad("runs 必须是数组（最多 200 条）");
@@ -324,9 +348,10 @@ agent.post("/runs", async (c) => {
     const err = raw.error_summary == null ? null : redact(String(raw.error_summary).slice(0, 2000)).text;
     stmts.push(
       db.stmt(
-        `INSERT OR IGNORE INTO runs (id, member_id, thread_id, started_at, ended_at, exit_code, cli, model, input, cache_write, cache_read, output, reasoning, cost_usd_est, error_summary, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR IGNORE INTO runs (id, team_id, member_id, thread_id, started_at, ended_at, exit_code, cli, model, input, cache_write, cache_read, output, reasoning, cost_usd_est, error_summary, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id,
+        me.team_id,
         me.id,
         str(raw.thread_id, 40) || null,
         Math.floor(started),
@@ -353,7 +378,7 @@ agent.post("/runs", async (c) => {
 
 /** Email once when an agent's three latest runs (excluding baselines) all failed. */
 async function checkRunFailures(env: AppEnv["Bindings"], me: Me) {
-  const db = new DB(env.DB);
+  const db = new DB(env.DB, me.team_id);
   const last = await db.all<{ id: string; exit_code: number; error_summary: string | null }>(
     "SELECT id, exit_code, error_summary FROM runs WHERE member_id = ? AND COALESCE(error_summary, '') != 'baseline' ORDER BY started_at DESC LIMIT 4",
     me.id,
@@ -377,7 +402,7 @@ async function checkRunFailures(env: AppEnv["Bindings"], me: Me) {
 }
 
 agent.post("/quota", async (c) => {
-  const db = new DB(c.env.DB);
+  const db = new DB(c.env.DB, c.get("me").team_id);
   const me = c.get("me");
   const readings = body(c).readings;
   if (!Array.isArray(readings) || readings.length > 200) throw bad("readings 必须是数组（最多 200 条）");
@@ -424,7 +449,7 @@ agent.post("/quota", async (c) => {
 });
 
 agent.post("/keys/rotate", async (c) => {
-  const db = new DB(c.env.DB);
+  const db = new DB(c.env.DB, c.get("me").team_id);
   const me = c.get("me");
   const pk = body(c).new_public_key;
   if (!isValidPublicKey(pk)) throw bad("new_public_key 无效");
@@ -453,7 +478,7 @@ manage.use("*", async (c, next) => {
   await next();
 });
 
-manage.get("/members", async (c) => c.json({ members: await listMembers(new DB(c.env.DB)) }));
+manage.get("/members", async (c) => c.json({ members: await listMembers(new DB(c.env.DB, c.get("me").team_id)) }));
 manage.post("/members/:id/approve", async (c) => c.json({ member: await approveMember(c.env, c.get("me"), c.req.param("id")) }));
 manage.post("/members/:id/reject", async (c) => c.json(await rejectMember(c.env, c.get("me"), c.req.param("id"))));
 manage.post("/members/:id/pause", async (c) => {
@@ -464,7 +489,7 @@ manage.post("/members/:id/resume", async (c) => c.json({ member: await resumeMem
 manage.put("/members/:id/quota-rules", async (c) => c.json(await putQuotaRules(c.env, c.get("me"), c.req.param("id"), body(c).rules)));
 
 manage.post("/workspaces", async (c) => {
-  const db = new DB(c.env.DB);
+  const db = new DB(c.env.DB, c.get("me").team_id);
   const me = c.get("me");
   const ws = await createWorkspace(c.env, me, body(c));
   const scopes = await managerScopes(db, me.id);
@@ -475,10 +500,10 @@ manage.post("/workspaces", async (c) => {
 });
 
 manage.patch("/workspaces/:id", async (c) => {
-  const db = new DB(c.env.DB);
+  const db = new DB(c.env.DB, c.get("me").team_id);
   const me = c.get("me");
   const id = c.req.param("id");
-  if (!(await db.first("SELECT 1 FROM workspaces WHERE id = ?", id))) throw notFound("工作区");
+  if (!(await db.first("SELECT 1 FROM workspaces WHERE id = ? AND team_id = ?", id, db.team))) throw notFound("工作区");
   if (!(await canManageWorkspace(db, me, id))) throw forbidden("这个工作区不在你的管理范围内");
   return c.json({ workspace: await updateWorkspace(c.env, me, id, body(c)) });
 });

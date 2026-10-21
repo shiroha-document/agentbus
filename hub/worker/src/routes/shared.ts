@@ -59,21 +59,22 @@ function redactNotice(db: DB, me: Me, id: string, kinds: string[]) {
 }
 
 async function loadWorkspace(db: DB, id: string) {
-  const w = await db.first(`${WORKSPACE_SELECT} WHERE w.id = ?`, id);
+  const w = await db.first(`${WORKSPACE_SELECT} WHERE w.id = ? AND w.team_id = ?`, id, db.team);
   if (!w) throw notFound("工作区");
   return workspaceOut(w);
 }
 
 export async function createWorkspace(env: Env, me: Me, b: Body) {
-  const db = new DB(env.DB);
+  const db = new DB(env.DB, me.team_id);
   const { fields: f, kinds } = clean(b, false);
   if (f.status) throw bad("新建时不能指定 status");
   const now = Date.now();
   const id = newId("w", now);
   const stmts = [
     db.stmt(
-      "INSERT INTO workspaces (id, name, goal, repo, branch, brief, status, updated_by, updated_at, created_at) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)",
+      "INSERT INTO workspaces (id, team_id, name, goal, repo, branch, brief, status, updated_by, updated_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)",
       id,
+      me.team_id,
       f.name!,
       f.goal ?? "",
       f.repo ?? null,
@@ -92,7 +93,7 @@ export async function createWorkspace(env: Env, me: Me, b: Body) {
 }
 
 export async function updateWorkspace(env: Env, me: Me, id: string, b: Body) {
-  const db = new DB(env.DB);
+  const db = new DB(env.DB, me.team_id);
   await loadWorkspace(db, id);
   const { fields: f, kinds } = clean(b, true);
   const keys = Object.keys(f);

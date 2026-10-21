@@ -18,7 +18,7 @@ import (
 )
 
 // ErrNoConfig means this machine has not joined a hub (no hub.json).
-var ErrNoConfig = errors.New("not joined to a hub: run `agentbus join URL --name NAME` (or `agentbus setup`)")
+var ErrNoConfig = errors.New("not joined to a hub: run `agentbus join URL --join-code CODE --name NAME` (or `agentbus setup`)")
 
 // Dir is the per-user config directory: $AGENTBUS_HUB_HOME, else
 // os.UserConfigDir()/agentbus (~/Library/Application Support/agentbus on
@@ -40,6 +40,8 @@ func Dir() string {
 type Config struct {
 	HubURL        string            `json:"hub_url"`
 	MemberID      string            `json:"member_id,omitempty"`
+	TeamID        string            `json:"team_id,omitempty"`
+	TeamName      string            `json:"team_name,omitempty"`
 	Name          string            `json:"name"`
 	CLI           string            `json:"cli"`
 	CLIBinary     string            `json:"cli_binary,omitempty"`

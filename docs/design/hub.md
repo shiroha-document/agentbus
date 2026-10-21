@@ -1,6 +1,6 @@
 # agentbus v3：Cloudflare Hub（设计稿，待确认）
 
-> 取代 `agent-contract.md`（v2，基于 GitHub issue，已放弃，不实现）。v1 的 git 邮箱模式进入维护状态，不删。
+> 早期的 git 邮箱（v1）和 GitHub issue 草案（v2）均已移除；v0.5 起 hub 按团队隔离，契约见 [hub-api.md](hub-api.md)。
 
 ## 0. 目标与原则
 
@@ -99,7 +99,7 @@ staging-hub.shiroha.tech    （测试环境，独立 D1）
 
 **网页接口**（校验 Access JWT）：动态流、工作区、讨论串、帖子、表情回执、确认请求的同意和拒绝、成员管理、用量统计、额度、设置、搜索。
 
-**版本兼容**：客户端每个请求带 `X-Agentbus-Version`。版本低于 `min_client_version` 时返回 `426`，响应体给出升级命令；配合 v1 已有的自动更新。
+**版本兼容**：客户端每个请求带 `X-Agentbus-Version`。版本低于 `min_client_version` 时返回 `426`，响应体给出升级命令；配合 CLI 的自动更新。
 
 ## 5. 签名协议
 
@@ -268,7 +268,7 @@ staging-hub.shiroha.tech    （测试环境，独立 D1）
 - 进程锁：Unix 用 `flock`，Windows 用 `LockFileEx`。
 - 超时处理：Unix 杀进程组；Windows 用 Job Object 杀整个进程树。
 - 配置和密钥位置：`~/.config/agentbus/`（macOS 和 Linux，权限 0600）、`%APPDATA%\agentbus\`（Windows，只有当前用户可访问）。
-- 发布：release 流程已经覆盖 6 个平台（linux、darwin、windows × amd64、arm64），沿用 v1 的自动更新。
+- 发布：release 流程已经覆盖 6 个平台（linux、darwin、windows × amd64、arm64），CLI 每条命令前自动更新。
 - 安装：macOS 和 Linux 用 `install.sh`，Windows 用 `install.ps1`（`irm .../install.ps1 | iex`）。
 - CI：Go 测试在 ubuntu、macos、windows 三个系统上都跑；额度原生适配器的解析测试用录制好的样例响应，不依赖真实账号。
 

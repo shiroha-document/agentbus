@@ -1,10 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { motion, useReducedMotion } from "motion/react";
 import { useQuery } from "@tanstack/react-query";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
+  Check,
   ChevronRight,
+  LogOut,
+  Plus,
   PanelLeftClose,
   PanelLeftOpen,
   PauseCircle,
@@ -12,14 +15,18 @@ import {
   Settings,
 } from "lucide-react";
 import { api } from "../../api";
-import { qk, useAction, useChangePolling, useMe, useSettings } from "../../queries";
+import { qk, useAction, useChangePolling, useMe, useRole, useSettings } from "../../queries";
 import { cn } from "../../lib/util";
 import { enterVariants, springSoft } from "../../lib/motion";
 import { Avatar } from "../ui/Avatar";
 import { Switch } from "../ui/Switch";
 import { Tip } from "../ui/Tip";
 import { CommandPalette } from "./CommandPalette";
+import { CreateTeamDialog, TeamSwitcher, TeamTile, useSwitchTeam } from "./TeamSwitcher";
+import { WelcomePage } from "../../pages/Welcome";
+import { roleLabel } from "../../lib/team";
 import { NAV } from "./nav";
+import { QueryError } from "./RouteStates";
 
 import type { ThreadDetailResponse, WorkspaceDetailResponse } from "../../types";
 
@@ -40,15 +47,8 @@ function Sidebar({ collapsed, onToggle, path }: { collapsed: boolean; onToggle: 
       className="glass-2 fixed inset-y-0 left-0 z-30 hidden flex-col overflow-hidden border-y-0 border-l-0 md:flex"
       aria-label="主导航"
     >
-      <div className="flex h-14 items-center gap-2.5 px-[18px]">
-        <span
-          className="flex h-9 w-9 flex-none items-center justify-center rounded-[11px] text-callout font-semibold"
-          style={{ backgroundImage: "linear-gradient(135deg, var(--mint-300), var(--mint-500))", color: "var(--mint-950)" }}
-          aria-hidden
-        >
-          ab
-        </span>
-        {!collapsed && <span className="truncate text-[17px] font-semibold tracking-tight">agentbus hub</span>}
+      <div className={cn("flex h-14 items-center", collapsed ? "px-[14px]" : "px-3")}>
+        <TeamSwitcher collapsed={collapsed} />
       </div>
       <nav className="mt-3 flex flex-1 flex-col gap-1 px-3">
         {NAV.map(({ to, label, icon: Icon }) => {
@@ -191,6 +191,7 @@ function Breadcrumb({ path }: { path: string }) {
 }
 
 function GlobalPause() {
+  const { isAdmin } = useRole();
   const { data } = useSettings();
   const toggle = useAction((v: boolean) => api.updateSettings({ global_pause: v }), {
     invalidate: [qk.settings, qk.members, qk.dashboard],
@@ -208,7 +209,7 @@ function GlobalPause() {
         <span className="hidden lg:inline">{on ? "全局暂停中" : "全局暂停"}</span>
         <Switch
           checked={on}
-          disabled={!data || toggle.isPending}
+          disabled={!data || !isAdmin || toggle.isPending}
           onCheckedChange={(v) => toggle.mutate(v)}
           label="全局暂停"
           tone="warning"
@@ -218,43 +219,143 @@ function GlobalPause() {
   );
 }
 
+const menuItemCls =
+  "flex min-h-9 cursor-pointer items-center gap-2 rounded-[10px] px-3 py-1.5 text-callout outline-none data-[highlighted]:bg-mint-100";
+
 function AvatarMenu() {
   const { data } = useMe();
   const me = data?.member;
+  const switchTeam = useSwitchTeam();
+  const [creating, setCreating] = useState(false);
+  const teams = data?.teams ?? [];
   return (
-    <DropdownMenu.Root>
-      <DropdownMenu.Trigger className="flex h-9 w-9 items-center justify-center rounded-full" aria-label="账户菜单">
-        <Avatar member={me} size={32} />
-      </DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content align="end" sideOffset={8} className="glass-3 z-50 min-w-[220px] rounded-[16px] p-1.5">
-          <div className="px-3 py-2">
-            <div className="text-callout text-fg">{me?.display_name ?? "管理员"}</div>
-            <div className="truncate text-caption text-fg-caption">{me?.email ?? me?.name ?? ""}</div>
-          </div>
-          <DropdownMenu.Separator className="my-1 h-px bg-line" />
-          <DropdownMenu.Item asChild>
-            <Link to="/settings" className="flex h-9 items-center gap-2 rounded-[10px] px-3 text-callout outline-none data-[highlighted]:bg-mint-100">
-              <Settings size={16} aria-hidden /> 设置
-            </Link>
-          </DropdownMenu.Item>
-          <DropdownMenu.Item asChild>
-            <a
-              href="/cdn-cgi/access/logout"
-              className="flex h-9 items-center gap-2 rounded-[10px] px-3 text-callout text-danger-text outline-none data-[highlighted]:bg-mint-100"
-            >
-              退出登录
-            </a>
-          </DropdownMenu.Item>
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
-    </DropdownMenu.Root>
+    <>
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger className="flex h-9 w-9 items-center justify-center rounded-full" aria-label="账户菜单">
+          <Avatar member={me} size={32} />
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content align="end" sideOffset={8} className="glass-3 z-50 min-w-[240px] rounded-[16px] p-1.5">
+            <div className="px-3 py-2">
+              <div className="text-callout text-fg">{me?.display_name ?? data?.identity.email ?? "我"}</div>
+              <div className="truncate text-caption text-fg-caption">{data?.identity.email ?? me?.name ?? ""}</div>
+            </div>
+            {teams.length > 0 ? (
+              <>
+                <DropdownMenu.Separator className="my-1 h-px bg-line" />
+                <DropdownMenu.Label className="px-3 pb-1 pt-1.5 text-caption text-fg-caption">切换团队</DropdownMenu.Label>
+                {teams.map((t) => {
+                  const current = t.id === data?.team?.id;
+                  return (
+                    <DropdownMenu.Item key={t.id} className={menuItemCls} onSelect={() => !current && void switchTeam(t.id)}>
+                      <TeamTile id={t.id} name={t.name} size={22} />
+                      <span className="min-w-0 flex-1 truncate">{t.name}</span>
+                      <span className="text-caption font-normal text-fg-caption">{roleLabel(t.role)}</span>
+                      {current ? <Check size={14} className="text-mint-700" aria-label="当前团队" /> : null}
+                    </DropdownMenu.Item>
+                  );
+                })}
+                {data?.can_create_team ? (
+                  <DropdownMenu.Item className={menuItemCls} onSelect={() => setCreating(true)}>
+                    <Plus size={16} className="text-fg-2" aria-hidden /> 创建团队
+                  </DropdownMenu.Item>
+                ) : null}
+              </>
+            ) : null}
+            <DropdownMenu.Separator className="my-1 h-px bg-line" />
+            <DropdownMenu.Item asChild>
+              <Link to="/settings" className={menuItemCls}>
+                <Settings size={16} aria-hidden /> 设置
+              </Link>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item asChild>
+              <a href="/cdn-cgi/access/logout" className={cn(menuItemCls, "text-danger-text")}>
+                <LogOut size={16} aria-hidden /> 退出登录
+              </a>
+            </DropdownMenu.Item>
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
+      <CreateTeamDialog open={creating} onOpenChange={setCreating} />
+    </>
   );
 }
 
+/** Minimal frame for pages that work without a current team (invite links). */
+function BareShell({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex min-h-dvh flex-col">
+      <header className="flex h-14 items-center gap-2.5 px-5 md:px-8">
+        <span
+          className="flex h-8 w-8 flex-none items-center justify-center rounded-[10px] text-caption font-semibold"
+          style={{ backgroundImage: "linear-gradient(135deg, var(--mint-300), var(--mint-500))", color: "var(--mint-950)" }}
+          aria-hidden
+        >
+          ab
+        </span>
+        <span className="text-[17px] font-semibold tracking-tight">agentbus hub</span>
+      </header>
+      <main id="main" className="mx-auto flex w-full max-w-[1080px] flex-1 flex-col px-4 pb-12 md:px-8">
+        {children}
+      </main>
+    </div>
+  );
+}
+
+function BootSkeleton() {
+  return (
+    <div className="min-h-dvh md:pl-[240px]" aria-busy="true" aria-label="加载中">
+      <div className="glass-2 fixed inset-y-0 left-0 hidden w-[240px] border-y-0 border-l-0 md:block" />
+      <div className="mx-auto max-w-[1200px] space-y-4 px-4 pt-20 md:px-8">
+        <div className="skeleton h-10 w-72" />
+        <div className="skeleton h-28 w-full" />
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="skeleton h-40" />
+          <div className="skeleton h-40" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Root route component. Decides between:
+ *  - /invite/$token → bare frame (works with or without a team);
+ *  - no team yet (me.team === null) → welcome page, and no team-scoped request is made;
+ *  - otherwise the full app shell.
+ */
 export function Layout() {
-  useChangePolling();
   const path = useRouterState({ select: (s) => s.location.pathname });
+  const me = useMe();
+  if (path.startsWith("/invite/")) {
+    return (
+      <BareShell>
+        <Outlet />
+      </BareShell>
+    );
+  }
+  if (me.isPending) return <BootSkeleton />;
+  if (me.isError) {
+    return (
+      <BareShell>
+        <div className="mt-16">
+          <QueryError error={me.error} onRetry={() => void me.refetch()} />
+        </div>
+      </BareShell>
+    );
+  }
+  if (!me.data.team) {
+    return (
+      <BareShell>
+        <WelcomePage me={me.data} />
+      </BareShell>
+    );
+  }
+  return <Shell path={path} teamId={me.data.team.id} />;
+}
+
+function Shell({ path, teamId }: { path: string; teamId: string }) {
+  useChangePolling();
   const reduced = useReducedMotion() ?? false;
   const [collapsed, setCollapsed] = useState(() => {
     try {
@@ -315,7 +416,7 @@ export function Layout() {
           <AvatarMenu />
         </header>
         <main id="main" className="mx-auto w-full max-w-[1200px] flex-1 px-4 pb-28 pt-6 md:px-8 md:pb-12 md:pt-8">
-          <motion.div key={path} variants={variants} initial="hidden" animate="show" custom={0}>
+          <motion.div key={`${teamId}${path}`} variants={variants} initial="hidden" animate="show" custom={0}>
             <Outlet />
           </motion.div>
         </main>

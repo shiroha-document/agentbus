@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Ban, KeyRound, Pause, Play, Plus, Trash2, X } from "lucide-react";
+import { ArrowLeft, Ban, KeyRound, Pause, Play, Plus, Trash2, UserMinus, X } from "lucide-react";
 import { api } from "../api";
-import { qk, useAction, useWorkspaces } from "../queries";
+import { qk, useAction, useMe, useRole, useWorkspaces } from "../queries";
 import { formatDateTime, formatDuration, formatRelative, formatTokens, formatUsd, totalTokens } from "../lib/format";
 import { groupQuota, windowLabel } from "../lib/quota";
-import { cn, ROLE_LABEL } from "../lib/util";
+import { cn } from "../lib/util";
+import { roleLabel } from "../lib/team";
 import type { MemberDetailResponse, QuotaRule, Run } from "../types";
 import { Avatar } from "../components/ui/Avatar";
 import { ConfirmDialog, Dialog } from "../components/ui/Dialog";
@@ -29,7 +30,7 @@ function Section({ title, children, action }: { title: string; children: React.R
 
 type RuleDraft = Omit<QuotaRule, "member_id"> & { key: number };
 
-function QuotaRulesEditor({ data }: { data: MemberDetailResponse }) {
+function QuotaRulesEditor({ data, readOnly }: { data: MemberDetailResponse; readOnly?: boolean }) {
   const id = data.member.id;
   const toDraft = (rules: QuotaRule[]): RuleDraft[] => rules.map((r, i) => ({ provider: r.provider, window: r.window, pause_at_pct: r.pause_at_pct, key: i }));
   const [rules, setRules] = useState<RuleDraft[]>(() => toDraft(data.quota_rules));
@@ -49,17 +50,20 @@ function QuotaRulesEditor({ data }: { data: MemberDetailResponse }) {
     <Section
       title="额度暂停阈值"
       action={
-        <button
-          className="btn btn-ghost btn-sm"
-          onClick={() => {
-            setRules((rs) => [...rs, { provider: providers[1] ?? "*", window: "*", pause_at_pct: 100, key: nextKey }]);
-            setNextKey((k) => k + 1);
-          }}
-        >
-          <Plus size={14} aria-hidden /> 添加规则
-        </button>
+        readOnly ? null : (
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => {
+              setRules((rs) => [...rs, { provider: providers[1] ?? "*", window: "*", pause_at_pct: 100, key: nextKey }]);
+              setNextKey((k) => k + 1);
+            }}
+          >
+            <Plus size={14} aria-hidden /> 添加规则
+          </button>
+        )
       }
     >
+      <fieldset disabled={readOnly} className="contents">
       <p className="text-caption text-fg-caption">任一读数达到阈值就暂停，到重置时间自动恢复。匹配优先级：精确 &gt; provider/* &gt; */*，默认 100%。</p>
       <datalist id="quota-providers">
         {providers.map((p) => (
@@ -116,7 +120,8 @@ function QuotaRulesEditor({ data }: { data: MemberDetailResponse }) {
           </label>
         </div>
       ))}
-      {dirty ? (
+      </fieldset>
+      {dirty && !readOnly ? (
         <div className="flex justify-end gap-2">
           <button className="btn btn-secondary btn-sm" onClick={() => setRules(toDraft(data.quota_rules))}>
             还原
@@ -130,7 +135,7 @@ function QuotaRulesEditor({ data }: { data: MemberDetailResponse }) {
   );
 }
 
-function BudgetEditor({ data }: { data: MemberDetailResponse }) {
+function BudgetEditor({ data, readOnly }: { data: MemberDetailResponse; readOnly?: boolean }) {
   const id = data.member.id;
   const [tokens, setTokens] = useState(data.budget?.daily_tokens?.toString() ?? "");
   const [usd, setUsd] = useState(data.budget?.monthly_usd?.toString() ?? "");
@@ -150,7 +155,7 @@ function BudgetEditor({ data }: { data: MemberDetailResponse }) {
   const dirty = tokens !== (data.budget?.daily_tokens?.toString() ?? "") || usd !== (data.budget?.monthly_usd?.toString() ?? "");
   return (
     <Section title="预算">
-      <div className="grid gap-3 sm:grid-cols-2">
+      <fieldset disabled={readOnly} className="grid gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-1.5">
           <span className="text-caption text-fg-caption">每日 token 上限</span>
           <input className="field tabular" inputMode="numeric" value={tokens} onChange={(e) => setTokens(e.target.value)} placeholder="不限" />
@@ -159,8 +164,8 @@ function BudgetEditor({ data }: { data: MemberDetailResponse }) {
           <span className="text-caption text-fg-caption">每月金额上限（USD）</span>
           <input className="field tabular" inputMode="decimal" value={usd} onChange={(e) => setUsd(e.target.value)} placeholder="不限" />
         </label>
-      </div>
-      {dirty ? (
+      </fieldset>
+      {dirty && !readOnly ? (
         <div className="flex justify-end">
           <button className="btn btn-primary btn-sm" disabled={!!invalid || save.isPending} onClick={() => save.mutate(undefined)}>
             保存预算
@@ -275,6 +280,8 @@ function usage7d(u: MemberDetailResponse["usage_7d"]): { tokens: number; cost: n
 /** Member detail panel — used in the drawer on /members and on /members/$id. */
 export function MemberDetail({ id, onGone }: { id: string; onGone?: () => void }) {
   const q = useQuery({ queryKey: qk.member(id), queryFn: () => api.member(id) });
+  const { isAdmin, isOwner } = useRole();
+  const selfId = useMe().data?.member?.id;
   const [pauseOpen, setPauseOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [until, setUntil] = useState("");
@@ -288,6 +295,8 @@ export function MemberDetail({ id, onGone }: { id: string; onGone?: () => void }
   const resume = useAction(() => api.resumeMember(id), { success: "已恢复", invalidate: inv });
   const role = useAction((r: "agent" | "manager") => api.updateMember(id, { role: r }), { success: "角色已更新", invalidate: inv });
   const revoke = useAction(() => api.revokeMember(id), { success: "已吊销", invalidate: inv });
+  const removeHuman = useAction(() => api.revokeMember(id), { success: "已移出团队", invalidate: inv });
+  const [removeOpen, setRemoveOpen] = useState(false);
   const del = useAction(() => api.deleteMember(id), { success: "已删除", invalidate: [qk.members] });
   const approve = useAction(() => api.approveMember(id), { success: "已同意加入", invalidate: inv });
   const reject = useAction(() => api.rejectMember(id), { success: "已拒绝", invalidate: inv });
@@ -300,6 +309,8 @@ export function MemberDetail({ id, onGone }: { id: string; onGone?: () => void }
   const u7 = usage7d(d.usage_7d);
   const groups = groupQuota(d.quota);
   const isAgent = m.kind === "agent";
+  // Contract: revoking a human is owner-only and never targets the owner (nor yourself — use 退出团队).
+  const canRemoveHuman = !isAgent && isOwner && m.status === "active" && m.role !== "owner" && m.id !== selfId;
 
   return (
     <div className="flex flex-col gap-5">
@@ -308,7 +319,8 @@ export function MemberDetail({ id, onGone }: { id: string; onGone?: () => void }
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="truncate text-title-2">{m.display_name}</h2>
-            <span className="chip chip-muted">{ROLE_LABEL[m.role] ?? m.role}</span>
+            <span className={cn("chip", m.role === "owner" || m.role === "manager" ? "" : "chip-muted")}>{roleLabel(m.role)}</span>
+            {m.id === selfId ? <span className="text-caption text-fg-caption">（我）</span> : null}
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-fg-caption">
             <span>@{m.name}</span>
@@ -344,7 +356,22 @@ export function MemberDetail({ id, onGone }: { id: string; onGone?: () => void }
         </div>
       ) : null}
 
-      {m.status === "pending" ? (
+      {!isAgent ? (
+        <p className="text-caption text-fg-caption">
+          {m.role === "owner" ? "团队所有者，可以移交所有权、删除团队、移出管理员。" : "团队管理员，可以审批 agent、管理设置和邀请。"}
+          {canRemoveHuman ? null : m.status === "active" && m.role !== "owner" && !isOwner ? " 只有所有者能移出管理员。" : ""}
+        </p>
+      ) : null}
+
+      {canRemoveHuman ? (
+        <div className="flex">
+          <button className="btn btn-danger btn-lg sm:h-10" onClick={() => setRemoveOpen(true)}>
+            <UserMinus size={16} aria-hidden /> 移出团队
+          </button>
+        </div>
+      ) : null}
+
+      {m.status === "pending" && isAdmin ? (
         <div className="flex gap-2">
           <button className="btn btn-primary btn-lg flex-1" disabled={approve.isPending} onClick={() => approve.mutate(undefined)}>
             同意加入
@@ -355,7 +382,7 @@ export function MemberDetail({ id, onGone }: { id: string; onGone?: () => void }
         </div>
       ) : null}
 
-      {m.status === "active" && isAgent ? (
+      {m.status === "active" && isAgent && isAdmin ? (
         <div className="flex flex-wrap gap-2">
           {m.paused ? (
             <button className="btn btn-primary btn-lg sm:h-10" disabled={resume.isPending} onClick={() => resume.mutate(undefined)}>
@@ -384,7 +411,7 @@ export function MemberDetail({ id, onGone }: { id: string; onGone?: () => void }
         </div>
       ) : null}
 
-      {m.status === "revoked" ? (
+      {m.status === "revoked" && isAdmin ? (
         <div className="flex">
           <button className="btn btn-danger-solid btn-lg sm:h-10" onClick={() => setDeleteOpen(true)}>
             <Trash2 size={16} aria-hidden /> 删除成员
@@ -412,11 +439,11 @@ export function MemberDetail({ id, onGone }: { id: string; onGone?: () => void }
           </Section>
           {m.status !== "revoked" ? (
             <>
-              <QuotaRulesEditor data={d} />
-              <BudgetEditor data={d} />
+              <QuotaRulesEditor data={d} readOnly={!isAdmin} />
+              <BudgetEditor data={d} readOnly={!isAdmin} />
             </>
           ) : null}
-          {m.role === "manager" ? <ScopesEditor data={d} /> : null}
+          {m.role === "manager" && isAdmin ? <ScopesEditor data={d} /> : null}
           <Section title="密钥">
             {d.keys.length === 0 ? (
               <p className="text-callout font-normal text-fg-3">没有有效公钥</p>
@@ -483,6 +510,16 @@ export function MemberDetail({ id, onGone }: { id: string; onGone?: () => void }
         danger
         busy={revoke.isPending}
         onConfirm={() => revoke.mutate(undefined, { onSuccess: () => setRevokeOpen(false) })}
+      />
+      <ConfirmDialog
+        open={removeOpen}
+        onOpenChange={setRemoveOpen}
+        title={`把 ${m.display_name} 移出团队？`}
+        description="对方会立即失去这个团队的访问权限，历史帖子会保留。之后可以重新发邀请链接让对方回来。"
+        confirmLabel="移出"
+        danger
+        busy={removeHuman.isPending}
+        onConfirm={() => removeHuman.mutate(undefined, { onSuccess: () => setRemoveOpen(false) })}
       />
       <ConfirmDialog
         open={deleteOpen}

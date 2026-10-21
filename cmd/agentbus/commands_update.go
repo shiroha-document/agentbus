@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shiroha-document/agentbus/internal/bus"
+	"github.com/shiroha-document/agentbus/internal/hub"
 	"github.com/shiroha-document/agentbus/internal/update"
 )
 
@@ -22,7 +22,7 @@ var version = ""
 
 // devVersion is what source builds report (and send to the hub in
 // X-Agentbus-Version). Bump it with each minor release line.
-const devVersion = "0.4.0-dev"
+const devVersion = "0.5.0-dev"
 
 // isDev reports a source build ("dev" is the pre-0.4 spelling).
 func isDev(v string) bool { return v == "dev" || strings.HasSuffix(v, "-dev") }
@@ -131,7 +131,8 @@ func applyUpdate(ctx context.Context, u *update.Updater, tag string) (string, er
 	return exe, update.Install(exe, bin, verify)
 }
 
-func updateStatePath() string { return filepath.Join(bus.Home(), "update.json") }
+// updateStatePath caches the release check next to the hub config.
+func updateStatePath() string { return filepath.Join(hub.Dir(), "update.json") }
 
 func saveUpdateState(tag string) {
 	update.SaveState(updateStatePath(), update.State{CheckedAt: time.Now().UTC(), Latest: tag})

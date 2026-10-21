@@ -89,10 +89,10 @@ export const agentAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     const pk = (body as { public_key?: unknown }).public_key;
     if (!isValidPublicKey(pk)) throw new HttpError(400, "bad_request", "public_key 必须是 32 字节 ed25519 公钥（base64）");
     if (!(await verifyEd25519(pk, msg, sig))) throw unauthorized();
-    me = { id: "join", kind: "agent", role: "agent", name: "", status: "join" };
+    me = { id: "join", kind: "agent", role: "agent", name: "", status: "join", team_id: null };
   } else {
     const m = await db.first<Me & { last_seen_at: number | null; offline_notified: number; client_version: string | null }>(
-      "SELECT id, kind, role, name, status, last_seen_at, offline_notified, client_version FROM members WHERE id = ? AND kind = 'agent'",
+      "SELECT id, kind, role, name, status, team_id, last_seen_at, offline_notified, client_version FROM members WHERE id = ? AND kind = 'agent'",
       memberId,
     );
     if (!m || (m.status !== "active" && m.status !== "pending")) throw unauthorized("成员不存在或已被吊销");
@@ -112,7 +112,7 @@ export const agentAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     if (m.status === "pending" && !(c.req.method === "GET" && url.pathname === "/api/v1/agent/state")) {
       throw new HttpError(403, "forbidden", "等待管理员在网页上批准");
     }
-    me = { id: m.id, kind: m.kind, role: m.role, name: m.name, status: m.status };
+    me = { id: m.id, kind: m.kind, role: m.role, name: m.name, status: m.status, team_id: m.team_id };
     if (m.last_seen_at === null || now - m.last_seen_at > 30_000 || m.offline_notified || m.client_version !== ver) {
       await db.run(
         "UPDATE members SET last_seen_at = ?, offline_notified = 0, client_version = ? WHERE id = ?",
@@ -237,32 +237,31 @@ function cookieToken(c: Context<AppEnv>): string | null {
   return m ? m[1] : null;
 }
 
-/** Resolve (and on first login create) the human admin for verified claims. */
-export async function humanFor(env: Env, claims: Claims): Promise<Me | null> {
-  const db = new DB(env.DB);
-  const admins = (env.ADMIN_EMAILS ?? "")
+export const E2E_EMAIL = "e2e@agentbus.invalid";
+
+export function adminEmails(env: Env): string[] {
+  return (env.ADMIN_EMAILS ?? "")
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
-  let email: string;
-  let preferred: string;
-  if (claims.email) {
-    email = claims.email.toLowerCase();
-    if (!admins.includes(email)) return null;
-    preferred = email.split("@")[0];
-  } else if (claims.common_name) {
-    if (!env.E2E_SERVICE_TOKEN_ID || claims.common_name !== env.E2E_SERVICE_TOKEN_ID) return null;
-    email = "e2e@service-token.invalid";
-    preferred = "e2e";
-  } else {
-    return null;
-  }
-  const existing = await db.first<Me>(
-    "SELECT id, kind, role, name, status FROM members WHERE email = ? AND kind = 'human'",
-    email,
-  );
-  if (existing) return existing.status === "revoked" ? null : existing;
+}
 
+/** Identity (email) for verified claims; null when the claims carry none we accept. */
+export function identityFor(env: Env, claims: Claims): { email: string; preferred: string } | null {
+  if (claims.email) {
+    const email = claims.email.trim().toLowerCase();
+    return email ? { email, preferred: email.split("@")[0] } : null;
+  }
+  if (claims.common_name) {
+    if (!env.E2E_SERVICE_TOKEN_ID || claims.common_name !== env.E2E_SERVICE_TOKEN_ID) return null;
+    return { email: E2E_EMAIL, preferred: "e2e" };
+  }
+  return null;
+}
+
+/** Statements creating a human member row in `teamId` (name derived from the email, unique per team). */
+export async function humanMemberStmts(db: DB, teamId: string, email: string, role: "owner" | "admin", now = Date.now()) {
+  const preferred = email === E2E_EMAIL ? "e2e" : email.split("@")[0];
   let base = preferred
     .toLowerCase()
     .replace(/[^a-z0-9_-]/g, "-")
@@ -270,23 +269,67 @@ export async function humanFor(env: Env, claims: Claims): Promise<Me | null> {
     .slice(0, 28);
   if (!NAME_RE.test(base) || (RESERVED_NAMES.has(base) && base !== "e2e")) base = "admin-user";
   let name = base;
-  for (let i = 2; await db.first("SELECT 1 FROM members WHERE name = ?", name); i++) name = `${base}-${i}`;
-  const id = newId("m");
-  const now = Date.now();
-  await db.batch([
-    db.stmt(
-      "INSERT INTO members (id, kind, role, name, display_name, email, status, created_at) VALUES (?, 'human', 'admin', ?, ?, ?, 'active', ?)",
+  for (let i = 2; await db.first("SELECT 1 FROM members WHERE team_id = ? AND name = ?", teamId, name); i++) name = `${base}-${i}`;
+  const id = newId("m", now);
+  return {
+    id,
+    name,
+    stmt: db.stmt(
+      "INSERT INTO members (id, team_id, kind, role, name, display_name, email, status, created_at) VALUES (?, ?, 'human', ?, ?, ?, ?, 'active', ?)",
       id,
+      teamId,
+      role,
       name,
       preferred,
       email,
       now,
     ),
-    db.audit(id, "admin.first_login", id, { email }),
-    db.bumpSeq(),
-  ]);
-  return { id, kind: "human", role: "admin", name, status: "active" };
+  };
 }
+
+/**
+ * Resolve the web requester (hub-api.md §6): identity from claims, current team
+ * from `X-Agentbus-Team` (must be a non-revoked membership, else 403
+ * not_member) or the earliest membership. Team-less identities get a
+ * placeholder Me with `team_id = null`. Never creates anything.
+ */
+export async function humanFor(env: Env, claims: Claims, teamHeader?: string | null): Promise<Me | null> {
+  const ident = identityFor(env, claims);
+  if (!ident) return null;
+  const db = new DB(env.DB);
+  const { email } = ident;
+  const platform_admin = adminEmails(env).includes(email);
+  const cols = "m.id, m.kind, m.role, m.name, m.status, m.team_id";
+  let row: Me | null;
+  if (teamHeader) {
+    row = await db.first<Me>(
+      `SELECT ${cols} FROM members m JOIN teams t ON t.id = m.team_id
+       WHERE m.email = ? AND m.kind = 'human' AND m.team_id = ? AND m.status <> 'revoked'`,
+      email,
+      teamHeader,
+    );
+    if (!row) throw new HttpError(403, "not_member", "你不是这个团队的成员");
+  } else {
+    row = await db.first<Me>(
+      `SELECT ${cols} FROM members m JOIN teams t ON t.id = m.team_id
+       WHERE m.email = ? AND m.kind = 'human' AND m.status <> 'revoked' ORDER BY m.created_at, m.id LIMIT 1`,
+      email,
+    );
+  }
+  if (row) return { ...row, email, platform_admin };
+  return { id: "", kind: "human", role: "admin", name: "", status: "active", team_id: null, email, platform_admin };
+}
+
+/** Web endpoints a team-less identity may call (path relative to /api/v1/web). */
+const TEAMLESS_ALLOWED = new Set([
+  "GET /me",
+  "HEAD /me",
+  "POST /teams",
+  "GET /invites/preview",
+  "POST /invites/accept",
+  // Token-authenticated link from the confirmation email; the recipient need not be a member.
+  "GET /settings/email/confirm",
+]);
 
 /** Web auth (hub-api.md §6): Access JWT on everything outside /api/v1/agent/*, fail closed. */
 export const accessAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
@@ -305,11 +348,18 @@ export const accessAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     claims = null;
   }
   if (!claims) return deny("Access 令牌无效或已过期");
-  const me = await humanFor(c.env, claims);
-  if (!me) return deny("该账号不在管理员名单里");
+  const path = new URL(c.req.url).pathname;
+  const me = await humanFor(c.env, claims, isApi ? c.req.header("x-agentbus-team") || null : null);
+  if (!me) return deny("Access 令牌里没有可识别的身份");
   c.set("me", me);
 
   if (isApi) {
+    if (!me.team_id && path.startsWith("/api/v1/web/")) {
+      const rel = path.slice("/api/v1/web".length).replace(/\/$/, "");
+      if (!TEAMLESS_ALLOWED.has(`${c.req.method} ${rel}`)) {
+        throw new HttpError(403, "no_team", "你还没有加入任何团队：请新建团队或通过邀请链接加入");
+      }
+    }
     const m = c.req.method;
     if (m !== "GET" && m !== "HEAD") {
       const ct = c.req.header("content-type") ?? "";

@@ -23,6 +23,7 @@ import (
 // ---- join ----
 
 type joinOpts struct {
+	joinCode                                  string
 	url, name, display, cli, binary, template string
 	usagePaths                                map[string]string
 	wake, triggerURL, owner, machine          string
@@ -32,6 +33,7 @@ type joinOpts struct {
 func cmdHubJoin(c *cli, args []string) error {
 	fs := newFlags("join")
 	var o joinOpts
+	fs.StringVar(&o.joinCode, "join-code", "", "team join code abj_… from a team admin (hub Settings → Agent 加入码); default $AGENTBUS_JOIN_CODE")
 	fs.StringVar(&o.name, "name", "", "agent name (^[a-z0-9][a-z0-9_-]{1,31}$)")
 	fs.StringVar(&o.display, "display-name", "", "display name shown on the hub")
 	fs.StringVar(&o.cli, "cli", "claude", "coding CLI: claude|codex|cursor|gemini|custom")
@@ -73,11 +75,70 @@ func cmdHubJoin(c *cli, args []string) error {
 	return nil
 }
 
+// Join codes: "abj_" + 26 lowercase base32 characters, created by a team
+// admin in the hub web UI. The hub only stores their hash.
+const (
+	joinCodePrefix  = "abj_"
+	askAdminForCode = "ask a team admin for a join code (hub Settings → Agent 加入码)"
+	joinCodeMissing = "a join code is required to join a hub team: " + askAdminForCode +
+		", then pass --join-code abj_… or set AGENTBUS_JOIN_CODE"
+	joinCodeBad = "the hub rejected this join code (wrong, expired or revoked): " + askAdminForCode + " and try again"
+)
+
+// envJoinCode is $AGENTBUS_JOIN_CODE, the default for --join-code.
+func envJoinCode() string { return strings.TrimSpace(os.Getenv("AGENTBUS_JOIN_CODE")) }
+
+// normalizeJoinCode trims whitespace (and stray quotes from copy-paste) and
+// lower-cases; join codes are lowercase base32.
+func normalizeJoinCode(s string) string {
+	return strings.ToLower(strings.Trim(strings.TrimSpace(s), `"'`))
+}
+
+// joinError turns hub join errors into actionable messages.
+func joinError(err error, name, hubURL string) error {
+	switch {
+	case hub.IsCode(err, "join_code_required"):
+		return fmt.Errorf("%s (%v)", joinCodeMissing, err)
+	case hub.IsCode(err, "bad_join_code"):
+		return fmt.Errorf("%s (%v)", joinCodeBad, err)
+	case hub.IsStatus(err, 409):
+		return fmt.Errorf("the name %q is taken in this team on %s: pick another --name (%v)", name, hubURL, err)
+	}
+	return err
+}
+
+// teamText is "Name (o_…)" for the team saved in cfg, or "-".
+func teamText(cfg *hub.Config) string {
+	switch {
+	case cfg.TeamName != "" && cfg.TeamID != "":
+		return cfg.TeamName + " (" + cfg.TeamID + ")"
+	case cfg.TeamID != "":
+		return cfg.TeamID
+	}
+	return "-"
+}
+
+// teamOf is the saved team as a JSON object.
+func teamOf(cfg *hub.Config) hub.TeamRef { return hub.TeamRef{ID: cfg.TeamID, Name: cfg.TeamName} }
+
+// rememberTeam stores the team reported by the hub in the local config when
+// it differs (renamed team, or a config written before teams existed).
+// Best effort: status output must not fail because of it.
+func rememberTeam(dir string, cfg *hub.Config, t hub.TeamRef) {
+	if t.ID == "" || (t.ID == cfg.TeamID && t.Name == cfg.TeamName) {
+		return
+	}
+	cfg.TeamID, cfg.TeamName = t.ID, t.Name
+	_ = cfg.Save(dir)
+}
+
 func printJoined(c *cli, cfg *hub.Config, status string) {
-	c.emit(map[string]any{"member_id": cfg.MemberID, "name": cfg.Name, "hub": cfg.HubURL, "status": status, "dir": hub.Dir()}, func() {
-		fmt.Fprintf(c.out, "joined %s as %s (%s), status %s; config in %s\n", cfg.HubURL, cfg.Name, cfg.MemberID, status, hub.Dir())
+	c.emit(map[string]any{"member_id": cfg.MemberID, "name": cfg.Name, "hub": cfg.HubURL, "team": teamOf(cfg),
+		"status": status, "dir": hub.Dir()}, func() {
+		fmt.Fprintf(c.out, "joined %s as %s (%s) in team %s, status %s; config in %s\n", cfg.HubURL, cfg.Name, cfg.MemberID,
+			teamText(cfg), status, hub.Dir())
 		if status == "pending" {
-			fmt.Fprintln(c.out, "等待管理员在网页上批准")
+			fmt.Fprintln(c.out, "waiting for a team admin to approve this agent on the hub web UI")
 		}
 	})
 }
@@ -93,6 +154,7 @@ func hubJoin(ctx context.Context, o joinOpts) (*hub.Config, string, error) {
 				if k, err := hub.LoadKey(hub.Paths{Dir: dir}.Key()); err == nil {
 					if s, err := hub.NewClient(cfg, k, hubVersion()).State(ctx); err == nil {
 						st = s.Member.Status
+						rememberTeam(dir, cfg, s.Team)
 					}
 				}
 				return cfg, st, nil
@@ -102,7 +164,14 @@ func hubJoin(ctx context.Context, o joinOpts) (*hub.Config, string, error) {
 			dir, cfg.HubURL, cfg.Name)
 	}
 	if !isHubURL(o.url) {
-		return nil, "", &exitError{code: exitUsage, msg: "join needs the hub URL: agentbus join https://hub.example.com --name NAME"}
+		return nil, "", &exitError{code: exitUsage, msg: "join needs the hub URL: agentbus join https://hub.example.com --join-code abj_… --name NAME"}
+	}
+	o.joinCode = normalizeJoinCode(firstOr(strings.TrimSpace(o.joinCode), envJoinCode()))
+	if o.joinCode == "" {
+		return nil, "", &exitError{code: exitUsage, msg: joinCodeMissing}
+	}
+	if !strings.HasPrefix(o.joinCode, joinCodePrefix) {
+		return nil, "", &exitError{code: exitUsage, msg: "join codes start with abj_: " + askAdminForCode}
 	}
 	if !nameRE.MatchString(o.name) {
 		return nil, "", &exitError{code: exitUsage, msg: "join needs --name matching ^[a-z0-9][a-z0-9_-]{1,31}$"}
@@ -155,16 +224,14 @@ func hubJoin(ctx context.Context, o joinOpts) (*hub.Config, string, error) {
 		cfg.CLIUsagePaths = o.usagePaths
 	}
 	cl := hub.NewClient(cfg, k, hubVersion())
-	res, err := cl.Join(ctx, hub.JoinReq{Name: o.name, DisplayName: o.display, CLI: o.cli, WakeMode: o.wake,
+	res, err := cl.Join(ctx, hub.JoinReq{JoinCode: o.joinCode, Name: o.name, DisplayName: o.display, CLI: o.cli, WakeMode: o.wake,
 		WakeIntervalS: cfg.WakeIntervalS, Owner: o.owner, Machine: o.machine, PublicKey: hub.PublicKeyB64(k),
 		ClientVersion: hubVersion(), TriggerURL: o.triggerURL})
 	if err != nil {
-		if hub.IsStatus(err, 409) {
-			return nil, "", fmt.Errorf("the name %q is taken on %s: pick another --name (%v)", o.name, cfg.HubURL, err)
-		}
-		return nil, "", err
+		return nil, "", joinError(err, o.name, cfg.HubURL)
 	}
 	cfg.MemberID = res.MemberID
+	cfg.TeamID, cfg.TeamName = res.Team.ID, res.Team.Name
 	cfg.JoinedAt = time.Now().UnixMilli()
 	if err := cfg.Save(dir); err != nil {
 		return nil, "", err
@@ -188,9 +255,14 @@ func cmdHubState(c *cli, args []string) error {
 	if err != nil {
 		return err
 	}
+	rememberTeam(e.dir, e.cfg, s.Team)
+	if s.Team.ID == "" { // older hub: fall back to what join saved
+		s.Team = teamOf(e.cfg)
+	}
 	c.emit(s, func() {
 		m := s.Member
 		fmt.Fprintf(c.out, "%s (%s) on %s\n", m.Name, m.ID, e.cfg.HubURL)
+		fmt.Fprintf(c.out, "team %s\n", teamText(e.cfg))
 		fmt.Fprintf(c.out, "role %s, status %s%s\n", m.Role, m.Status, pauseText(s))
 		fmt.Fprintf(c.out, "pending deliveries %d; cli %s, tier %s, wake %s every %s\n", s.Pending, e.cfg.CLI, e.cfg.Tier,
 			e.cfg.Wake, FmtDurS(e.cfg.WakeIntervalS))
@@ -258,7 +330,11 @@ func cmdHubStatus(c *cli, args []string) error {
 		rs = quota.Collect(ctx, quota.Options{Source: e.cfg.QuotaSource, Timeout: 10 * time.Second})
 	}
 	st := querySchedule(e.cfg.Name)
-	out := map[string]any{"name": e.cfg.Name, "member_id": e.cfg.MemberID, "hub": e.cfg.HubURL, "local": ls, "quota": rs, "schedule": st}
+	if s != nil && serr == nil {
+		rememberTeam(e.dir, e.cfg, s.Team)
+	}
+	out := map[string]any{"name": e.cfg.Name, "member_id": e.cfg.MemberID, "hub": e.cfg.HubURL, "team": teamOf(e.cfg),
+		"local": ls, "quota": rs, "schedule": st}
 	if s != nil && serr == nil {
 		out["state"] = s
 	} else {
@@ -266,6 +342,7 @@ func cmdHubStatus(c *cli, args []string) error {
 	}
 	c.emit(out, func() {
 		fmt.Fprintf(c.out, "%s (%s) on %s\n", e.cfg.Name, e.cfg.MemberID, e.cfg.HubURL)
+		fmt.Fprintf(c.out, "team %s\n", teamText(e.cfg))
 		if serr != nil {
 			fmt.Fprintf(c.out, "hub: %v\n", serr)
 		} else {

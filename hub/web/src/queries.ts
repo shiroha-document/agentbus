@@ -2,6 +2,7 @@ import { QueryClient, useMutation, useQuery, useQueryClient, type QueryKey } fro
 import { useEffect } from "react";
 import { api, ApiError } from "./api";
 import { toast } from "./components/ui/Toast";
+import { isAdminRole, isOwnerRole, setStoredTeam } from "./lib/team";
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -30,9 +31,24 @@ export const qk = {
   runs: (p: object) => ["runs", p] as const,
   settings: ["settings"] as const,
   audit: ["audit"] as const,
+  invites: ["invites"] as const,
+  joinCodes: ["join-codes"] as const,
 };
 
 export const useMe = () => useQuery({ queryKey: qk.me, queryFn: api.me, staleTime: 5 * 60_000 });
+
+/** My role in the current team, with the contract's permission shorthands. */
+export function useRole() {
+  const { data } = useMe();
+  const role = data?.role ?? null;
+  return {
+    role,
+    isAdmin: isAdminRole(role),
+    isOwner: isOwnerRole(role),
+    platformAdmin: data?.identity.platform_admin ?? false,
+    team: data?.team ?? null,
+  };
+}
 export const useMembers = () => useQuery({ queryKey: qk.members, queryFn: api.members });
 export const useWorkspaces = () => useQuery({ queryKey: qk.workspaces, queryFn: api.workspaces });
 export const useSettings = () => useQuery({ queryKey: qk.settings, queryFn: api.settings });
@@ -56,6 +72,24 @@ let lastSeq: number | null = null;
 
 export function getLastSeq(): number | null {
   return lastSeq;
+}
+
+/**
+ * Select a team (null = server default) and drop every team-scoped cache entry.
+ * /me keeps its data while it refetches so the shell doesn't flash; everything
+ * else is reset (active queries refetch with the new X-Agentbus-Team header).
+ * Resolves once /me has been refetched for the new team.
+ * Callers should navigate to "/" first so the old team's ids aren't requested.
+ */
+export async function selectTeam(id: string | null): Promise<void> {
+  setStoredTeam(id);
+  lastSeq = null;
+  await queryClient.cancelQueries();
+  queryClient.getMutationCache().clear();
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: qk.me }),
+    queryClient.resetQueries({ predicate: (q) => q.queryKey[0] !== qk.me[0] }),
+  ]);
 }
 
 /** Poll GET /web/changes every 10s; on a new seq invalidate all queries. */

@@ -137,3 +137,53 @@ func TestClientSignsAndErrors(t *testing.T) {
 		t.Fatalf("404: %v", err)
 	}
 }
+
+func TestJoinSendsJoinCode(t *testing.T) {
+	k, _ := GenerateKey()
+	var got JoinReq
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/agent/join" || r.Header.Get("X-Agentbus-Member") != "join" {
+			w.WriteHeader(400)
+			return
+		}
+		got = JoinReq{}
+		_ = json.Unmarshal(readAll(r), &got)
+		w.Header().Set("Content-Type", "application/json")
+		switch got.JoinCode {
+		case "":
+			w.WriteHeader(400)
+			_, _ = w.Write([]byte(`{"error":{"code":"join_code_required","message":"join_code is required"}}`))
+		case "abj_good":
+			_, _ = w.Write([]byte(`{"member_id":"m_7","status":"pending","team":{"id":"o_1","name":"Acme"}}`))
+		default:
+			w.WriteHeader(403)
+			_, _ = w.Write([]byte(`{"error":{"code":"bad_join_code","message":"invalid join code"}}`))
+		}
+	}))
+	defer srv.Close()
+	c := &Client{BaseURL: srv.URL, MemberID: "", Key: k, Version: "9.9.9"}
+	ctx := context.Background()
+	res, err := c.Join(ctx, JoinReq{JoinCode: "abj_good", Name: "alice", PublicKey: PublicKeyB64(k)})
+	if err != nil || res.MemberID != "m_7" || res.Status != "pending" || got.Name != "alice" {
+		t.Fatalf("%+v %v %+v", res, err, got)
+	}
+	if res.Team.ID != "o_1" || res.Team.Name != "Acme" {
+		t.Fatalf("team %+v", res.Team)
+	}
+	_, err = c.Join(ctx, JoinReq{JoinCode: "abj_wrong", Name: "alice"})
+	if !IsStatus(err, 403) || !IsCode(err, "bad_join_code") || IsCode(err, "forbidden") {
+		t.Fatalf("403: %v", err)
+	}
+	if got.JoinCode != "abj_wrong" {
+		t.Fatalf("join_code %q", got.JoinCode)
+	}
+	_, err = c.Join(ctx, JoinReq{Name: "alice"})
+	if !IsStatus(err, 400) || !IsCode(err, "join_code_required") {
+		t.Fatalf("400: %v", err)
+	}
+	// join_code is always serialised (required by the hub)
+	b, _ := json.Marshal(JoinReq{})
+	if !strings.Contains(string(b), `"join_code":""`) {
+		t.Fatal(string(b))
+	}
+}

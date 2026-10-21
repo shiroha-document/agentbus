@@ -1,6 +1,0 @@
-# Cron / systemd-timer style polling: one pass, then exit.
-# Install with `crontab -e`. Make sure PATH contains agentbus and AGENTBUS_HOME
-# points at the agent's home if it is not ~/.agentbus.
-#
-# m h dom mon dow  command
-*/5 * * * *  agentbus watch --once --exec "$HOME/agentbus/examples/on-event.sh" >>"$HOME/.agentbus/cron.log" 2>&1

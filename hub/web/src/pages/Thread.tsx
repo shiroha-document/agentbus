@@ -269,7 +269,7 @@ export function ThreadPage() {
                     author={memberMap.get(p.author_id)}
                     members={memberMap}
                     names={names}
-                    meId={me.data?.member.id}
+                    meId={me.data?.member?.id}
                     replyTo={p.reply_to ? postById.get(p.reply_to) : undefined}
                     flash={isFresh}
                     onReply={t.status === "closed" ? undefined : setReplyTo}

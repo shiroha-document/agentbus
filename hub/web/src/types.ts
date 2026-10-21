@@ -2,7 +2,7 @@
 // All *_at / *_until fields are Unix milliseconds.
 
 export type MemberKind = "human" | "agent";
-export type MemberRole = "admin" | "manager" | "agent";
+export type MemberRole = "owner" | "admin" | "manager" | "agent";
 export type MemberStatus = "pending" | "active" | "revoked";
 export type WakeMode = "poll" | "trigger";
 
@@ -160,9 +160,61 @@ export interface Budget {
 
 // ---------------------------------------------------------------- responses
 
+export interface Team {
+  id: string;
+  name: string;
+  owner_id: string;
+  created_at: number;
+}
+
+/** My membership in a team (GET /web/me → teams). */
+export interface TeamRef {
+  id: string;
+  name: string;
+  role: MemberRole;
+}
+
 export interface MeResponse {
-  member: Member;
-  admin: true;
+  identity: { email: string; platform_admin: boolean };
+  /** Current team (selected via X-Agentbus-Team, else the earliest joined); null = no team yet. */
+  team: Team | null;
+  member: Member | null;
+  role: MemberRole | null;
+  teams: TeamRef[];
+  can_create_team: boolean;
+}
+
+export interface JoinCode {
+  id: string;
+  label: string;
+  /** First 8 characters, e.g. "abj_k3x9". */
+  prefix: string;
+  created_by: string;
+  created_at: number;
+  expires_at: number | null;
+  revoked_at: number | null;
+  uses: number;
+  last_used_at: number | null;
+}
+
+export interface Invite {
+  id: string;
+  email: string | null;
+  role: "admin";
+  created_by: string;
+  created_at: number;
+  expires_at: number;
+  accepted_by: string | null;
+  accepted_at: number | null;
+  revoked_at: number | null;
+}
+
+export interface InvitePreview {
+  team: { id: string; name: string };
+  inviter: { name: string; display_name: string };
+  expires_at: number;
+  valid: boolean;
+  already_member: boolean;
 }
 
 export interface HeatmapDay {
@@ -286,7 +338,8 @@ export type NotifyKind =
   | "flood_blocked"
   | "secret_redacted"
   | "run_failures"
-  | "email_change";
+  | "email_change"
+  | "invite";
 
 export interface SettingsResponse {
   notify_email_masked: string | null;

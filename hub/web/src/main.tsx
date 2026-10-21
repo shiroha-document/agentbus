@@ -9,6 +9,10 @@ async function boot() {
     const { installMock } = await import("./mock");
     installMock();
   }
+  // Links (incl. notification emails) carry ?team=o_…: persist it as the current
+  // team before the first request goes out, then strip it from the address bar.
+  const { applyTeamParamFromLocation } = await import("./lib/team");
+  applyTeamParamFromLocation();
   const { App } = await import("./App");
   const el = document.getElementById("root");
   if (!el) return;

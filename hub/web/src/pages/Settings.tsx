@@ -1,16 +1,17 @@
-import { useState, type FormEvent } from "react";
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useInfiniteQuery, useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { CheckCircle2, Mail, MailWarning, PauseOctagon, Send, SlidersHorizontal, Bell, ScrollText, X } from "lucide-react";
 import { api } from "../api";
-import { qk, useAction, useSettings } from "../queries";
+import { qk, useAction, useMe, useRole, useSettings } from "../queries";
 import { formatDateTime } from "../lib/format";
-import { NOTIFY_KIND_LABEL, NOTIFY_KIND_ORDER } from "../lib/util";
+import { NOTIFY_KIND_LABEL, NOTIFY_KIND_LOCKED, NOTIFY_KIND_ORDER } from "../lib/util";
 import type { EmailHealth, SettingsPatch, SettingsResponse } from "../types";
 import { Switch } from "../components/ui/Switch";
 import { EmptyState } from "../components/ui/EmptyState";
 import { QueryError } from "../components/layout/RouteStates";
 import { useMemberMap } from "../components/threads";
+import { DangerSection, InvitesSection, JoinCodesSection, TeamSection } from "./settings/TeamSections";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -24,7 +25,7 @@ function EmailHealthNotice({ h }: { h?: EmailHealth }) {
     ) : null;
   }
   return (
-    <div className="mb-4 flex flex-col gap-1.5 rounded-[12px] border-l-[3px] border-l-danger bg-danger/10 px-3 py-2" role="alert">
+    <div className="mb-4 flex flex-col gap-1.5 rounded-[12px] border-l-[3px] border-l-danger bg-danger-bg px-3 py-2" role="alert">
       <div className="flex items-center gap-1.5 text-callout font-semibold text-danger-text">
         <MailWarning size={16} aria-hidden /> 邮件通知发送失败
         {h.failed_count > 1 ? <span className="font-normal">（{h.failed_count} 批未送达）</span> : null}
@@ -109,7 +110,7 @@ function NotifySection({ s }: { s: SettingsResponse }) {
       <ul className="flex flex-col divide-y divide-line">
         {NOTIFY_KIND_ORDER.map((k) => {
           const meta = NOTIFY_KIND_LABEL[k]!;
-          const locked = k === "email_change";
+          const locked = NOTIFY_KIND_LOCKED.has(k);
           const on = locked ? true : kinds[k] !== false;
           const id = `notify-${k}`;
           return (
@@ -133,7 +134,7 @@ function NotifySection({ s }: { s: SettingsResponse }) {
   );
 }
 
-function RuntimeSection({ s }: { s: SettingsResponse }) {
+function RuntimeSection({ s, platformAdmin }: { s: SettingsResponse; platformAdmin: boolean }) {
   const [pct, setPct] = useState(s.default_pause_pct);
   const [merge, setMerge] = useState(String(s.merge_window_min));
   const [minVer, setMinVer] = useState(s.min_client_version);
@@ -145,7 +146,8 @@ function RuntimeSection({ s }: { s: SettingsResponse }) {
   const mergeNum = Number(merge);
   const mergeOk = merge.trim() !== "" && Number.isInteger(mergeNum) && mergeNum >= 0 && mergeNum <= 1440;
   const verOk = minVer.trim() === "" || /^\d+\.\d+\.\d+([-+][\w.]+)?$/.test(minVer.trim());
-  const dirty = pct !== s.default_pause_pct || mergeNum !== s.merge_window_min || minVer.trim() !== s.min_client_version;
+  const verDirty = platformAdmin && minVer.trim() !== s.min_client_version;
+  const dirty = pct !== s.default_pause_pct || mergeNum !== s.merge_window_min || verDirty;
   const globalOn = pause.isPending ? (pause.variables ?? s.global_pause) : s.global_pause;
 
   return (
@@ -172,7 +174,10 @@ function RuntimeSection({ s }: { s: SettingsResponse }) {
           onSubmit={(e) => {
             e.preventDefault();
             if (!dirty || !mergeOk || !verOk) return;
-            save.mutate({ default_pause_pct: pct, merge_window_min: mergeNum, min_client_version: minVer.trim() });
+            const body: SettingsPatch = { default_pause_pct: pct, merge_window_min: mergeNum };
+            // min_client_version is platform-wide: only platform admins send it.
+            if (verDirty) body.min_client_version = minVer.trim();
+            save.mutate(body);
           }}
         >
           <label className="flex flex-col gap-2">
@@ -213,14 +218,19 @@ function RuntimeSection({ s }: { s: SettingsResponse }) {
               <span className="text-callout">最低客户端版本</span>
               <input
                 className="field tabular"
-                placeholder="例如 0.4.0"
+                placeholder="例如 0.5.0"
                 value={minVer}
                 onChange={(e) => setMinVer(e.target.value)}
                 aria-invalid={!verOk}
                 spellCheck={false}
+                disabled={!platformAdmin}
               />
               <span className={verOk ? "text-caption text-fg-caption" : "text-caption text-danger-text"}>
-                {verOk ? "低于此版本的 agentbus 会被要求升级。留空表示不限制。" : "版本号格式应为 x.y.z"}
+                {!verOk
+                  ? "版本号格式应为 x.y.z"
+                  : platformAdmin
+                    ? "平台级设置，对所有团队生效。低于此版本的 agentbus 会被要求升级，留空表示不限制。"
+                    : "平台级设置，只有平台管理员可以修改。"}
               </span>
             </label>
           </div>
@@ -315,10 +325,26 @@ function AuditLog() {
 export function SettingsPage() {
   const search = useSearch({ from: "/settings" });
   const navigate = useNavigate();
-  const q = useSettings();
+  const { isAdmin, platformAdmin } = useRole();
+  const me = useMe();
+  const teamId = me.data?.team?.id ?? "";
   const emailOk = search.email === "ok";
   const emailFailed = search.email !== undefined && !emailOk;
   const dismiss = () => void navigate({ to: "/settings", search: {}, replace: true });
+
+  // Deep link from the team switcher (/settings#team): scroll once the section exists.
+  // Sections above load asynchronously, so wait until the settings query settles (admins) before scrolling.
+  const ready = useIsFetching() === 0 && !me.isPending;
+  const scrolled = useRef(false);
+  useEffect(() => {
+    const id = window.location.hash.slice(1);
+    if (!id || !ready || scrolled.current) return;
+    const t = window.setTimeout(() => {
+      scrolled.current = true;
+      document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 120);
+    return () => window.clearTimeout(t);
+  }, [ready]);
 
   return (
     <div className="mx-auto flex w-full max-w-[880px] flex-col gap-6">
@@ -341,25 +367,46 @@ export function SettingsPage() {
         </div>
       ) : null}
 
-      {q.isPending ? (
-        <div className="flex flex-col gap-6">
-          <div className="skeleton h-36" />
-          <div className="skeleton h-80" />
-        </div>
-      ) : q.isError ? (
-        <QueryError error={q.error} onRetry={() => void q.refetch()} />
-      ) : (
+      <TeamSection key={teamId} />
+
+      {isAdmin ? (
         <>
-          <EmailSection masked={q.data.notify_email_masked} health={q.data.email_health} />
-          <RuntimeSection
-            key={`${q.data.default_pause_pct}|${q.data.merge_window_min}|${q.data.min_client_version}`}
-            s={q.data}
-          />
-          <NotifySection s={q.data} />
+          <InvitesSection />
+          <JoinCodesSection />
+          <SettingsBody platformAdmin={platformAdmin} />
+          <AuditLog />
         </>
+      ) : (
+        <p className="glass-1 card text-callout font-normal text-fg-2">
+          通知、运行参数、邀请和加入码只有团队管理员可以查看和修改。
+        </p>
       )}
 
-      <AuditLog />
+      <DangerSection />
     </div>
+  );
+}
+
+function SettingsBody({ platformAdmin }: { platformAdmin: boolean }) {
+  const q = useSettings();
+  if (q.isPending) {
+    return (
+      <div className="flex flex-col gap-6">
+        <div className="skeleton h-36" />
+        <div className="skeleton h-80" />
+      </div>
+    );
+  }
+  if (q.isError) return <QueryError error={q.error} onRetry={() => void q.refetch()} />;
+  return (
+    <>
+      <EmailSection masked={q.data.notify_email_masked} health={q.data.email_health} />
+      <RuntimeSection
+        key={`${q.data.default_pause_pct}|${q.data.merge_window_min}|${q.data.min_client_version}`}
+        s={q.data}
+        platformAdmin={platformAdmin}
+      />
+      <NotifySection s={q.data} />
+    </>
   );
 }

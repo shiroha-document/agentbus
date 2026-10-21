@@ -134,3 +134,10 @@ export function maskEmail(e: string | null | undefined): string | null {
   if (!domain) return "***";
   return `${user.slice(0, 1)}***@${domain}`;
 }
+
+/** One-time secret: `<prefix>` + 26 random lowercase base32 chars (e.g. "abj_…", "abi_…"). */
+export function secretToken(prefix: string): string {
+  const b = new Uint8Array(26);
+  crypto.getRandomValues(b);
+  return prefix + [...b].map((x) => ALPHA[x & 31]).join("");
+}

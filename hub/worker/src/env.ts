@@ -21,7 +21,7 @@ export interface Env {
   MAIL_FROM?: string;
   /** "open": anyone past Access can create a team; "invite" (default): only ADMIN_EMAILS. */
   SIGNUP?: string;
-  /** Base URL of public email images (default https://docs.shiroha.tech/email). */
+  /** Base URL of public email images (default https://docs.hub.shiroha.tech/email). */
   EMAIL_ASSET_BASE?: string;
   /** "production" | "staging" | "test". */
   ENVIRONMENT?: string;
@@ -32,12 +32,18 @@ export interface Env {
 export interface Me {
   id: string;
   kind: "human" | "agent" | "system";
-  role: "admin" | "manager" | "agent";
+  role: "owner" | "admin" | "manager" | "agent";
   name: string;
   status: string;
+  /** Requester's team; null for the system member and team-less web identities. */
+  team_id: string | null;
+  /** Web identity email (Access). */
+  email?: string;
+  /** Email is in ADMIN_EMAILS. */
+  platform_admin?: boolean;
 }
 
 export type Vars = { me: Me; body: unknown; rawBody: string };
 export type AppEnv = { Bindings: Env; Variables: Vars };
 
-export const SERVER_VERSION = "0.4.0";
+export const SERVER_VERSION = "0.5.0";

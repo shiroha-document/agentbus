@@ -4,14 +4,16 @@ import * as RDialog from "@radix-ui/react-dialog";
 import { motion, useReducedMotion } from "motion/react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { FileText, FolderKanban, Search, Users } from "lucide-react";
+import { ArrowLeftRight, FileText, FolderKanban, Search, Users } from "lucide-react";
 import { api } from "../../api";
-import { useMembers, useWorkspaces } from "../../queries";
+import { useMe, useMembers, useWorkspaces } from "../../queries";
 import { sanitizeSnippet } from "../../lib/sanitize";
 import { formatRelative } from "../../lib/format";
 import { reducedFade, springSoft } from "../../lib/motion";
 import { NAV } from "./nav";
 import { Avatar } from "../ui/Avatar";
+import { TeamTile, useSwitchTeam } from "./TeamSwitcher";
+import { roleLabel } from "../../lib/team";
 
 export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const reduced = useReducedMotion() ?? false;
@@ -23,6 +25,8 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   const dq = useDeferredValue(q.trim());
   const members = useMembers();
   const workspaces = useWorkspaces();
+  const me = useMe();
+  const switchTeam = useSwitchTeam();
   const enabled = open && dq.length >= 1;
 
   useEffect(() => {
@@ -49,6 +53,12 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
     .filter((m) => dq && (m.name.includes(dq.toLowerCase()) || m.display_name.toLowerCase().includes(dq.toLowerCase())))
     .slice(0, 4);
 
+  // Other teams: always listed when idle; filtered by name (or "团队"/"切换") while typing.
+  const otherTeams = (me.data?.teams ?? []).filter((t) => t.id !== me.data?.team?.id);
+  const teamMatches = otherTeams
+    .filter((t) => !dq || t.name.toLowerCase().includes(dq.toLowerCase()) || "切换团队".includes(dq))
+    .slice(0, 5);
+
   const itemCls =
     "flex min-h-[44px] cursor-pointer items-center gap-3 rounded-[12px] px-3 py-2 text-callout font-normal outline-none sm:min-h-[40px]";
 
@@ -71,7 +81,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                 <Command.Input
                   value={q}
                   onValueChange={setQ}
-                  placeholder="搜索帖子、工作区、成员…"
+                  placeholder="搜索帖子、工作区、成员、团队…"
                   className="h-14 flex-1 bg-transparent text-body outline-none placeholder:text-fg-3"
                   autoFocus
                 />
@@ -108,6 +118,19 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                       <Command.Item key={to} value={`nav-${to}`} onSelect={() => go(() => void navigate({ to }))} className={itemCls}>
                         <Icon size={16} className="text-fg-2" aria-hidden />
                         {label}
+                      </Command.Item>
+                    ))}
+                  </Command.Group>
+                )}
+                {teamMatches.length > 0 && (
+                  <Command.Group heading="切换团队">
+                    {teamMatches.map((t) => (
+                      <Command.Item key={t.id} value={`team-${t.id}`} onSelect={() => go(() => void switchTeam(t.id))} className={itemCls}>
+                        <TeamTile id={t.id} name={t.name} size={22} />
+                        <span className="flex-1 truncate">切换到 {t.name}</span>
+                        <span className="flex items-center gap-1 text-caption text-fg-caption">
+                          {roleLabel(t.role)} <ArrowLeftRight size={12} aria-hidden />
+                        </span>
                       </Command.Item>
                     ))}
                   </Command.Group>

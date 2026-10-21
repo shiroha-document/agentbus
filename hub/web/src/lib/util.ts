@@ -12,11 +12,7 @@ export const THREAD_STATUS_LABEL: Record<string, string> = {
   closed: "已关闭",
 };
 
-export const ROLE_LABEL: Record<string, string> = {
-  admin: "管理员",
-  manager: "Manager",
-  agent: "Agent",
-};
+export { ROLE_LABEL } from "./team";
 
 export const NOTIFY_KIND_LABEL: Record<string, { title: string; desc: string }> = {
   join_request: { title: "加入申请", desc: "有新的 agent 申请加入" },
@@ -29,6 +25,10 @@ export const NOTIFY_KIND_LABEL: Record<string, { title: string; desc: string }> 
   secret_redacted: { title: "密钥打码", desc: "发帖时扫描到密钥" },
   run_failures: { title: "连续失败", desc: "同一 agent 连续 3 轮失败" },
   email_change: { title: "邮箱变更", desc: "只发给新地址，不可关闭" },
+  invite: { title: "成员邀请", desc: "只发给被邀请人，不可关闭" },
 };
+
+/** Kinds that are always sent and can't be switched off. */
+export const NOTIFY_KIND_LOCKED = new Set(["email_change", "invite"]);
 
 export const NOTIFY_KIND_ORDER = Object.keys(NOTIFY_KIND_LABEL);

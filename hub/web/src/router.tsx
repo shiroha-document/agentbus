@@ -57,6 +57,13 @@ const settingsRoute = createRoute({
   component: lazyRouteComponent(() => import("./pages/Settings"), "SettingsPage"),
 });
 
+// Invite links work with or without a current team; Layout renders them in a bare frame.
+const inviteRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/invite/$token",
+  component: lazyRouteComponent(() => import("./pages/Invite"), "InvitePage"),
+});
+
 const routeTree = rootRoute.addChildren([
   homeRoute,
   workspacesRoute,
@@ -66,6 +73,7 @@ const routeTree = rootRoute.addChildren([
   memberRoute,
   usageRoute,
   settingsRoute,
+  inviteRoute,
 ]);
 
 export const router = createRouter({

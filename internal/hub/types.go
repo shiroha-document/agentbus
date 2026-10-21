@@ -147,6 +147,7 @@ type StateConfig struct {
 // State is GET /agent/state.
 type State struct {
 	Member           Member      `json:"member"`
+	Team             TeamRef     `json:"team"`
 	GlobalPause      bool        `json:"global_pause"`
 	MinClientVersion string      `json:"min_client_version"`
 	ServerVersion    string      `json:"server_version"`
@@ -223,6 +224,7 @@ type QuotaResp struct {
 
 // JoinReq is POST /agent/join.
 type JoinReq struct {
+	JoinCode      string `json:"join_code"` // abj_… from the hub web UI (Settings → Agent 加入码)
 	Name          string `json:"name"`
 	DisplayName   string `json:"display_name,omitempty"`
 	CLI           string `json:"cli"`
@@ -236,8 +238,15 @@ type JoinReq struct {
 }
 
 type JoinResp struct {
-	MemberID string `json:"member_id"`
-	Status   string `json:"status"`
+	MemberID string  `json:"member_id"`
+	Status   string  `json:"status"`
+	Team     TeamRef `json:"team"`
+}
+
+// TeamRef is the team a member belongs to (the hub's isolation boundary).
+type TeamRef struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 type WorkspaceReq struct {

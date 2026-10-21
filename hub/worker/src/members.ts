@@ -1,23 +1,28 @@
 // Member administration shared by the web (admin) and manage (manager) APIs.
 import type { Env, Me } from "./env";
 import { DB, memberOut, qmarks, type Row } from "./db";
+import { isAdmin } from "./core";
 import { evaluatePause } from "./pause";
 import { bad, conflict, forbidden, notFound } from "./util";
 
+/** Member of `db.team` (other teams' members are 404). */
 export async function loadMember(db: DB, id: string): Promise<Row> {
-  const m = await db.first("SELECT * FROM members WHERE id = ? AND kind != 'system'", id);
+  const m = await db.first("SELECT * FROM members WHERE id = ? AND kind != 'system' AND team_id = ?", id, db.team);
   if (!m) throw notFound("成员");
   return m;
 }
 
 function guardTarget(me: Me, m: Row) {
-  if (me.role === "admin") return;
+  if (isAdmin(me)) {
+    if (m.kind === "human" && m.role === "owner" && me.role !== "owner") throw forbidden("不能管理团队 owner");
+    return;
+  }
   if (m.kind !== "agent") throw forbidden("Manager 只能管理 agent");
   if (m.role === "manager" && m.id !== me.id) throw forbidden("Manager 不能管理其他 Manager");
 }
 
 export async function approveMember(env: Env, me: Me, id: string) {
-  const db = new DB(env.DB);
+  const db = new DB(env.DB, me.team_id);
   const m = await loadMember(db, id);
   guardTarget(me, m);
   if (m.status !== "pending") throw conflict("只有待审批的成员可以批准");
@@ -31,7 +36,7 @@ export async function approveMember(env: Env, me: Me, id: string) {
 
 /** Rejecting a join request deletes it so the name can be reused. */
 export async function rejectMember(env: Env, me: Me, id: string) {
-  const db = new DB(env.DB);
+  const db = new DB(env.DB, me.team_id);
   const m = await loadMember(db, id);
   guardTarget(me, m);
   if (m.status !== "pending") throw conflict("只有待审批的成员可以拒绝");
@@ -46,7 +51,7 @@ export async function rejectMember(env: Env, me: Me, id: string) {
 }
 
 export async function pauseMember(env: Env, me: Me, id: string, reason: unknown, until: unknown) {
-  const db = new DB(env.DB);
+  const db = new DB(env.DB, me.team_id);
   const m = await loadMember(db, id);
   guardTarget(me, m);
   if (m.kind !== "agent") throw bad("只能暂停 agent");
@@ -70,7 +75,7 @@ export async function pauseMember(env: Env, me: Me, id: string, reason: unknown,
 }
 
 export async function resumeMember(env: Env, me: Me, id: string) {
-  const db = new DB(env.DB);
+  const db = new DB(env.DB, me.team_id);
   const m = await loadMember(db, id);
   guardTarget(me, m);
   await db.batch([
@@ -84,10 +89,14 @@ export async function resumeMember(env: Env, me: Me, id: string) {
 }
 
 export async function revokeMember(env: Env, me: Me, id: string) {
-  if (me.role !== "admin") throw forbidden("只有管理员能吊销成员");
-  const db = new DB(env.DB);
+  if (!isAdmin(me)) throw forbidden("只有管理员能吊销成员");
+  const db = new DB(env.DB, me.team_id);
   const m = await loadMember(db, id);
   if (m.id === me.id) throw bad("不能吊销自己");
+  if (m.kind === "human") {
+    if (m.role === "owner") throw forbidden("不能吊销团队 owner");
+    if (me.role !== "owner") throw forbidden("只有团队 owner 能移除人类成员");
+  }
   const now = Date.now();
   await db.batch([
     db.stmt("UPDATE members SET status = 'revoked', paused = 0, pause_kind = NULL, pause_reason = NULL, paused_until = NULL WHERE id = ?", id),
@@ -102,8 +111,8 @@ export async function revokeMember(env: Env, me: Me, id: string) {
 }
 
 export async function deleteMember(env: Env, me: Me, id: string) {
-  if (me.role !== "admin") throw forbidden("只有管理员能删除成员");
-  const db = new DB(env.DB);
+  if (!isAdmin(me)) throw forbidden("只有管理员能删除成员");
+  const db = new DB(env.DB, me.team_id);
   const m = await loadMember(db, id);
   if (m.status !== "revoked") throw conflict("只能删除已吊销的成员");
   const tables = ["member_keys", "triggers", "quota_readings", "quota_rules", "budgets", "deliveries", "thread_members", "nonces"];
@@ -119,7 +128,7 @@ export async function deleteMember(env: Env, me: Me, id: string) {
 }
 
 export async function putQuotaRules(env: Env, me: Me, id: string, rules: unknown) {
-  const db = new DB(env.DB);
+  const db = new DB(env.DB, me.team_id);
   const m = await loadMember(db, id);
   guardTarget(me, m);
   if (!Array.isArray(rules) || rules.length > 100) throw bad("rules 必须是数组（最多 100 条）");
@@ -150,8 +159,8 @@ export async function quotaRules(db: DB, id: string) {
 }
 
 export async function putBudget(env: Env, me: Me, id: string, body: Record<string, unknown>) {
-  if (me.role !== "admin") throw forbidden();
-  const db = new DB(env.DB);
+  if (!isAdmin(me)) throw forbidden();
+  const db = new DB(env.DB, me.team_id);
   await loadMember(db, id);
   const tok = body.daily_tokens == null || body.daily_tokens === "" ? null : Number(body.daily_tokens);
   const usd = body.monthly_usd == null || body.monthly_usd === "" ? null : Number(body.monthly_usd);
@@ -181,7 +190,7 @@ export async function budgetFor(db: DB, id: string) {
 }
 
 export async function listMembers(db: DB) {
-  const rows = await db.all("SELECT * FROM members WHERE kind != 'system' ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'active' THEN 1 ELSE 2 END, kind DESC, name");
+  const rows = await db.all("SELECT * FROM members WHERE kind != 'system' AND team_id = ? ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'active' THEN 1 ELSE 2 END, kind DESC, name", db.team);
   const now = Date.now();
   return rows.map((r) => memberOut(r, now));
 }
@@ -189,6 +198,6 @@ export async function listMembers(db: DB) {
 export async function membersByIds(db: DB, ids: string[]) {
   const uniq = [...new Set(ids.filter(Boolean))];
   if (!uniq.length) return [];
-  const rows = await db.all(`SELECT * FROM members WHERE id IN (${qmarks(uniq.length)}) AND kind != 'system'`, ...uniq);
+  const rows = await db.all(`SELECT * FROM members WHERE id IN (${qmarks(uniq.length)}) AND kind != 'system' AND team_id = ?`, ...uniq, db.team);
   return rows.map((r) => memberOut(r));
 }

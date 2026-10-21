@@ -37,7 +37,17 @@ export function parseMentions(body: string): string[] {
 export async function resolveMember(db: DB, ref: string): Promise<Row | null> {
   const r = ref.trim().replace(/^@/, "");
   if (!r) return null;
-  return db.first("SELECT * FROM members WHERE (id = ? OR name = ?) AND kind != 'system'", r, r);
+  return db.first("SELECT * FROM members WHERE (id = ? OR name = ?) AND kind != 'system' AND team_id = ?", r, r, db.team);
+}
+
+/** Team owner or admin (human). */
+export function isAdmin(me: Me): boolean {
+  return me.kind === "human" && (me.role === "owner" || me.role === "admin");
+}
+
+/** DB bound to the requester's team. */
+export function teamDb(env: Env, me: Me): DB {
+  return new DB(env.DB, me.team_id);
 }
 
 /** Manager workspace scope: null = everything. */
@@ -47,14 +57,14 @@ export async function managerScopes(db: DB, managerId: string): Promise<string[]
 }
 
 export async function canManageWorkspace(db: DB, me: Me, workspaceId: string): Promise<boolean> {
-  if (me.role === "admin") return true;
+  if (isAdmin(me)) return true;
   if (me.role !== "manager") return false;
   const s = await managerScopes(db, me.id);
   return s === null || s.includes(workspaceId);
 }
 
 export function requireManager(me: Me) {
-  if (me.role !== "manager" && me.role !== "admin") throw forbidden("只有 Manager 能执行此操作");
+  if (me.role !== "manager" && !isAdmin(me)) throw forbidden("只有 Manager 能执行此操作");
 }
 
 // ---------------------------------------------------------------- posts
@@ -106,13 +116,13 @@ function cleanUsage(u: unknown): string | null {
 }
 
 export async function loadThread(db: DB, id: string): Promise<Row> {
-  const t = await db.first("SELECT * FROM threads WHERE id = ?", id);
+  const t = await db.first("SELECT * FROM threads WHERE id = ? AND team_id = ?", id, db.team);
   if (!t) throw notFound("讨论串");
   return t;
 }
 
 export async function loadPost(db: DB, id: string): Promise<PostOut> {
-  const r = await db.first("SELECT * FROM posts WHERE id = ?", id);
+  const r = await db.first("SELECT * FROM posts WHERE id = ? AND team_id = ?", id, db.team);
   if (!r) throw notFound("帖子");
   return (await hydratePosts(db, [r]))[0];
 }
@@ -122,7 +132,9 @@ export async function loadPost(db: DB, id: string): Promise<PostOut> {
  * deliveries, record participants, detect floods. All writes go in one batch.
  */
 export async function createPost(env: Env, me: Me, input: CreatePostInput): Promise<CreatePostResult> {
-  const db = new DB(env.DB);
+  if (!me.team_id) throw notFound("团队");
+  const db = teamDb(env, me);
+  const team = me.team_id;
   const now = Date.now();
   const kind = input.kind ?? "msg";
   if (!["msg", "progress", "confirm", "system"].includes(kind)) throw bad("kind 只能是 msg / progress / confirm");
@@ -151,7 +163,7 @@ export async function createPost(env: Env, me: Me, input: CreatePostInput): Prom
     }
   } else {
     if (!input.workspace_id || !input.title?.trim()) throw bad("需要 thread_id，或者 workspace_id + title 新开讨论串");
-    const ws = await db.first("SELECT id, status FROM workspaces WHERE id = ?", input.workspace_id);
+    const ws = await db.first("SELECT id, status FROM workspaces WHERE id = ? AND team_id = ?", input.workspace_id, team);
     if (!ws) throw notFound("工作区");
     if (ws.status === "archived") throw conflict("工作区已归档");
     let assigneeId: string | null = null;
@@ -181,8 +193,9 @@ export async function createPost(env: Env, me: Me, input: CreatePostInput): Prom
     newThread = true;
     stmts.push(
       db.stmt(
-        "INSERT INTO threads (id, workspace_id, title, status, assignee_id, created_by, created_at, updated_at, last_post_at) VALUES (?, ?, ?, 'open', ?, ?, ?, ?, ?)",
+        "INSERT INTO threads (id, team_id, workspace_id, title, status, assignee_id, created_by, created_at, updated_at, last_post_at) VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)",
         thread.id as string,
+        team,
         ws.id as string,
         title,
         assigneeId,
@@ -200,8 +213,9 @@ export async function createPost(env: Env, me: Me, input: CreatePostInput): Prom
   let replyAuthor: string | null = null;
   if (input.reply_to) {
     const rp = await db.first<{ author_id: string; thread_id: string }>(
-      "SELECT author_id, thread_id FROM posts WHERE id = ?",
+      "SELECT author_id, thread_id FROM posts WHERE id = ? AND team_id = ?",
       input.reply_to,
+      team,
     );
     if (!rp || rp.thread_id !== threadId) throw bad("reply_to 不在这个讨论串里");
     replyAuthor = rp.author_id;
@@ -215,8 +229,9 @@ export async function createPost(env: Env, me: Me, input: CreatePostInput): Prom
   const named = names.filter((n) => n !== "all");
   const mentioned = named.length
     ? await db.all<{ id: string; name: string; kind: string; status: string }>(
-        `SELECT id, name, kind, status FROM members WHERE name IN (${qmarks(named.length)}) AND kind != 'system'`,
+        `SELECT id, name, kind, status FROM members WHERE name IN (${qmarks(named.length)}) AND kind != 'system' AND team_id = ?`,
         ...named,
+        team,
       )
     : [];
 
@@ -241,8 +256,9 @@ export async function createPost(env: Env, me: Me, input: CreatePostInput): Prom
     ? new Set(
         (
           await db.all<{ id: string }>(
-            `SELECT id FROM members WHERE id IN (${qmarks(ids.length)}) AND kind = 'agent' AND status = 'active'`,
+            `SELECT id FROM members WHERE id IN (${qmarks(ids.length)}) AND kind = 'agent' AND status = 'active' AND team_id = ?`,
             ...ids,
+            team,
           )
         ).map((r) => r.id),
       )
@@ -251,8 +267,9 @@ export async function createPost(env: Env, me: Me, input: CreatePostInput): Prom
   const postId = newId("p", now);
   stmts.push(
     db.stmt(
-      "INSERT INTO posts (id, thread_id, author_id, reply_to, body, kind, mentions, idempotency_key, redacted, usage_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO posts (id, team_id, thread_id, author_id, reply_to, body, kind, mentions, idempotency_key, redacted, usage_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       postId,
+      team,
       threadId,
       me.id,
       input.reply_to ?? null,
@@ -269,8 +286,9 @@ export async function createPost(env: Env, me: Me, input: CreatePostInput): Prom
     if (!eligible.has(id)) continue;
     stmts.push(
       db.stmt(
-        "INSERT OR IGNORE INTO deliveries (id, member_id, thread_id, post_id, reason, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT OR IGNORE INTO deliveries (id, team_id, member_id, thread_id, post_id, reason, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         newId("d", now),
+        team,
         id,
         threadId,
         postId,
@@ -291,8 +309,9 @@ export async function createPost(env: Env, me: Me, input: CreatePostInput): Prom
   if (kind === "confirm") {
     stmts.push(
       db.stmt(
-        "INSERT INTO confirmations (id, thread_id, post_id, requester_id, question, status) VALUES (?, ?, ?, ?, ?, 'pending')",
+        "INSERT INTO confirmations (id, team_id, thread_id, post_id, requester_id, question, status) VALUES (?, ?, ?, ?, ?, ?, 'pending')",
         newId("c", now),
+        team,
         threadId,
         postId,
         me.id,
@@ -332,7 +351,7 @@ export async function createPost(env: Env, me: Me, input: CreatePostInput): Prom
 
   // Follow-ups that create their own system posts.
   if (redactedKinds.length && me.id !== SYSTEM_ID) {
-    await createPost(env, systemMe, {
+    await createPost(env, systemFor(team), {
       thread_id: threadId,
       body: `这条帖子里有疑似凭据（${redactedKinds.join(", ")}），已打码后入库，原文未保存。请不要在帖子里贴凭据，并尽快轮换。`,
       kind: "system",
@@ -341,30 +360,36 @@ export async function createPost(env: Env, me: Me, input: CreatePostInput): Prom
       extra: me.kind === "agent" ? [{ id: me.id, reason: "event" }] : [],
     });
   }
-  if (me.kind === "agent") await checkFlood(env, threadId);
+  if (me.kind === "agent") await checkFlood(env, team, threadId);
 
   const post = await loadPost(db, postId);
   return { post, thread: threadOut(await loadThread(db, threadId)), duplicate: false, redacted: redactedKinds };
 }
 
-export const systemMe: Me = { id: SYSTEM_ID, kind: "system", role: "agent", name: "system", status: "system" };
+export const systemMe: Me = { id: SYSTEM_ID, kind: "system", role: "agent", name: "system", status: "system", team_id: null };
+
+/** The system author acting inside one team. */
+export function systemFor(teamId: string | null): Me {
+  return { ...systemMe, team_id: teamId };
+}
 
 function participant(db: DB, threadId: string, memberId: string) {
   return db.stmt("INSERT OR IGNORE INTO thread_members (thread_id, member_id) VALUES (?, ?)", threadId, memberId);
 }
 
 /** Two agents alternating more than FLOOD_LIMIT times within an hour → auto_paused. */
-export async function checkFlood(env: Env, threadId: string, now = Date.now()) {
-  const db = new DB(env.DB);
+export async function checkFlood(env: Env, teamId: string, threadId: string, now = Date.now()) {
+  const db = new DB(env.DB, teamId);
   const t = await db.first<{ auto_paused: number; flood_reset_at: number | null; title: string }>(
-    "SELECT auto_paused, flood_reset_at, title FROM threads WHERE id = ?",
+    "SELECT auto_paused, flood_reset_at, title FROM threads WHERE id = ? AND team_id = ?",
     threadId,
+    teamId,
   );
   if (!t || t.auto_paused) return false;
   const since = Math.max(now - 3600_000, t.flood_reset_at ?? 0);
   const rows = await db.all<{ author_id: string }>(
     `SELECT p.author_id FROM posts p JOIN members m ON m.id = p.author_id
-     WHERE p.thread_id = ? AND p.created_at >= ? AND m.kind = 'agent' ORDER BY p.created_at, p.rowid`,
+     WHERE p.thread_id = ? AND p.created_at >= ? AND m.kind = 'agent' ORDER BY p.rowid`,
     threadId,
     since,
   );
@@ -393,8 +418,11 @@ export async function checkFlood(env: Env, threadId: string, now = Date.now()) {
     db.audit(null, "thread.flood_blocked", threadId, { pair: [a, b], alternations: hit[1] }),
     db.bumpSeq(),
   ]);
-  const admins = await db.all<{ name: string }>("SELECT name FROM members WHERE kind = 'human' AND role = 'admin' AND status = 'active'");
-  await createPost(env, systemMe, {
+  const admins = await db.all<{ name: string }>(
+    "SELECT name FROM members WHERE kind = 'human' AND role IN ('owner', 'admin') AND status = 'active' AND team_id = ? ORDER BY created_at",
+    teamId,
+  );
+  await createPost(env, systemFor(teamId), {
     thread_id: threadId,
     kind: "system",
     system: true,
@@ -416,7 +444,7 @@ export interface ThreadPatchInput {
 }
 
 export async function patchThread(env: Env, me: Me, id: string, p: ThreadPatchInput) {
-  const db = new DB(env.DB);
+  const db = teamDb(env, me);
   const t = await loadThread(db, id);
   const now = Date.now();
   const isManager = await canManageWorkspace(db, me, t.workspace_id as string);
@@ -430,7 +458,7 @@ export async function patchThread(env: Env, me: Me, id: string, p: ThreadPatchIn
     (t.assignee_id === null && isParticipant);
   if (!allowed) throw forbidden("只有负责人、持锁者或 Manager 能修改讨论串");
   if (p.auto_paused !== undefined) {
-    if (me.role !== "admin") throw forbidden("只有管理员能解除刷屏拦截");
+    if (!isAdmin(me)) throw forbidden("只有管理员能解除刷屏拦截");
     if (p.auto_paused !== false) throw bad("auto_paused 只能设为 false");
   }
 
@@ -526,7 +554,7 @@ export async function patchThread(env: Env, me: Me, id: string, p: ThreadPatchIn
     throw new HttpError(409, "conflict", `讨论串已被其他人修改（当前版本 ${cur.version}），请刷新后重试`, { thread: threadOut(cur) });
   }
   if (events.length) {
-    await createPost(env, systemMe, {
+    await createPost(env, systemFor(me.team_id), {
       thread_id: id,
       kind: "system",
       system: true,
@@ -540,9 +568,9 @@ export async function patchThread(env: Env, me: Me, id: string, p: ThreadPatchIn
 // ---------------------------------------------------------------- confirmations
 
 export async function decideConfirmation(env: Env, me: Me, id: string, decision: string, note?: string | null) {
-  const db = new DB(env.DB);
+  const db = teamDb(env, me);
   if (decision !== "approve" && decision !== "reject") throw bad("decision 只能是 approve 或 reject");
-  const c = await db.first("SELECT * FROM confirmations WHERE id = ?", id);
+  const c = await db.first("SELECT * FROM confirmations WHERE id = ? AND team_id = ?", id, me.team_id);
   if (!c) throw notFound("确认请求");
   if (c.status !== "pending") throw conflict("这个确认请求已经处理过了");
   const now = Date.now();
@@ -559,7 +587,7 @@ export async function decideConfirmation(env: Env, me: Me, id: string, decision:
   if (!changed) throw conflict("这个确认请求已经处理过了");
   await db.batch([db.audit(me.id, `confirmation.${decision}`, id, cleanNote), db.bumpSeq()]);
   const requester = await db.first<{ name: string }>("SELECT name FROM members WHERE id = ?", c.requester_id as string);
-  await createPost(env, systemMe, {
+  await createPost(env, systemFor(me.team_id), {
     thread_id: c.thread_id as string,
     kind: "system",
     system: true,
@@ -574,7 +602,7 @@ export async function decideConfirmation(env: Env, me: Me, id: string, decision:
 // ---------------------------------------------------------------- inbox
 
 export async function claim(env: Env, me: Me, maxThreads: number) {
-  const db = new DB(env.DB);
+  const db = teamDb(env, me);
   const cfg = await hubConfig(db);
   const now = Date.now();
   const leaseUntil = now + cfg.lease_s * 1000;
@@ -649,7 +677,7 @@ async function releaseThreadIfIdle(db: DB, me: Me, threadId: string) {
 }
 
 export async function ack(env: Env, me: Me, threadId: string, ids: unknown) {
-  const db = new DB(env.DB);
+  const db = teamDb(env, me);
   if (!threadId) throw bad("需要 thread_id");
   const rows = await selectDeliveries(db, me, threadId, ids, Array.isArray(ids) && ids.length ? ["leased", "pending"] : ["leased"]);
   const now = Date.now();
@@ -668,7 +696,7 @@ export async function ack(env: Env, me: Me, threadId: string, ids: unknown) {
 }
 
 export async function nack(env: Env, me: Me, threadId: string, ids: unknown, reason: string) {
-  const db = new DB(env.DB);
+  const db = teamDb(env, me);
   if (!threadId) throw bad("需要 thread_id");
   const rows = await selectDeliveries(db, me, threadId, ids, ["leased"]);
   const now = Date.now();
@@ -706,7 +734,7 @@ export function deadNotice(db: DB, memberName: string, threadId: string, deliver
 }
 
 export async function heartbeat(env: Env, me: Me, threadId?: string | null) {
-  const db = new DB(env.DB);
+  const db = teamDb(env, me);
   const cfg = await hubConfig(db);
   const now = Date.now();
   const until = now + cfg.lease_s * 1000;

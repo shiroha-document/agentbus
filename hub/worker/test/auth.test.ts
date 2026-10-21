@@ -55,7 +55,7 @@ describe("agent auth", () => {
     const env = makeEnv();
     const a = await makeAgent(env, "alice");
     expect((await a.call("GET", "/state", undefined, { nonce: "short" })).status).toBe(401);
-    const res = await app.request("https://hub.test/api/v1/agent/state", { headers: { "x-agentbus-version": "0.4.0" } }, env);
+    const res = await app.request("https://hub.test/api/v1/agent/state", { headers: { "x-agentbus-version": "0.5.0" } }, env);
     expect(res.status).toBe(401);
   });
 
@@ -82,11 +82,11 @@ describe("agent auth", () => {
     const bad = await signedRequest(k, "join", "POST", "/api/v1/agent/join", { name: "x1", cli: "c", public_key: k2.publicB64 });
     expect((await app.request(bad, undefined, env)).status).toBe(401);
     const a = new Agent(env, "all", k);
-    const r = await a.call("POST", "/join", { name: "all", cli: "claude", public_key: k.publicB64 });
+    const r = await a.call("POST", "/join", { join_code: env.joinCode, name: "all", cli: "claude", public_key: k.publicB64 });
     expect(r.status).toBe(400);
     await makeAgent(env, "dup");
     const b = new Agent(env, "dup", await newKey());
-    const r2 = await b.call("POST", "/join", { name: "dup", cli: "claude", public_key: b.key.publicB64 });
+    const r2 = await b.call("POST", "/join", { join_code: env.joinCode, name: "dup", cli: "claude", public_key: b.key.publicB64 });
     expect(r2.status).toBe(409);
   });
 
@@ -128,19 +128,23 @@ describe("web auth (fail closed)", () => {
     expect(a.json.error.code).toBe("unauthorized");
   });
 
-  it("rejects wrong aud / iss / expired / non-admin / bad alg", async () => {
+  it("rejects wrong aud / iss / expired / unconfigured service token / bad alg", async () => {
     const env = makeEnv();
     const now = Math.floor(Date.now() / 1000);
     const cases = [
       await jwt({ email: "admin@example.com", aud: ["other"] }),
       await jwt({ email: "admin@example.com", iss: "https://evil.cloudflareaccess.com" }),
       await jwt({ email: "admin@example.com", exp: now - 120 }),
-      await jwt({ email: "someone@example.com" }),
       await jwt({ common_name: "svc" }),
       await jwt({ email: "admin@example.com" }, { kid: "unknown" }),
       "a.b.c",
     ];
     for (const token of cases) expect((await api(env, "GET", "/me", undefined, { token })).status).toBe(401);
+    // Any Access email is accepted; without a team it only sees the welcome state.
+    const other = await api(env, "GET", "/me", undefined, { email: "someone@example.com" });
+    expect(other.status).toBe(200);
+    expect(other.json.team).toBeNull();
+    expect(other.json.teams).toEqual([]);
   });
 
   it("missing ACCESS config rejects everything", async () => {
@@ -149,15 +153,25 @@ describe("web auth (fail closed)", () => {
     expect((await web(env, "GET", "/")).status).toBe(401);
   });
 
-  it("admin login creates human admin; service token works only when configured", async () => {
+  it("admin login sees its team as owner; service token works only when configured", async () => {
     const env = makeEnv({ E2E_SERVICE_TOKEN_ID: "svc-id" });
     const me = await api(env, "GET", "/me");
     expect(me.status).toBe(200);
-    expect(me.json.member.role).toBe("admin");
+    expect(me.json.member.role).toBe("owner");
+    expect(me.json.role).toBe("owner");
+    expect(me.json.identity.platform_admin).toBe(true);
     expect(me.json.member.name).toBe("admin-user"); // "admin" is reserved
     const svc = await api(env, "GET", "/me", undefined, { token: await jwt({ common_name: "svc-id" }) });
     expect(svc.status).toBe(200);
-    expect(svc.json.member.name).toBe("e2e");
+    expect(svc.json.team).toBeNull(); // service identity has no team until it creates one
+    const created = await api(env, "POST", "/teams", { name: "e2e" }, { token: await jwt({ common_name: "svc-id" }) });
+    expect(created.status).toBe(403); // not a platform admin under SIGNUP=invite
+    const env2 = makeEnv({ E2E_SERVICE_TOKEN_ID: "svc-id", SIGNUP: "open" });
+    const svcTok = await jwt({ common_name: "svc-id" });
+    expect((await api(env2, "POST", "/teams", { name: "e2e" }, { token: svcTok })).status).toBe(200);
+    const svc2 = await api(env2, "GET", "/me", undefined, { token: svcTok });
+    expect(svc2.json.member.name).toBe("e2e");
+    expect(svc2.json.identity.email).toMatch(/@agentbus\.invalid$/);
   });
 
   it("writes need application/json", async () => {
@@ -183,6 +197,6 @@ describe("web auth (fail closed)", () => {
     expect(me.res.headers.get("cache-control")).toBe("no-store");
     const hz = await web(env, "GET", "/healthz", undefined, { token: null });
     expect(hz.status).toBe(200);
-    expect(hz.json.version).toBe("0.4.0");
+    expect(hz.json.version).toBe("0.5.0");
   });
 });

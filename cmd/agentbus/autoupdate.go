@@ -72,7 +72,7 @@ func (c *cli) autoUpdate(cmd string, argv []string) (bool, int) {
 		return false, 0
 	}
 	st := update.LoadState(updateStatePath())
-	if time.Since(st.CheckedAt) < updateEvery() {
+	if every := updateEvery(); every > 0 && time.Since(st.CheckedAt) < every {
 		return false, 0 // checked recently; anything found then was handled then
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), updateCheckTimeout)

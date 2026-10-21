@@ -13,10 +13,12 @@ export interface NotePayload {
   to?: string;
 }
 
+/** Queue a notification for `db.team` (hub-api.md §7). */
 export function notify(db: DB, kind: string, payload: NotePayload, dedupeKey: string | null = null): D1PreparedStatement {
   return db.stmt(
-    "INSERT OR IGNORE INTO notifications (id, kind, dedupe_key, payload, created_at) VALUES (?, ?, ?, ?, ?)",
+    "INSERT OR IGNORE INTO notifications (id, team_id, kind, dedupe_key, payload, created_at) VALUES (?, ?, ?, ?, ?, ?)",
     newId("n"),
+    db.team,
     kind,
     dedupeKey,
     JSON.stringify(payload),
@@ -32,20 +34,58 @@ export async function sendEmail(env: Env, to: string, msg: { subject: string; te
 
 interface NoteRow {
   id: string;
+  team_id: string | null;
   kind: string;
   payload: string;
   created_at: number;
 }
 
+/** Kinds sent straight to `payload.to`, one email each, never merged. */
+export const DIRECT_KINDS = new Set(["email_change", "invite"]);
+
 /**
- * Send due notifications. Each kind is merged into one email; a kind that was
- * emailed less than `merge_window_min` ago waits for the window to pass.
- * `email_change` goes only to the new address and is never merged.
+ * Send due notifications, per team. Each (team, kind) is merged into one email
+ * to that team's notify_email; a kind that was emailed less than the team's
+ * `merge_window_min` ago waits for the window to pass. `email_change` and
+ * `invite` go only to `payload.to` and are never merged. `team` / `kind`
+ * restrict the flush (e.g. send just-created invites without flushing the
+ * rest of the team's outbox early).
  */
-export async function flushNotifications(env: Env, opts: { force?: boolean; now?: number } = {}) {
-  const db = new DB(env.DB);
+export async function flushNotifications(env: Env, opts: { force?: boolean; now?: number; team?: string; kind?: string } = {}) {
   const now = opts.now ?? Date.now();
+  const root = new DB(env.DB);
+  const where = ["sent_at IS NULL"];
+  const args: string[] = [];
+  if (opts.team) {
+    where.push("team_id = ?");
+    args.push(opts.team);
+  }
+  if (opts.kind) {
+    where.push("kind = ?");
+    args.push(opts.kind);
+  }
+  const unsent = await root.all<NoteRow>(
+    `SELECT id, team_id, kind, payload, created_at FROM notifications WHERE ${where.join(" AND ")} ORDER BY created_at, id LIMIT 500`,
+    ...args,
+  );
+  if (!unsent.length) return { sent: 0 };
+  const byTeam = new Map<string, NoteRow[]>();
+  for (const n of unsent) {
+    const k = n.team_id ?? "";
+    const list = byTeam.get(k) ?? [];
+    list.push(n);
+    byTeam.set(k, list);
+  }
+  let sent = 0;
+  for (const [teamId, rows] of byTeam) sent += await flushTeam(env, teamId || null, rows, now, !!opts.force);
+  return { sent };
+}
+
+async function flushTeam(env: Env, teamId: string | null, unsent: NoteRow[], now: number, force: boolean): Promise<number> {
+  const db = new DB(env.DB, teamId);
   const s = await db.settings();
+  const team = teamId ? await db.first<{ id: string; name: string }>("SELECT id, name FROM teams WHERE id = ?", teamId) : null;
+  const ctx = { team };
   const windowMs = Math.max(0, Number(s.merge_window_min ?? 15)) * 60_000;
   let kinds: Record<string, boolean> = {};
   try {
@@ -53,11 +93,7 @@ export async function flushNotifications(env: Env, opts: { force?: boolean; now?
   } catch {
     kinds = {};
   }
-  const to = s.notify_email ?? "";
-  const unsent = await db.all<NoteRow>(
-    "SELECT id, kind, payload, created_at FROM notifications WHERE sent_at IS NULL ORDER BY created_at LIMIT 500",
-  );
-  if (!unsent.length) return { sent: 0 };
+  const to = teamId ? (s.notify_email ?? "") : "";
   const byKind = new Map<string, NoteRow[]>();
   for (const n of unsent) {
     const list = byKind.get(n.kind) ?? [];
@@ -76,12 +112,12 @@ export async function flushNotifications(env: Env, opts: { force?: boolean; now?
     if (error && error !== "disabled") await db.batch([db.bumpSeq()]);
   };
   for (const [kind, rows] of byKind) {
-    if (kind === "email_change") {
+    if (DIRECT_KINDS.has(kind)) {
       for (const r of rows) {
         const p = JSON.parse(r.payload) as NotePayload;
         try {
           if (!p.to) throw new Error("missing recipient");
-          await sendEmail(env, p.to, renderEmail(env, kind, [p]));
+          await sendEmail(env, p.to, renderEmail(env, kind, [p], ctx));
           await mark([r.id], null);
           sent++;
         } catch (e) {
@@ -95,9 +131,10 @@ export async function flushNotifications(env: Env, opts: { force?: boolean; now?
       await mark(ids, "disabled");
       continue;
     }
-    if (!opts.force && kind !== "test") {
+    if (!force && kind !== "test") {
       const last = await db.first<{ t: number | null }>(
-        "SELECT MAX(sent_at) AS t FROM notifications WHERE kind = ? AND sent_at IS NOT NULL AND error IS NULL",
+        "SELECT MAX(sent_at) AS t FROM notifications WHERE team_id IS ? AND kind = ? AND sent_at IS NOT NULL AND error IS NULL",
+        teamId,
         kind,
       );
       if (last?.t && now - last.t < windowMs) continue;
@@ -108,7 +145,7 @@ export async function flushNotifications(env: Env, opts: { force?: boolean; now?
     }
     try {
       const payloads = rows.map((r) => JSON.parse(r.payload) as NotePayload);
-      await sendEmail(env, to, renderEmail(env, kind, payloads));
+      await sendEmail(env, to, renderEmail(env, kind, payloads, ctx));
       await mark(ids, null);
       sent++;
     } catch (e) {
@@ -116,7 +153,7 @@ export async function flushNotifications(env: Env, opts: { force?: boolean; now?
       console.error("notify send failed", kind, errText(e));
     }
   }
-  return { sent };
+  return sent;
 }
 
 export interface EmailHealth {
@@ -142,36 +179,39 @@ export function emailHint(error: string | null): string | null {
 }
 
 /**
- * Health of the notify_email channel. Unhealthy when the latest failure is newer
- * than the latest success. `email_change` (goes to a different address, errors
- * are shown inline) and kinds disabled by the user are ignored.
+ * Health of a team's notify_email channel: unhealthy when the most recent
+ * attempt (by sent_at, then id — ids are monotonic, so same-millisecond
+ * attempts are still ordered) failed. Direct kinds (`email_change`, `invite`:
+ * other recipients, errors shown inline) and disabled kinds are ignored.
  */
-export async function emailHealth(db: DB): Promise<EmailHealth> {
-  const [err, ok] = await Promise.all([
-    db.first<{ error: string; sent_at: number }>(
-      "SELECT error, sent_at FROM notifications WHERE sent_at IS NOT NULL AND error IS NOT NULL AND error <> 'disabled' AND kind <> 'email_change' ORDER BY sent_at DESC LIMIT 1",
-    ),
-    db.first<{ t: number | null }>(
-      "SELECT MAX(sent_at) AS t FROM notifications WHERE sent_at IS NOT NULL AND error IS NULL AND kind <> 'email_change'",
-    ),
+export async function emailHealth(db: DB, teamId: string | null = db.team): Promise<EmailHealth> {
+  const base = "FROM notifications WHERE team_id IS ? AND sent_at IS NOT NULL AND (error IS NULL OR error <> 'disabled') AND kind NOT IN ('email_change', 'invite')";
+  const [latest, err, ok] = await Promise.all([
+    db.first<{ id: string; error: string | null; sent_at: number }>(`SELECT id, error, sent_at ${base} ORDER BY sent_at DESC, id DESC LIMIT 1`, teamId),
+    db.first<{ error: string; sent_at: number }>(`SELECT error, sent_at ${base} AND error IS NOT NULL ORDER BY sent_at DESC, id DESC LIMIT 1`, teamId),
+    db.first<{ id: string; sent_at: number }>(`SELECT id, sent_at ${base} AND error IS NULL ORDER BY sent_at DESC, id DESC LIMIT 1`, teamId),
   ]);
-  const lastSent = ok?.t ?? null;
-  const healthy = !err || (lastSent !== null && lastSent >= err.sent_at);
+  const healthy = !latest || latest.error === null;
   let failed = 0;
   if (!healthy) {
-    const r = await db.first<{ n: number }>(
-      "SELECT COUNT(*) AS n FROM notifications WHERE sent_at > ? AND error IS NOT NULL AND error <> 'disabled' AND kind <> 'email_change'",
-      lastSent ?? 0,
-    );
+    const r = ok
+      ? await db.first<{ n: number }>(
+          `SELECT COUNT(*) AS n ${base} AND error IS NOT NULL AND (sent_at > ? OR (sent_at = ? AND id > ?))`,
+          teamId,
+          ok.sent_at,
+          ok.sent_at,
+          ok.id,
+        )
+      : await db.first<{ n: number }>(`SELECT COUNT(*) AS n ${base} AND error IS NOT NULL`, teamId);
     failed = Number(r?.n ?? 0);
   }
   return {
     ok: healthy,
     last_error: err?.error ?? null,
     last_error_at: err?.sent_at ?? null,
-    last_sent_at: lastSent,
+    last_sent_at: ok?.sent_at ?? null,
     failed_count: failed,
-    hint: healthy ? null : emailHint(err!.error),
+    hint: healthy ? null : emailHint(latest!.error),
   };
 }
 

@@ -71,6 +71,12 @@ func IsStatus(err error, status int) bool {
 	return errors.As(err, &ae) && ae.Status == status
 }
 
+// IsCode reports whether err is an APIError with this error code.
+func IsCode(err error, code string) bool {
+	var ae *APIError
+	return errors.As(err, &ae) && ae.Code == code
+}
+
 // IsTooOld reports a 426 reply.
 func IsTooOld(err error) bool { return IsStatus(err, http.StatusUpgradeRequired) }
 

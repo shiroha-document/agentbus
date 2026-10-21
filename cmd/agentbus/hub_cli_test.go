@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
@@ -28,6 +29,18 @@ type cliHub struct {
 	patches []hub.ThreadPatch
 	paths   []string
 	version string
+	code    string // join_code of the last join
+	team    hub.TeamRef
+}
+
+const testJoinCode = "abj_k3x9abcdefghijklmnopqrst"
+
+func run(t *testing.T, args ...string) (int, string) {
+	t.Helper()
+	var out, errw bytes.Buffer
+	c := &cli{out: &out, errw: &errw}
+	code := c.run(args)
+	return code, out.String() + errw.String()
 }
 
 func (h *cliHub) serve(w http.ResponseWriter, r *http.Request) {
@@ -47,6 +60,15 @@ func (h *cliHub) serve(w http.ResponseWriter, r *http.Request) {
 		_ = json.Unmarshal(b, &jr)
 		raw, _ := base64.StdEncoding.DecodeString(jr.PublicKey)
 		h.pub = ed25519.PublicKey(raw)
+		h.code = jr.JoinCode
+		if jr.JoinCode == "" {
+			reply(400, map[string]any{"error": map[string]any{"code": "join_code_required", "message": "join_code is required"}})
+			return
+		}
+		if jr.JoinCode != testJoinCode {
+			reply(403, map[string]any{"error": map[string]any{"code": "bad_join_code", "message": "invalid, expired or revoked join code"}})
+			return
+		}
 		if jr.Name == "taken" {
 			reply(409, map[string]any{"error": map[string]any{"code": "conflict", "message": "name taken"}})
 			return
@@ -60,9 +82,10 @@ func (h *cliHub) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case path == "/agent/join":
-		reply(200, hub.JoinResp{MemberID: "m_1", Status: "pending"})
+		reply(200, hub.JoinResp{MemberID: "m_1", Status: "pending", Team: h.team})
 	case path == "/agent/state":
-		reply(200, hub.State{Member: hub.Member{ID: "m_1", Name: "alice", Role: "agent", Status: h.status}, MinClientVersion: "0.4.0"})
+		reply(200, hub.State{Member: hub.Member{ID: "m_1", Name: "alice", Role: "agent", Status: h.status}, Team: h.team,
+			MinClientVersion: "0.5.0"})
 	case path == "/agent/posts" && r.Method == "POST":
 		var np hub.NewPost
 		_ = json.Unmarshal(b, &np)
@@ -80,25 +103,26 @@ func (h *cliHub) serve(w http.ResponseWriter, r *http.Request) {
 
 func newCLIHub(t *testing.T) (*cliHub, string) {
 	t.Helper()
-	h := &cliHub{status: "pending"}
+	h := &cliHub{status: "pending", team: hub.TeamRef{ID: "o_team1", Name: "Acme"}}
 	srv := httptest.NewServer(http.HandlerFunc(h.serve))
 	t.Cleanup(srv.Close)
 	t.Setenv("AGENTBUS_HUB_HOME", t.TempDir())
 	t.Setenv("AGENTBUS_AUTO_UPDATE", "off")
 	t.Setenv("AGENTBUS_ROUND", "")
 	t.Setenv("AGENTBUS_THREAD", "")
+	t.Setenv("AGENTBUS_JOIN_CODE", "")
 	return h, srv.URL
 }
 
 func TestHubJoinPostThread(t *testing.T) {
 	h, url := newCLIHub(t)
-	code, out := run(t, "join", url, "--name", "alice", "--cli", "claude")
-	if code != 0 || !strings.Contains(out, "等待管理员在网页上批准") {
+	code, out := run(t, "join", url, "--join-code", " "+strings.ToUpper(testJoinCode)+"\n", "--name", "alice", "--cli", "claude")
+	if code != 0 || !strings.Contains(out, "waiting for a team admin") || !strings.Contains(out, "in team Acme (o_team1)") {
 		t.Fatalf("join: %d %s", code, out)
 	}
 	dir := hub.Dir()
 	cfg, err := hub.LoadConfig(dir)
-	if err != nil || cfg.MemberID != "m_1" || cfg.Name != "alice" {
+	if err != nil || cfg.MemberID != "m_1" || cfg.Name != "alice" || cfg.TeamID != "o_team1" || cfg.TeamName != "Acme" {
 		t.Fatalf("%+v %v", cfg, err)
 	}
 	if runtime.GOOS != "windows" {
@@ -106,21 +130,23 @@ func TestHubJoinPostThread(t *testing.T) {
 			t.Fatalf("key mode %o", fi.Mode().Perm())
 		}
 	}
-	if h.version != "0.4.0" {
+	if h.code != testJoinCode {
+		t.Fatalf("join_code %q", h.code)
+	}
+	if h.version != "0.5.0" {
 		t.Fatalf("version header %q", h.version)
 	}
-	// re-running join is idempotent
+	// re-running join is idempotent and needs no join code
 	if code, out := run(t, "join", url, "--name", "alice"); code != 0 || !strings.Contains(out, "pending") {
 		t.Fatalf("rejoin: %d %s", code, out)
 	}
 	// another name on the same config dir is refused
-	if code, _ := run(t, "join", url, "--name", "bob"); code == 0 {
+	if code, _ := run(t, "join", url, "--join-code", testJoinCode, "--name", "bob"); code == 0 {
 		t.Fatal("second identity accepted")
 	}
 
-	// whoami/status now dispatch to v3
 	h.status = "active"
-	if code, out := run(t, "whoami"); code != 0 || !strings.Contains(out, "alice (m_1)") {
+	if code, out := run(t, "whoami"); code != 0 || !strings.Contains(out, "alice (m_1)") || !strings.Contains(out, "team Acme (o_team1)") {
 		t.Fatalf("whoami: %d %s", code, out)
 	}
 
@@ -164,7 +190,7 @@ func TestHubJoinPostThread(t *testing.T) {
 
 func TestHubJoinNameTaken(t *testing.T) {
 	_, url := newCLIHub(t)
-	code, out := run(t, "join", url, "--name", "taken")
+	code, out := run(t, "join", url, "--join-code", testJoinCode, "--name", "taken")
 	if code == 0 || !strings.Contains(out, "is taken") {
 		t.Fatalf("%d %s", code, out)
 	}
@@ -173,32 +199,155 @@ func TestHubJoinNameTaken(t *testing.T) {
 	}
 }
 
-func TestDispatchV1V3(t *testing.T) {
+func TestHubJoinCode(t *testing.T) {
+	h, url := newCLIHub(t)
+	// missing --join-code (and no $AGENTBUS_JOIN_CODE): usage error, no request
+	code, out := run(t, "join", url, "--name", "alice")
+	if code != exitUsage || !strings.Contains(out, "join code is required") || !strings.Contains(out, "Settings → Agent 加入码") ||
+		!strings.Contains(out, "AGENTBUS_JOIN_CODE") || len(h.paths) != 0 {
+		t.Fatalf("missing code: %d %s %v", code, out, h.paths)
+	}
+	// not an abj_ code: usage error, no request
+	code, out = run(t, "join", url, "--join-code", "ABCD-EFGH-JKMN", "--name", "alice")
+	if code != exitUsage || !strings.Contains(out, "start with abj_") || len(h.paths) != 0 {
+		t.Fatalf("bad prefix: %d %s %v", code, out, h.paths)
+	}
+	// rejected code: 403 bad_join_code with a clear hint, nothing saved
+	const wrong = "abj_wrongwrongwrongwrongwrongw"
+	code, out = run(t, "join", url, "--join-code", wrong, "--name", "alice")
+	if code != exitErr || !strings.Contains(out, "rejected this join code") || !strings.Contains(out, "ask a team admin") ||
+		!strings.Contains(out, "Settings → Agent 加入码") {
+		t.Fatalf("bad code: %d %s", code, out)
+	}
+	if h.code != wrong || hub.Exists(hub.Dir()) {
+		t.Fatalf("code %q, config saved after 403", h.code)
+	}
+	// --json errors carry the same message
+	code, out = run(t, "--json", "join", url, "--join-code", wrong, "--name", "alice")
+	if code != exitErr || !strings.Contains(out, `"error"`) || !strings.Contains(out, "ask a team admin") {
+		t.Fatalf("json bad code: %d %s", code, out)
+	}
+	// $AGENTBUS_JOIN_CODE is the default
+	t.Setenv("AGENTBUS_JOIN_CODE", " "+testJoinCode+" ")
+	if code, out := run(t, "--json", "join", url, "--name", "alice"); code != 0 || h.code != testJoinCode ||
+		!strings.Contains(out, `"id": "o_team1"`) || !strings.Contains(out, `"name": "Acme"`) {
+		t.Fatalf("env code: %d %s %q", code, out, h.code)
+	}
+}
+
+func TestHubJoinFlagBeatsEnv(t *testing.T) {
+	h, url := newCLIHub(t)
+	t.Setenv("AGENTBUS_JOIN_CODE", "abj_fromenvfromenvfromenvfromen")
+	if code, out := run(t, "join", url, "--join-code", testJoinCode, "--name", "alice"); code != 0 || h.code != testJoinCode {
+		t.Fatalf("%d %s %q", code, out, h.code)
+	}
+}
+
+func TestJoinErrorMapping(t *testing.T) {
+	cases := []struct {
+		err  *hub.APIError
+		want []string
+	}{
+		{&hub.APIError{Status: 400, Code: "join_code_required", Message: "join_code is required"},
+			[]string{"join code is required", "ask a team admin", "Settings → Agent 加入码", "--join-code", "join_code_required"}},
+		{&hub.APIError{Status: 403, Code: "bad_join_code", Message: "invalid"},
+			[]string{"rejected this join code", "expired or revoked", "ask a team admin", "Settings → Agent 加入码", "bad_join_code"}},
+		{&hub.APIError{Status: 409, Code: "conflict", Message: "taken"}, []string{`name "alice" is taken`, "pick another --name"}},
+	}
+	for _, tc := range cases {
+		got := joinError(tc.err, "alice", "https://hub.example").Error()
+		for _, w := range tc.want {
+			if !strings.Contains(got, w) {
+				t.Errorf("%s: %q lacks %q", tc.err.Code, got, w)
+			}
+		}
+	}
+	// anything else passes through unchanged
+	other := &hub.APIError{Status: 403, Code: "forbidden", Message: "nope"}
+	if err := joinError(other, "alice", "h"); err != error(other) {
+		t.Errorf("unmapped error changed: %v", err)
+	}
+}
+
+func TestTeamSavedAndShown(t *testing.T) {
+	h, url := newCLIHub(t)
+	if code, out := run(t, "join", url, "--join-code", testJoinCode, "--name", "alice"); code != 0 {
+		t.Fatalf("join: %d %s", code, out)
+	}
+	h.status = "active"
+	// whoami --json carries the team from /agent/state
+	code, out := run(t, "--json", "whoami")
+	var st hub.State
+	if code != 0 || json.Unmarshal([]byte(out), &st) != nil || st.Team.ID != "o_team1" || st.Team.Name != "Acme" {
+		t.Fatalf("whoami --json: %d %s", code, out)
+	}
+	// status text and JSON
+	if code, out := run(t, "status", "--no-quota"); code != 0 || !strings.Contains(out, "team Acme (o_team1)") {
+		t.Fatalf("status: %d %s", code, out)
+	}
+	code, out = run(t, "--json", "status", "--no-quota")
+	var sj struct {
+		Team hub.TeamRef `json:"team"`
+	}
+	if code != 0 || json.Unmarshal([]byte(out), &sj) != nil || sj.Team != (hub.TeamRef{ID: "o_team1", Name: "Acme"}) {
+		t.Fatalf("status --json: %d %s", code, out)
+	}
+	// a renamed team is picked up from /agent/state and saved
+	h.team.Name = "Acme Labs"
+	if code, out := run(t, "whoami"); code != 0 || !strings.Contains(out, "team Acme Labs (o_team1)") {
+		t.Fatalf("renamed: %d %s", code, out)
+	}
+	if cfg, _ := hub.LoadConfig(hub.Dir()); cfg.TeamName != "Acme Labs" {
+		t.Fatalf("team name not saved: %+v", cfg)
+	}
+	// doctor shows the team in the config and hub checks (text and JSON)
+	oldL, oldV := lookPath, cliVersion
+	lookPath = func(n string) (string, error) { return filepath.Join("/opt/bin", n), nil }
+	cliVersion = func(context.Context, string) (string, error) { return "claude 1.0", nil }
+	defer func() { lookPath, cliVersion = oldL, oldV }()
+	_, out = run(t, "doctor")
+	if !strings.Contains(out, "team Acme Labs (o_team1)") || !strings.Contains(out, "active in team Acme Labs") {
+		t.Fatalf("doctor: %s", out)
+	}
+	_, out = run(t, "--json", "doctor")
+	if !strings.Contains(out, "team Acme Labs (o_team1)") {
+		t.Fatalf("doctor --json: %s", out)
+	}
+	// an older hub without team in /agent/state keeps the saved team
+	h.team = hub.TeamRef{}
+	code, out = run(t, "--json", "whoami")
+	st = hub.State{}
+	if code != 0 || json.Unmarshal([]byte(out), &st) != nil || st.Team.ID != "o_team1" || st.Team.Name != "Acme Labs" {
+		t.Fatalf("old hub whoami: %d %s", code, out)
+	}
+}
+
+func TestTeamText(t *testing.T) {
+	for _, tc := range []struct {
+		cfg  hub.Config
+		want string
+	}{{hub.Config{TeamID: "o_1", TeamName: "A"}, "A (o_1)"}, {hub.Config{TeamID: "o_1"}, "o_1"}, {hub.Config{}, "-"}} {
+		if got := teamText(&tc.cfg); got != tc.want {
+			t.Errorf("%+v: %q", tc.cfg, got)
+		}
+	}
+}
+
+func TestExtractHubFlags(t *testing.T) {
 	t.Setenv("AGENTBUS_HUB_HOME", t.TempDir())
-	if useHub("whoami", nil, "") || useHub("join", []string{"--remote", "x", "--me", "a"}, "") {
-		t.Fatal("no hub config: want v1")
+	args, err := extractHubFlags([]string{"tick", "--hub-home", "/x", "--hub=https://h", "--", "--hub", "y"})
+	if err != nil || hubURLFlag != "https://h" || strings.Join(args, " ") != "tick -- --hub y" || os.Getenv("AGENTBUS_HUB_HOME") != "/x" {
+		t.Fatalf("%v %q %v", args, hubURLFlag, err)
 	}
-	if !useHub("join", []string{"https://hub.example", "--name", "a"}, "") || !useHub("status", nil, "https://h") {
-		t.Fatal("hub URL given: want v3")
+	if _, err := extractHubFlags([]string{"state", "--hub"}); err == nil {
+		t.Fatal("--hub without a value accepted")
 	}
-	if err := (&hub.Config{HubURL: "https://h", Name: "alice"}).Save(hub.Dir()); err != nil {
-		t.Fatal(err)
-	}
-	if !useHub("thread", []string{"show", "t_1"}, "") {
-		t.Fatal("hub config: want v3")
-	}
-	if useHub("join", []string{"--repo", "o/r", "--me", "a"}, "") {
-		t.Fatal("v1 join flags: want v1")
-	}
-	args, u, err := extractHubFlags([]string{"tick", "--hub-home", "/x", "--hub=https://h", "--", "--hub", "y"})
-	if err != nil || u != "https://h" || strings.Join(args, " ") != "tick -- --hub y" || os.Getenv("AGENTBUS_HUB_HOME") != "/x" {
-		t.Fatalf("%v %q %v", args, u, err)
-	}
+	hubURLFlag = ""
 }
 
 func TestVersionDev(t *testing.T) {
 	code, out := run(t, "--version")
-	if code != 0 || strings.TrimSpace(out) != "0.4.0-dev" || hubVersion() != "0.4.0" {
+	if code != 0 || strings.TrimSpace(out) != "0.5.0-dev" || hubVersion() != "0.5.0" {
 		t.Fatalf("%d %q", code, out)
 	}
 }
@@ -270,15 +419,21 @@ func TestSetupNonInteractive(t *testing.T) {
 	lookPath = func(string) (string, error) { return "", errors.New("not found") }
 	defer func() { schedRunner, lookPath = oldR, oldL }()
 	repo := t.TempDir()
-	code, out := run(t, "setup", "--yes", "--hub", url, "--name", "alice", "--cli", "codex", "--tier", "readonly",
+	// --yes without --join-code / $AGENTBUS_JOIN_CODE is a usage error
+	if code, out := run(t, "setup", "--yes", "--hub", url, "--name", "alice", "--cli", "codex", "--no-schedule", "--no-doctor"); code != exitUsage ||
+		!strings.Contains(out, "join code is required") || !strings.Contains(out, "ask a team admin") || hub.Exists(hub.Dir()) {
+		t.Fatalf("setup without join code: %d %s", code, out)
+	}
+	code, out := run(t, "setup", "--yes", "--hub", url, "--join-code", testJoinCode, "--name", "alice", "--cli", "codex", "--tier", "readonly",
 		"--repo", "Acme/App="+repo, "--interval", "15m", "--quota-source", "magpie")
 	// doctor fails: codex is not on PATH
 	if code != exitErr || !strings.Contains(out, "usemagpie.ai/install.sh") || !strings.Contains(out, "codex not found") ||
-		!strings.Contains(out, "等待管理员在网页上批准") {
+		!strings.Contains(out, "waiting for a team admin") || !strings.Contains(out, "in team Acme (o_team1)") {
 		t.Fatalf("%d %s", code, out)
 	}
 	cfg, err := hub.LoadConfig(hub.Dir())
-	if err != nil || cfg.CLI != "codex" || cfg.Tier != "readonly" || cfg.QuotaSource != "magpie" || cfg.WakeIntervalS != 900 {
+	if err != nil || cfg.CLI != "codex" || cfg.Tier != "readonly" || cfg.QuotaSource != "magpie" || cfg.WakeIntervalS != 900 ||
+		cfg.TeamID != "o_team1" {
 		t.Fatalf("%+v %v", cfg, err)
 	}
 	rs, _ := hub.LoadRepos(hub.Paths{Dir: hub.Dir()}.Repos())
@@ -298,8 +453,82 @@ func TestSetupNonInteractive(t *testing.T) {
 	}
 }
 
+func TestSetupInteractiveAsksJoinCode(t *testing.T) {
+	h, url := newCLIHub(t)
+	oldL, oldIn := lookPath, setupIn
+	lookPath = func(string) (string, error) { return "", errors.New("not found") }
+	// cli, join code, name, tier, repos (none), scheduler (no), quota source
+	setupIn = strings.NewReader("codex\n  " + testJoinCode + "  \nalice\nreadonly\n\nn\nnative\n")
+	defer func() { lookPath, setupIn = oldL, oldIn }()
+	code, out := run(t, "setup", "--hub", url, "--no-doctor")
+	if code != 0 || !strings.Contains(out, "team join code (abj_…; ask a team admin") || h.code != testJoinCode {
+		t.Fatalf("%d %q %s", code, h.code, out)
+	}
+	cfg, err := hub.LoadConfig(hub.Dir())
+	if err != nil || cfg.Name != "alice" || cfg.CLI != "codex" || cfg.TeamID != "o_team1" || cfg.TeamName != "Acme" {
+		t.Fatalf("%+v %v", cfg, err)
+	}
+	// already joined: setup re-runs without asking for (or sending) a code
+	h.code = "untouched"
+	setupIn = strings.NewReader("codex\nreadonly\n\nn\nnative\n")
+	code, out = run(t, "setup", "--no-doctor")
+	if code != 0 || strings.Contains(out, "team join code") || h.code != "untouched" {
+		t.Fatalf("rerun: %d %q %s", code, h.code, out)
+	}
+}
+
+func TestSetupInteractiveEmptyJoinCode(t *testing.T) {
+	h, url := newCLIHub(t)
+	oldL, oldIn := lookPath, setupIn
+	lookPath = func(string) (string, error) { return "", errors.New("not found") }
+	setupIn = strings.NewReader("codex\n\n")
+	defer func() { lookPath, setupIn = oldL, oldIn }()
+	code, out := run(t, "setup", "--hub", url, "--no-doctor")
+	if code != exitUsage || !strings.Contains(out, "join code is required") || len(h.paths) != 0 {
+		t.Fatalf("%d %s %v", code, out, h.paths)
+	}
+}
+
+func TestSetupJoinCodeFromEnv(t *testing.T) {
+	h, url := newCLIHub(t)
+	oldL := lookPath
+	lookPath = func(string) (string, error) { return "", errors.New("not found") }
+	defer func() { lookPath = oldL }()
+	t.Setenv("AGENTBUS_JOIN_CODE", testJoinCode)
+	code, out := run(t, "setup", "--yes", "--hub", url, "--name", "alice", "--cli", "codex", "--no-schedule", "--no-doctor")
+	if code != 0 || h.code != testJoinCode || !strings.Contains(out, "in team Acme (o_team1)") {
+		t.Fatalf("%d %q %s", code, h.code, out)
+	}
+}
+
+func TestUsageText(t *testing.T) {
+	if code, _ := run(t); code != exitUsage {
+		t.Fatalf("bare agentbus exit %d", code)
+	}
+	code, out := run(t, "help")
+	if code != 0 {
+		t.Fatalf("help exit %d", code)
+	}
+	for _, w := range []string{"Setup & identity", "Daily loop", "Threads", "Quota", "Manager", "Maintenance",
+		"join URL --join-code CODE --name N", "setup [URL] [--join-code CODE]", "AGENTBUS_JOIN_CODE", "Settings → Agent 加入码"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("usage lacks %q", w)
+		}
+	}
+	for _, w := range []string{"--tenant", "--home ", " inbox", " board", " digest", "AGENTBUS_GITHUB_TOKEN"} {
+		if strings.Contains(out, w) {
+			t.Errorf("usage still mentions %q", w)
+		}
+	}
+	for name := range commands {
+		if !strings.Contains(out, name) {
+			t.Errorf("usage lacks command %q", name)
+		}
+	}
+}
+
 // TestMain points AGENTBUS_HUB_HOME at an empty dir so a real hub config on
-// the developer's machine never routes the v1 tests to v3.
+// the developer's machine never leaks into the tests.
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "agentbus-hub-home")
 	if err == nil {

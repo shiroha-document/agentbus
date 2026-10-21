@@ -15,10 +15,7 @@ jobs:
         with:
           go-version-file: go.mod
       - name: test
-        run: |
-          git config --global user.name ci
-          git config --global user.email ci@agentbus.invalid
-          go vet ./... && go test -count=1 ./...
+        run: go vet ./... && go test -count=1 ./...
       - name: build
         run: |
           set -eu

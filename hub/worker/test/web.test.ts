@@ -25,8 +25,8 @@ describe("email change flow", () => {
 
     const ok = await api(env, "GET", `/settings/email/confirm?token=${m![1]}`);
     expect(ok.status).toBe(302);
-    expect(ok.res.headers.get("location")).toBe("/settings?email=ok");
-    expect(env.d1.one<{ value: string }>("SELECT value FROM settings WHERE key = 'notify_email'")!.value).toBe("new@example.org");
+    expect(ok.res.headers.get("location")).toBe(`/settings?email=ok&team=${env.teamId}`);
+    expect(env.d1.one<{ value: string }>("SELECT value FROM team_settings WHERE team_id = ? AND key = 'notify_email'", env.teamId)!.value).toBe("new@example.org");
     // token is single-use
     const again = await api(env, "GET", `/settings/email/confirm?token=${m![1]}`);
     expect(again.res.headers.get("location")).toBe("/settings?email=invalid");
@@ -44,7 +44,7 @@ describe("email change flow", () => {
   it("notify test mail goes to notify_email", async () => {
     const env = makeEnv();
     expect((await api(env, "POST", "/notify/test", {})).status).toBe(400);
-    env.d1.x("INSERT INTO settings (key, value) VALUES ('notify_email', 'me@example.org')");
+    env.d1.x("INSERT INTO team_settings (team_id, key, value) VALUES (?, 'notify_email', 'me@example.org')", env.teamId);
     const r = await api(env, "POST", "/notify/test", {});
     expect(r.status).toBe(200);
     expect(env.sent.at(-1)!.to).toBe("me@example.org");
@@ -54,7 +54,7 @@ describe("email change flow", () => {
 describe("notifications", () => {
   it("merges per kind and honours merge window + disabled kinds", async () => {
     const env = makeEnv();
-    env.d1.x("INSERT INTO settings (key, value) VALUES ('notify_email', 'me@example.org')");
+    env.d1.x("INSERT INTO team_settings (team_id, key, value) VALUES (?, 'notify_email', 'me@example.org')", env.teamId);
     const ws = await workspace(env);
     const a = await makeAgent(env, "alice");
     await makeAgent(env, "bob");
@@ -72,7 +72,7 @@ describe("notifications", () => {
     await flushNotifications(env, { now: now + 16 * 60_000 });
     expect(env.sent).toHaveLength(2);
 
-    env.d1.x("UPDATE settings SET value = '{\"confirm_request\":false}' WHERE key = 'notify_kinds'");
+    env.d1.x("UPDATE team_settings SET value = '{\"confirm_request\":false}' WHERE team_id = ? AND key = 'notify_kinds'", env.teamId);
     await a.post({ workspace_id: ws, title: "t", body: "ok?", kind: "confirm" });
     await flushNotifications(env, { now: now + 40 * 60_000 });
     expect(env.sent).toHaveLength(2);
@@ -231,7 +231,7 @@ describe("watchdog", () => {
 describe("email health", () => {
   it("flags failed deliveries with a hint and clears after a success", async () => {
     const env = makeEnv();
-    env.d1.x("INSERT INTO settings (key, value) VALUES ('notify_email', 'me@example.org')");
+    env.d1.x("INSERT INTO team_settings (team_id, key, value) VALUES (?, 'notify_email', 'me@example.org')", env.teamId);
     let s = await api(env, "GET", "/settings");
     expect(s.json.email_health.ok).toBe(true);
 
@@ -240,7 +240,8 @@ describe("email health", () => {
     (env.EMAIL as unknown as { send: (m: unknown) => Promise<unknown> }).send = async () => {
       throw Object.assign(new Error("destination address is not a verified address"), { code: "E_RECIPIENT_NOT_ALLOWED" });
     };
-    const now = Date.now();
+    // A minute in the past: the sandbox wall clock can step back a few ms.
+    const now = Date.now() - 60_000;
     await flushNotifications(env, { now });
     s = await api(env, "GET", "/settings");
     expect(s.json.email_health.ok).toBe(false);

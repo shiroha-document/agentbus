@@ -187,7 +187,7 @@ Manager 对本团队任意讨论串都能用 `PATCH /agent/threads/:id` 指派�
 
 `join_request`、`confirm_request`、`agent_offline`、`agent_unresponsive`、`delivery_dead`、`quota_paused`、`flood_blocked`、`secret_redacted`、`run_failures`（同一 agent 连续 3 轮失败）、`email_change`（只发给新地址，不合并）、`invite`（只发给被邀请人，不合并）。同一团队的同 kind 在 `merge_window_min`（默认 15 分钟）内合并成一封，发到该团队的通知邮箱。
 
-邮件模板见 `hub/worker/src/email.ts`：每种 kind 有自己的插画和配色，图片从 `EMAIL_ASSET_BASE`（默认 `https://docs.shiroha.tech/email`）加载，邮件头部显示团队名，链接带 `?team=`。
+邮件模板见 `hub/worker/src/email.ts`：每种 kind 有自己的插画和配色，图片从 `EMAIL_ASSET_BASE`（默认 `https://docs.hub.shiroha.tech/email`）加载，邮件头部显示团队名，链接带 `?team=`。
 
 ## 8. 客户端退出码（`agentbus tick`）
 

@@ -169,7 +169,7 @@ func runDoctor(ctx context.Context) []check {
 		add("config", "fail", "%v", err)
 		return cs
 	}
-	add("config", "ok", "%s: %s on %s", p.Config(), cfg.Name, cfg.HubURL)
+	add("config", "ok", "%s: %s on %s, team %s", p.Config(), cfg.Name, cfg.HubURL, teamText(cfg))
 
 	k, kerr := hub.LoadKey(p.Key())
 	switch {
@@ -249,9 +249,10 @@ func runDoctor(ctx context.Context) []check {
 	}
 	switch {
 	case err == nil:
-		add("hub", "ok", "reachable, signature accepted; %s is %s", s.Member.Name, s.Member.Status)
+		rememberTeam(dir, cfg, s.Team)
+		add("hub", "ok", "reachable, signature accepted; %s is %s in team %s", s.Member.Name, s.Member.Status, teamText(cfg))
 		if s.Member.Status == "pending" {
-			add("approval", "warn", "等待管理员在网页上批准")
+			add("approval", "warn", "waiting for a team admin to approve this agent on the hub web UI")
 		}
 		if s.MinClientVersion != "" && newerVersion(s.MinClientVersion, hubVersion()) {
 			add("version", "fail", "client %s is older than the hub minimum %s; run `agentbus self-update`", hubVersion(), s.MinClientVersion)
@@ -322,6 +323,7 @@ func detectCLIs() (map[string]string, []string) {
 func cmdSetup(c *cli, args []string) error {
 	fs := newFlags("setup")
 	yes := fs.Bool("yes", false, "non-interactive: take flags and defaults, ask nothing")
+	joinCode := fs.String("join-code", "", "team join code abj_… from a team admin (hub Settings → Agent 加入码); default $AGENTBUS_JOIN_CODE")
 	name := fs.String("name", "", "agent name")
 	cliName := fs.String("cli", "", "claude | codex | cursor | gemini | custom (default: first found)")
 	binary := fs.String("binary", "", "CLI executable path")
@@ -383,12 +385,20 @@ func cmdSetup(c *cli, args []string) error {
 		o.url = pos[0]
 	}
 	o.name = *name
+	o.joinCode = firstOr(strings.TrimSpace(*joinCode), envJoinCode())
 	if existing != nil {
+		// already joined: hubJoin reuses the saved identity, no code needed
 		o.url = firstOr(o.url, existing.HubURL)
 		o.name = firstOr(o.name, existing.Name)
 	} else {
 		if o.url == "" {
 			o.url = pr.ask("hub URL", "")
+		}
+		if o.joinCode == "" {
+			o.joinCode = strings.TrimSpace(pr.ask("team join code (abj_…; "+askAdminForCode+")", ""))
+		}
+		if o.joinCode == "" {
+			return &exitError{code: exitUsage, msg: joinCodeMissing}
 		}
 		if o.name == "" {
 			h, _ := os.Hostname()
@@ -404,9 +414,9 @@ func cmdSetup(c *cli, args []string) error {
 	if err != nil {
 		return err
 	}
-	say("2/7 joined %s as %s (%s), status %s", cfg.HubURL, cfg.Name, cfg.MemberID, status)
+	say("2/7 joined %s as %s (%s) in team %s, status %s", cfg.HubURL, cfg.Name, cfg.MemberID, teamText(cfg), status)
 	if status == "pending" {
-		say("    等待管理员在网页上批准")
+		say("    waiting for a team admin to approve this agent on the hub web UI")
 	}
 	if cn != cfg.CLI || (*binary != "" && *binary != cfg.CLIBinary) || (*template != "" && *template != cfg.CLITemplate) {
 		cfg.CLI, cfg.CLIBinary, cfg.CLITemplate = cn, firstOr(*binary, cfg.CLIBinary), firstOr(*template, cfg.CLITemplate)

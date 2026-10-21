@@ -4,11 +4,11 @@ import { RouterProvider } from "@tanstack/react-router";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { MotionConfig } from "motion/react";
 import { LockKeyhole, RotateCw } from "lucide-react";
-import { isUnauthorized, onUnauthorized } from "./api";
-import { queryClient } from "./queries";
+import { isUnauthorized, onNotMember, onUnauthorized } from "./api";
+import { queryClient, selectTeam } from "./queries";
 import { router } from "./router";
 import { Background } from "./components/layout/Background";
-import { Toaster } from "./components/ui/Toast";
+import { toast, Toaster } from "./components/ui/Toast";
 
 function UnauthorizedPage() {
   return (
@@ -31,6 +31,16 @@ function UnauthorizedPage() {
 export function App() {
   const [unauth, setUnauth] = useState(isUnauthorized());
   useEffect(() => onUnauthorized(() => setUnauth(true)), []);
+  // 403 not_member: the stored team is stale (left, removed or deleted). The api layer
+  // already cleared storage; fall back to the server's default team.
+  useEffect(
+    () =>
+      onNotMember(() => {
+        toast("你已不在之前选择的团队中，已切换到默认团队");
+        void router.navigate({ to: "/" }).then(() => selectTeam(null));
+      }),
+    [],
+  );
   return (
     <MotionConfig reducedMotion="user">
       <QueryClientProvider client={queryClient}>

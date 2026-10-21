@@ -1,11 +1,17 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
-import { TestAgent } from "./agent";
+import { CLIENT_VERSION, TestAgent } from "./agent";
 
 const BASE = process.env.HUB_URL ?? "https://staging-hub.shiroha.tech";
 const run = Date.now().toString(36);
 
 async function web(req: APIRequestContext, method: string, path: string, data?: unknown) {
-  const r = await req.fetch(`/api/v1/web${path}`, { method, data, headers: data === undefined ? {} : { "content-type": "application/json" } });
+  // writes always send JSON: the hub answers 415 to non-JSON writes (CSRF guard)
+  const write = method !== "GET" && method !== "HEAD";
+  const r = await req.fetch(`/api/v1/web${path}`, {
+    method,
+    data: write ? (data ?? {}) : data,
+    headers: write ? { "content-type": "application/json" } : {},
+  });
   const text = await r.text();
   return { status: r.status(), json: text ? JSON.parse(text) : null };
 }
@@ -21,8 +27,8 @@ test("unauthenticated requests are rejected", async ({ playwright }) => {
   expect([302, 401, 403]).toContain(api.status());
   const hz = await anon.get("/healthz");
   expect(hz.status()).toBe(200);
-  expect((await hz.json()).version).toBe("0.4.0");
-  const unsigned = await anon.get("/api/v1/agent/state", { headers: { "x-agentbus-version": "0.4.0" } });
+  expect((await hz.json()).version).toBe(CLIENT_VERSION);
+  const unsigned = await anon.get("/api/v1/agent/state", { headers: { "x-agentbus-version": CLIENT_VERSION } });
   expect(unsigned.status()).toBe(401);
   await anon.dispose();
 });
@@ -30,12 +36,26 @@ test("unauthenticated requests are rejected", async ({ playwright }) => {
 test("two agents: join → approve → mention → claim → reply → ack → pause", async ({ request }) => {
   const me = await web(request, "GET", "/me");
   expect(me.status, JSON.stringify(me.json)).toBe(200);
-  expect(me.json.member.role).toBe("admin");
+  expect(["owner", "admin"]).toContain(me.json.role);
+  expect(me.json.team?.id).toBeTruthy();
+
+  // agents self-enroll with a team join code, then wait for approval
+  const jc = await web(request, "POST", "/join-codes", { label: `e2e ${run}`, expires_in_days: 1 });
+  expect(jc.status, JSON.stringify(jc.json)).toBe(200);
+  const secret: string = jc.json.secret;
+  expect(secret.startsWith("abj_")).toBe(true);
+
+  const bogus = new TestAgent(BASE, `e2e-x-${run}`);
+  await expect(bogus.join("abj_definitely-not-valid")).rejects.toThrow(/403/);
 
   const a = new TestAgent(BASE, `e2e-a-${run}`);
   const b = new TestAgent(BASE, `e2e-b-${run}`);
-  expect((await a.join()).status).toBe("pending");
-  await b.join();
+  const ja = await a.join(secret);
+  expect(ja.status).toBe("pending");
+  expect(ja.team.id).toBe(me.json.team.id);
+  await b.join(secret);
+  const pending = await web(request, "GET", "/members");
+  expect(JSON.stringify(pending.json)).toContain(a.name);
   expect((await a.call("POST", "/claim", {})).status).toBe(403);
 
   for (const ag of [a, b]) expect((await web(request, "POST", `/members/${ag.id}/approve`, {})).status).toBe(200);
@@ -86,8 +106,10 @@ test("two agents: join → approve → mention → claim → reply → ack → p
   for (const ag of [a, b]) {
     expect((await web(request, "POST", `/members/${ag.id}/revoke`, {})).status).toBe(200);
     expect((await ag.call("GET", "/state")).status).toBe(401);
-    expect((await web(request, "DELETE", `/members/${ag.id}`)).status).toBeLessThan(500);
+    expect((await web(request, "DELETE", `/members/${ag.id}`)).status).toBe(200);
   }
+  expect((await web(request, "DELETE", `/join-codes/${jc.json.code.id}`)).status).toBe(200);
+  await expect(new TestAgent(BASE, `e2e-c-${run}`).join(secret)).rejects.toThrow(/403/);
 });
 
 test("web UI renders the dashboard", async ({ page }) => {

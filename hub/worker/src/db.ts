@@ -3,8 +3,30 @@
 export type Row = Record<string, unknown>;
 export type Arg = string | number | null;
 
+/** Settings stored per team in team_settings; everything else is platform-wide in settings. */
+export const TEAM_SETTING_KEYS = new Set(["notify_email", "notify_kinds", "global_pause", "default_pause_pct", "merge_window_min"]);
+
+export const TEAM_SETTING_DEFAULTS: Record<string, string> = {
+  notify_kinds: "{}",
+  global_pause: "0",
+  default_pause_pct: "100",
+  merge_window_min: "15",
+};
+
+/**
+ * D1 helpers bound to one team (hub-api.md §0.1). `team` is the requester's
+ * team; settings / change_seq / audit go to that team. null = platform-only
+ * context (team settings read as defaults, bumpSeq is a no-op).
+ */
 export class DB {
-  constructor(readonly d1: D1Database) {}
+  constructor(
+    readonly d1: D1Database,
+    readonly team: string | null = null,
+  ) {}
+
+  forTeam(team: string | null): DB {
+    return new DB(this.d1, team);
+  }
 
   stmt(sql: string, ...args: Arg[]): D1PreparedStatement {
     return this.d1.prepare(sql).bind(...args.map((a) => (a === undefined ? null : a)));
@@ -26,26 +48,49 @@ export class DB {
   }
 
   async setting(key: string): Promise<string | null> {
+    if (TEAM_SETTING_KEYS.has(key)) {
+      const r = this.team
+        ? await this.first<{ value: string }>("SELECT value FROM team_settings WHERE team_id = ? AND key = ?", this.team, key)
+        : null;
+      return r?.value ?? TEAM_SETTING_DEFAULTS[key] ?? null;
+    }
     const r = await this.first<{ value: string }>("SELECT value FROM settings WHERE key = ?", key);
     return r?.value ?? null;
   }
+  /** Platform settings merged with this team's settings (team wins). */
   async settings(): Promise<Record<string, string>> {
     const rows = await this.all<{ key: string; value: string }>("SELECT key, value FROM settings");
-    return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+    const out: Record<string, string> = { ...TEAM_SETTING_DEFAULTS, ...Object.fromEntries(rows.map((r) => [r.key, r.value])) };
+    if (this.team) {
+      const t = await this.all<{ key: string; value: string }>("SELECT key, value FROM team_settings WHERE team_id = ?", this.team);
+      for (const r of t) out[r.key] = r.value;
+    }
+    return out;
   }
   setSetting(key: string, value: string): D1PreparedStatement {
+    if (TEAM_SETTING_KEYS.has(key)) {
+      if (!this.team) throw new Error(`team setting ${key} needs a team`);
+      return this.stmt(
+        "INSERT INTO team_settings (team_id, key, value) VALUES (?, ?, ?) ON CONFLICT(team_id, key) DO UPDATE SET value = excluded.value",
+        this.team,
+        key,
+        value,
+      );
+    }
     return this.stmt(
       "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
       key,
       value,
     );
   }
+  /** Per-team change counter (no-op without a team). */
   bumpSeq(): D1PreparedStatement {
-    return this.stmt("UPDATE settings SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'change_seq'");
+    return this.stmt("UPDATE teams SET change_seq = change_seq + 1 WHERE id = ?", this.team);
   }
   audit(actor: string | null, action: string, target: string | null, detail?: unknown): D1PreparedStatement {
     return this.stmt(
-      "INSERT INTO audit_log (actor_id, action, target, detail, created_at) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO audit_log (team_id, actor_id, action, target, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      this.team,
       actor,
       action,
       target,

@@ -25,7 +25,7 @@ export interface PauseDecision {
   until: number | null;
 }
 
-/** Compute the automatic (quota / budget) pause state for a member. */
+/** Compute the automatic (quota / budget) pause state for a member; `db` must be bound to the member's team. */
 export async function autoPause(db: DB, memberId: string, now = Date.now()): Promise<PauseDecision> {
   const none: PauseDecision = { paused: false, kind: null, reason: null, until: null };
   const [rules, readings, budget, defPct] = await Promise.all([
@@ -89,12 +89,13 @@ export async function autoPause(db: DB, memberId: string, now = Date.now()): Pro
  * pause included).
  */
 export async function evaluatePause(env: Env, memberId: string, now = Date.now()) {
-  const db = new DB(env.DB);
-  const m = await db.first<{ name: string; display_name: string; paused: number; pause_kind: string | null; pause_reason: string | null; paused_until: number | null }>(
-    "SELECT name, display_name, paused, pause_kind, pause_reason, paused_until FROM members WHERE id = ?",
+  const m = await new DB(env.DB).first<{ team_id: string | null; name: string; display_name: string; paused: number; pause_kind: string | null; pause_reason: string | null; paused_until: number | null }>(
+    "SELECT team_id, name, display_name, paused, pause_kind, pause_reason, paused_until FROM members WHERE id = ?",
     memberId,
   );
   if (!m) return { paused: false, pause_reason: null, paused_until: null };
+  // Settings (global_pause, default_pause_pct), audit and notifications belong to the member's team.
+  const db = new DB(env.DB, m.team_id);
   const global = (await db.setting("global_pause")) === "1";
   let state: PauseDecision;
   const manualActive = m.paused && m.pause_kind === "manual" && (m.paused_until === null || m.paused_until > now);

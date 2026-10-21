@@ -57,7 +57,7 @@ func TestAutoUpdateBeforeEveryCommand(t *testing.T) {
 		t.Skip("fake binary is a shell script")
 	}
 	home := t.TempDir()
-	t.Setenv("AGENTBUS_HOME", home)
+	t.Setenv("AGENTBUS_HUB_HOME", home)
 	t.Setenv("AGENTBUS_UPDATE_BASE", "https://rel.test/o/r")
 	t.Setenv("AGENTBUS_AUTO_UPDATE", "")
 	t.Setenv("AGENTBUS_UPDATE_EVERY", "")
@@ -90,9 +90,12 @@ func TestAutoUpdateBeforeEveryCommand(t *testing.T) {
 	}
 
 	// any command, even across a 0.x minor: install, then re-run argv on the new binary
+	if filepath.Dir(updateStatePath()) != home {
+		t.Fatalf("update state %s not in the hub config dir %s", updateStatePath(), home)
+	}
 	os.Remove(updateStatePath())
-	code, out := run(t, "--json", "agents", "--x")
-	if code != 7 || gotPath != exe || strings.Join(gotArgv, " ") != "--json agents --x" {
+	code, out := run(t, "--json", "status", "--x")
+	if code != 7 || gotPath != exe || strings.Join(gotArgv, " ") != "--json status --x" {
 		t.Fatalf("reexec: code=%d path=%q argv=%q out=%s", code, gotPath, gotArgv, out)
 	}
 	if !strings.Contains(out, "updated 0.3.2 -> v0.4.0 (commands may have changed)") {

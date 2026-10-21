@@ -235,7 +235,7 @@ func SameMajor(a, b string) bool {
 
 // ---- throttled background check ----
 
-// State is cached at $AGENTBUS_HOME/update.json.
+// State is cached at <hub config dir>/update.json.
 type State struct {
 	CheckedAt time.Time `json:"checked_at"`
 	Latest    string    `json:"latest,omitempty"`

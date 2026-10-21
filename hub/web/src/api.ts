@@ -4,6 +4,9 @@ import type {
   Budget,
   DashboardResponse,
   FeedResponse,
+  Invite,
+  InvitePreview,
+  JoinCode,
   MeResponse,
   Member,
   MemberDetailResponse,
@@ -15,6 +18,7 @@ import type {
   SearchResponse,
   SettingsPatch,
   SettingsResponse,
+  Team,
   Thread,
   ThreadDetailResponse,
   ThreadStatus,
@@ -25,6 +29,7 @@ import type {
   WorkspaceDetailResponse,
   WorkspacesResponse,
 } from "./types";
+import { clearStoredTeam, getStoredTeam, teamHeaders } from "./lib/team";
 
 export const API_BASE = "/api/v1/web";
 
@@ -44,8 +49,8 @@ export interface RawResponse {
   data: unknown;
 }
 
-/** Dev-only transport override (see src/mock.ts). */
-export type Transport = (method: string, path: string, body: unknown) => Promise<RawResponse>;
+/** Dev-only transport override (see src/mock.ts). `headers` carries X-Agentbus-Team. */
+export type Transport = (method: string, path: string, body: unknown, headers: Record<string, string>) => Promise<RawResponse>;
 
 let transport: Transport | null = null;
 export function setTransport(t: Transport | null): void {
@@ -69,6 +74,22 @@ function markUnauthorized(): void {
   unauthorizedListeners.forEach((fn) => fn());
 }
 
+// ---- 403 not_member broadcast: the stored team is stale (left / removed / deleted).
+// The api layer clears storage; the app shell resets the cache and refetches /me.
+const notMemberListeners = new Set<Listener>();
+export function onNotMember(fn: Listener): () => void {
+  notMemberListeners.add(fn);
+  return () => notMemberListeners.delete(fn);
+}
+function handleStatus(status: number, data: unknown, sentTeam: string | null): void {
+  if (status === 401) markUnauthorized();
+  // Only the first of several concurrent 403s (all sent with the same stale team) broadcasts.
+  if (status === 403 && (data as Partial<ApiErrorBody> | null)?.error?.code === "not_member" && sentTeam && getStoredTeam() === sentTeam) {
+    clearStoredTeam();
+    notMemberListeners.forEach((fn) => fn());
+  }
+}
+
 function qs(params: Record<string, string | number | boolean | null | undefined>): string {
   const sp = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
@@ -79,16 +100,24 @@ function qs(params: Record<string, string | number | boolean | null | undefined>
   return s ? `?${s}` : "";
 }
 
-async function rawRequest(method: string, path: string, body?: unknown): Promise<RawResponse> {
-  if (transport) return transport(method, path, body);
+interface Sent extends RawResponse {
+  team: string | null;
+}
+
+async function rawRequest(method: string, path: string, body?: unknown): Promise<Sent> {
+  const team = getStoredTeam();
+  const th = teamHeaders(team);
+  if (transport) return { ...(await transport(method, path, body, th)), team };
   const init: RequestInit = {
     method,
     credentials: "same-origin",
-    headers: { Accept: "application/json" },
+    headers: { Accept: "application/json", ...th },
   };
-  if (body !== undefined) {
+  // Every write carries a JSON body: the worker rejects non-JSON writes (415) as CSRF protection,
+  // so a bare DELETE without Content-Type would never get through.
+  if (body !== undefined || (method !== "GET" && method !== "HEAD")) {
     init.headers = { ...init.headers, "Content-Type": "application/json" };
-    init.body = JSON.stringify(body);
+    init.body = JSON.stringify(body ?? {});
   }
   let res: Response;
   try {
@@ -96,7 +125,7 @@ async function rawRequest(method: string, path: string, body?: unknown): Promise
   } catch {
     throw new ApiError(0, "network", "网络连接失败，请检查网络后重试");
   }
-  if (res.status === 304 || res.status === 204) return { status: res.status, data: null };
+  if (res.status === 304 || res.status === 204) return { status: res.status, data: null, team };
   const text = await res.text();
   let data: unknown = null;
   if (text) {
@@ -106,7 +135,7 @@ async function rawRequest(method: string, path: string, body?: unknown): Promise
       data = null;
     }
   }
-  return { status: res.status, data };
+  return { status: res.status, data, team };
 }
 
 export function errorFrom(status: number, data: unknown): ApiError {
@@ -117,11 +146,8 @@ export function errorFrom(status: number, data: unknown): ApiError {
 }
 
 export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const { status, data } = await rawRequest(method, path, body);
-  if (status === 401) {
-    markUnauthorized();
-    throw errorFrom(status, data);
-  }
+  const { status, data, team } = await rawRequest(method, path, body);
+  handleStatus(status, data, team);
   if (status < 200 || status >= 300) throw errorFrom(status, data);
   return data as T;
 }
@@ -130,7 +156,7 @@ const get = <T>(path: string) => request<T>("GET", path);
 const post = <T>(path: string, body: unknown = {}) => request<T>("POST", path, body);
 const patch = <T>(path: string, body: unknown) => request<T>("PATCH", path, body);
 const put = <T>(path: string, body: unknown) => request<T>("PUT", path, body);
-const del = <T>(path: string) => request<T>("DELETE", path);
+const del = <T>(path: string, body?: unknown) => request<T>("DELETE", path, body);
 const enc = encodeURIComponent;
 
 export interface ThreadPatch {
@@ -145,16 +171,31 @@ export interface ThreadPatch {
 
 export const api = {
   me: () => get<MeResponse>("/me"),
-  updateMe: (body: { display_name?: string; avatar_url?: string }) => patch<MeResponse>("/me", body),
+  updateMe: (body: { display_name?: string; avatar_url?: string }) => patch<unknown>("/me", body),
+
+  // ---- teams (§6)
+  createTeam: (name: string) => post<{ team: Team }>("/teams", { name }),
+  updateTeam: (name: string) => patch<{ team: Team }>("/team", { name }),
+  transferTeam: (member_id: string) => post<unknown>("/team/transfer", { member_id }),
+  leaveTeam: () => post<unknown>("/team/leave"),
+  deleteTeam: (confirm: string) => del<unknown>("/team", { confirm }),
+
+  invites: () => get<{ invites: Invite[] }>("/invites"),
+  createInvite: (email?: string) => post<{ invite: Invite; url: string }>("/invites", email ? { email } : {}),
+  revokeInvite: (id: string) => del<unknown>(`/invites/${enc(id)}`),
+  invitePreview: (token: string) => get<InvitePreview>(`/invites/preview${qs({ token })}`),
+  acceptInvite: (token: string) => post<{ team: Team }>("/invites/accept", { token }),
+
+  joinCodes: () => get<{ codes: JoinCode[] }>("/join-codes"),
+  createJoinCode: (body: { label?: string; expires_in_days?: number }) =>
+    post<{ code: JoinCode; secret: string }>("/join-codes", body),
+  revokeJoinCode: (id: string) => del<unknown>(`/join-codes/${enc(id)}`),
 
   /** Returns the new seq, or null when nothing changed (HTTP 304). */
   changes: async (since: number | null): Promise<number | null> => {
-    const { status, data } = await rawRequest("GET", `/changes${qs({ since: since ?? 0 })}`);
+    const { status, data, team } = await rawRequest("GET", `/changes${qs({ since: since ?? 0 })}`);
     if (status === 304) return null;
-    if (status === 401) {
-      markUnauthorized();
-      throw errorFrom(status, data);
-    }
+    handleStatus(status, data, team);
     if (status < 200 || status >= 300) throw errorFrom(status, data);
     return (data as { seq: number }).seq;
   },
@@ -188,7 +229,7 @@ export const api = {
   member: (id: string) => get<MemberDetailResponse>(`/members/${enc(id)}`),
   updateMember: (
     id: string,
-    body: { display_name?: string; role?: "agent" | "manager"; wake_interval_s?: number; owner?: string },
+    body: { display_name?: string; role?: "agent" | "manager" | "admin"; wake_interval_s?: number; owner?: string },
   ) => patch<{ member: Member }>(`/members/${enc(id)}`, body),
   approveMember: (id: string) => post<unknown>(`/members/${enc(id)}/approve`),
   rejectMember: (id: string) => post<unknown>(`/members/${enc(id)}/reject`),

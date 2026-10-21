@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="280" height="190" viewBox="0 0 280 190">
+<defs>
+  <linearGradient id="head" x1="0" y1="0" x2="0.9" y2="1"><stop offset="0" stop-color="#c4f5df"/><stop offset="1" stop-color="#46c08f"/></linearGradient>
+  <linearGradient id="body" x1="0" y1="0" x2="0.8" y2="1"><stop offset="0" stop-color="#a8ecd0"/><stop offset="1" stop-color="#3aae82"/></linearGradient>
+  <linearGradient id="screen" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#174d3a"/><stop offset="1" stop-color="#0c3326"/></linearGradient>
+  <radialGradient id="halo" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#f2af48" stop-opacity="0.22"/><stop offset="0.7" stop-color="#f2af48" stop-opacity="0.08"/><stop offset="1" stop-color="#f2af48" stop-opacity="0"/></radialGradient>
+  <linearGradient id="paperG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#eef7f2"/></linearGradient>
+  <linearGradient id="accG" x1="0" y1="0" x2="0.6" y2="1"><stop offset="0" stop-color="#ffe2a8"/><stop offset="1" stop-color="#f2af48"/></linearGradient>
+</defs>
+<ellipse cx="140" cy="171" rx="92" ry="6" fill="#0f3b2c" opacity="0.06"/>
+<path d="M36 37 C37.26 42.74 37.26 42.74 43 44 C37.26 45.26 37.26 45.26 36 51 C34.74 45.26 34.74 45.26 29 44 C34.74 42.74 34.74 42.74 36 37Z" fill="#f2af48" opacity="0.55"/><path d="M248 31 C248.9 35.1 248.9 35.1 253 36 C248.9 36.9 248.9 36.9 248 41 C247.1 36.9 247.1 36.9 243 36 C247.1 35.1 247.1 35.1 248 31Z" fill="#f2af48" opacity="0.45"/><circle cx="54" cy="140" r="3" fill="#ffe2a8" opacity="0.9"/><circle cx="236" cy="128" r="2.5" fill="#f2af48" opacity="0.5"/><circle cx="30" cy="96" r="2" fill="#f2af48" opacity="0.35"/>
+
+<g transform="translate(206 50)"><path d="M10 -18 a20 20 0 1 0 14 30 a16 16 0 0 1 -14 -30z" fill="url(#accG)"/><circle cx="-26" cy="-6" r="2" fill="#f2af48" opacity="0.6"/><circle cx="18" cy="26" r="1.6" fill="#f2af48" opacity="0.6"/></g>
+    <text x="150" y="60" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="800" font-size="20" fill="#2a9c72" opacity="0.75">Z</text>
+    <text x="166" y="42" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="800" font-size="14" fill="#2a9c72" opacity="0.55">z</text>
+    <text x="177" y="29" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="800" font-size="10" fill="#2a9c72" opacity="0.4">z</text>
+    <g transform="translate(124 166) scale(1)">
+  <ellipse cx="0" cy="1" rx="36" ry="5.5" fill="#0f3b2c" opacity="0.10"/>
+  <rect x="-17" y="-10" width="11" height="11" rx="4.5" fill="#2f9e74"/><rect x="6" y="-10" width="11" height="11" rx="4.5" fill="#2f9e74"/>
+  <path d="M-23 -34 q-4 6 6 10" stroke="#3aae82" stroke-width="7.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="-16" cy="-24" r="5.2" fill="#a8ecd0" stroke="#3aae82" stroke-width="2"/>
+  <path d="M23 -34 q4 6 -6 10" stroke="#3aae82" stroke-width="7.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16" cy="-24" r="5.2" fill="#a8ecd0" stroke="#3aae82" stroke-width="2"/>
+  <rect x="-25" y="-46" width="50" height="40" rx="15" fill="url(#body)"/>
+  <rect x="-12" y="-36" width="24" height="13" rx="6.5" fill="#ffffff" opacity="0.55"/>
+  <circle cx="-4.5" cy="-29.5" r="2.4" fill="#b9c9c2"/><circle cx="3.5" cy="-29.5" r="2.4" fill="#2f9e74" opacity="0.55"/>
+  <g transform="rotate(-10 0 -60)">
+    <path d="M0 -100 v-11" stroke="#2f9e74" stroke-width="3.2" stroke-linecap="round"/>
+    <circle cx="0" cy="-115" r="6" fill="#b9c9c2"/><circle cx="-1.8" cy="-117" r="1.8" fill="#fff" opacity="0.8"/>
+    <rect x="-40" y="-82" width="8" height="18" rx="4" fill="#2f9e74"/><rect x="32" y="-82" width="8" height="18" rx="4" fill="#2f9e74"/>
+    <rect x="-34" y="-101" width="68" height="56" rx="20" fill="url(#head)"/>
+    <path d="M-24 -96 h22 a6 6 0 0 1 0 0" stroke="#ffffff" stroke-width="4" stroke-linecap="round" opacity="0.6"/>
+    <rect x="-26" y="-89" width="52" height="38" rx="13" fill="url(#screen)"/>
+    <path d="M-15 -71 q5 5 10 0 M5 -71 q5 5 10 0" stroke="#9be8c8" stroke-width="3" fill="none" stroke-linecap="round"/><ellipse cx="0" cy="-62" rx="2.6" ry="3" fill="#9be8c8"/>
+    <ellipse cx="-19" cy="-62" rx="3.6" ry="2.2" fill="#ff9d8f" opacity="0.55"/><ellipse cx="19" cy="-62" rx="3.6" ry="2.2" fill="#ff9d8f" opacity="0.55"/>
+  </g>
+  
+  
+  
+</g>
+</svg>

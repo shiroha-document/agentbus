@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { Bot, Clock, ExternalLink, RefreshCw, UserPlus } from "lucide-react";
+import { Clock, Crown, ExternalLink, RefreshCw, ShieldCheck, UserPlus, Users } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { api } from "../api";
-import { qk, useAction, useMembers } from "../queries";
+import { qk, useAction, useMe, useMembers, useRole } from "../queries";
 import { formatDuration, formatRelative, formatTokens, formatUsd, totalTokens } from "../lib/format";
 import { groupQuota } from "../lib/quota";
 import { enterVariants } from "../lib/motion";
 import { cn, ROLE_LABEL } from "../lib/util";
+import { roleLabel } from "../lib/team";
 import type { MemberWithStats } from "../types";
 import { Avatar } from "../components/ui/Avatar";
 import { Drawer } from "../components/ui/Dialog";
@@ -85,7 +86,48 @@ function AgentCard({ m, onOpen }: { m: MemberWithStats; onOpen: () => void }) {
   );
 }
 
-function PendingJoins({ list }: { list: MemberWithStats[] }) {
+/** Role chip for humans: owner gets a crown, admin a shield. */
+export function HumanRoleChip({ role }: { role: MemberWithStats["role"] }) {
+  const owner = role === "owner";
+  const Icon = owner ? Crown : ShieldCheck;
+  return (
+    <span className={cn("chip flex-none", !owner && "chip-muted")}>
+      <Icon size={12} aria-hidden /> {roleLabel(role)}
+    </span>
+  );
+}
+
+function HumanRow({ m, self, onOpen }: { m: MemberWithStats; self: boolean; onOpen: () => void }) {
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onOpen}
+        className={cn(
+          "flex min-h-[52px] w-full items-center gap-3 rounded-[14px] px-2.5 py-2 text-left outline-none transition-colors hover:bg-mint-100 focus-visible:bg-mint-100",
+          m.status === "revoked" && "opacity-60",
+        )}
+        aria-label={`查看 ${m.display_name} 详情`}
+      >
+        <Avatar member={m} size={36} />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-2">
+            <span className="truncate text-callout text-fg">{m.display_name}</span>
+            {self ? <span className="text-caption text-fg-caption">（我）</span> : null}
+          </span>
+          <span className="block truncate text-caption text-fg-caption">@{m.name}</span>
+        </span>
+        {m.status === "revoked" ? <span className="chip chip-muted flex-none">已移出</span> : <HumanRoleChip role={m.role} />}
+        <span className="hidden w-24 flex-none items-center justify-end gap-1 text-caption text-fg-caption sm:flex">
+          <Clock size={12} aria-hidden />
+          {m.last_seen_at ? formatRelative(m.last_seen_at) : "—"}
+        </span>
+      </button>
+    </li>
+  );
+}
+
+function PendingJoins({ list, canDecide }: { list: MemberWithStats[]; canDecide: boolean }) {
   const inv = [qk.members, qk.dashboard];
   const approve = useAction((id: string) => api.approveMember(id), { success: "已同意加入", invalidate: inv });
   const reject = useAction((id: string) => api.rejectMember(id), { success: "已拒绝", invalidate: inv });
@@ -110,14 +152,18 @@ function PendingJoins({ list }: { list: MemberWithStats[] }) {
                 · {formatRelative(m.created_at)}申请
               </div>
             </div>
-            <div className="flex w-full gap-2 sm:w-auto">
-              <button className="btn btn-primary btn-lg flex-1 sm:h-9 sm:flex-none" disabled={approve.isPending} onClick={() => approve.mutate(m.id)}>
-                同意
-              </button>
-              <button className="btn btn-secondary btn-lg flex-1 sm:h-9 sm:flex-none" disabled={reject.isPending} onClick={() => reject.mutate(m.id)}>
-                拒绝
-              </button>
-            </div>
+            {canDecide ? (
+              <div className="flex w-full gap-2 sm:w-auto">
+                <button className="btn btn-primary btn-lg flex-1 sm:h-9 sm:flex-none" disabled={approve.isPending} onClick={() => approve.mutate(m.id)}>
+                  同意
+                </button>
+                <button className="btn btn-secondary btn-lg flex-1 sm:h-9 sm:flex-none" disabled={reject.isPending} onClick={() => reject.mutate(m.id)}>
+                  拒绝
+                </button>
+              </div>
+            ) : (
+              <span className="chip chip-muted">等待管理员审批</span>
+            )}
           </li>
         ))}
       </ul>
@@ -129,6 +175,9 @@ export function MembersPage() {
   const reduced = useReducedMotion() ?? false;
   const v = enterVariants(reduced);
   const q = useMembers();
+  const me = useMe();
+  const { isAdmin } = useRole();
+  const selfId = me.data?.member?.id;
   const [openId, setOpenId] = useState<string | null>(null);
   const [showRevoked, setShowRevoked] = useState(false);
   const all = q.data?.members ?? [];
@@ -136,7 +185,10 @@ export function MembersPage() {
   const agents = all
     .filter((m) => m.kind === "agent" && m.status !== "pending" && (showRevoked || m.status !== "revoked"))
     .sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name));
-  const humans = all.filter((m) => m.kind === "human");
+  const rank = (m: MemberWithStats) => (m.status === "revoked" ? 2 : m.role === "owner" ? 0 : 1);
+  const humans = all
+    .filter((m) => m.kind === "human" && (showRevoked || m.status !== "revoked"))
+    .sort((a, b) => rank(a) - rank(b) || a.created_at - b.created_at);
   const revokedCount = all.filter((m) => m.status === "revoked").length;
   const openMember = all.find((m) => m.id === openId);
 
@@ -167,7 +219,7 @@ export function MembersPage() {
         <QueryError error={q.error} onRetry={() => void q.refetch()} />
       ) : (
         <>
-          {pending.length > 0 ? <PendingJoins list={pending} /> : null}
+          {pending.length > 0 ? <PendingJoins list={pending} canDecide={isAdmin} /> : null}
           {agents.length === 0 ? (
             <div className="glass-1 card">
               <EmptyState
@@ -190,20 +242,15 @@ export function MembersPage() {
             </div>
           )}
           {humans.length > 0 ? (
-            <section className="glass-1 card p-5" aria-label="管理员">
-              <h2 className="mb-3 flex items-center gap-2 text-title-2">
-                <Bot size={20} className="text-mint-700" aria-hidden /> 管理员
+            <section className="glass-1 card p-5" aria-labelledby="humans-title">
+              <h2 id="humans-title" className="mb-1 flex items-center gap-2 text-title-2">
+                <Users size={20} className="text-mint-700" aria-hidden /> 团队成员
+                <span className="chip chip-muted">{humans.filter((m) => m.status !== "revoked").length}</span>
               </h2>
-              <ul className="flex flex-wrap gap-4">
+              <p className="mb-3 text-caption text-fg-caption">所有者与管理员都能审批 agent、管理设置；只有所有者能移出成员、移交或删除团队。</p>
+              <ul className="grid gap-1 md:grid-cols-2">
                 {humans.map((m) => (
-                  <li key={m.id} className="flex items-center gap-2">
-                    <Avatar member={m} size={28} />
-                    <span className="text-callout">{m.display_name}</span>
-                    <span className="flex items-center gap-1 text-caption text-fg-caption">
-                      <Clock size={12} aria-hidden />
-                      {m.last_seen_at ? formatRelative(m.last_seen_at) : "—"}
-                    </span>
-                  </li>
+                  <HumanRow key={m.id} m={m} self={m.id === selfId} onOpen={() => setOpenId(m.id)} />
                 ))}
               </ul>
             </section>

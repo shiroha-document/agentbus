@@ -36,6 +36,7 @@
       },
       "vars": {
         "ENVIRONMENT": "staging",
+        "SIGNUP": "invite",
         "PUBLIC_URL": "https://staging-hub.shiroha.tech",
         "MAIL_FROM": "agentbus@shiroha.tech"
       }
@@ -64,6 +65,7 @@
       },
       "vars": {
         "ENVIRONMENT": "production",
+        "SIGNUP": "invite",
         "PUBLIC_URL": "https://hub.shiroha.tech",
         "MAIL_FROM": "agentbus@shiroha.tech"
       }

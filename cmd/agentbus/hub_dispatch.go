@@ -12,33 +12,13 @@ import (
 	"github.com/shiroha-document/agentbus/internal/hub"
 )
 
-// v3 (hub) commands. Names that also exist in v1 (join, thread, status, ack,
-// whoami) live in hubCommands and are chosen per invocation by useHub; the
-// rest are registered directly.
-var hubCommands map[string]func(*cli, []string) error
-
-func init() {
-	hubCommands = map[string]func(*cli, []string) error{
-		"join": cmdHubJoin, "thread": cmdHubThread, "status": cmdHubStatus,
-		"ack": cmdHubAck, "whoami": cmdHubState,
-	}
-	for name, h := range map[string]func(*cli, []string) error{
-		"state": cmdHubState, "tick": cmdTick, "post": cmdPost, "confirm": cmdConfirm,
-		"quota": cmdQuota, "usage": cmdUsage, "keys": cmdKeys, "pause": cmdPause,
-		"resume": cmdResume, "manage": cmdManage, "doctor": cmdDoctor, "setup": cmdSetup,
-		"schedule": cmdSchedule,
-	} {
-		commands[name] = h
-	}
-}
-
 // hubURLFlag is the global `--hub URL` (also accepted after the command).
 var hubURLFlag string
 
 // extractHubFlags removes `--hub URL` and `--hub-home DIR` (either position,
 // before a bare "--") from args. --hub-home sets AGENTBUS_HUB_HOME so child
 // processes (the coding CLI started by tick) see the same config dir.
-func extractHubFlags(args []string) ([]string, string, error) {
+func extractHubFlags(args []string) ([]string, error) {
 	var out []string
 	hubURL := ""
 	for i := 0; i < len(args); i++ {
@@ -54,7 +34,7 @@ func extractHubFlags(args []string) ([]string, string, error) {
 		}
 		if !hasVal {
 			if i+1 >= len(args) {
-				return nil, "", fmt.Errorf("%s needs a value", name)
+				return nil, fmt.Errorf("%s needs a value", name)
 			}
 			i++
 			val = args[i]
@@ -66,34 +46,7 @@ func extractHubFlags(args []string) ([]string, string, error) {
 		}
 	}
 	hubURLFlag = hubURL
-	return out, hubURL, nil
-}
-
-// v1Join flags never exist on the v3 join.
-var v1JoinFlags = map[string]bool{"repo": true, "remote": true, "me": true, "wait": true, "no-issue": true,
-	"interval": true, "cap": true, "channel": true, "branch": true, "role": true, "desc": true}
-
-// useHub decides whether a colliding command runs its v3 version: when a
-// hub URL is given (`--hub URL`, or `join https://…`) or a hub config exists.
-// join with v1-only flags always runs v1.
-func useHub(cmd string, rest []string, hubURL string) bool {
-	if cmd == "join" {
-		for _, a := range rest {
-			if a == "--" {
-				break
-			}
-			n := strings.TrimLeft(strings.SplitN(a, "=", 2)[0], "-")
-			if strings.HasPrefix(a, "-") && v1JoinFlags[n] {
-				return false
-			}
-		}
-		for _, a := range rest {
-			if isHubURL(a) {
-				return true
-			}
-		}
-	}
-	return hubURL != "" || hub.Exists(hub.Dir())
+	return out, nil
 }
 
 func isHubURL(s string) bool {
@@ -103,8 +56,8 @@ func isHubURL(s string) bool {
 var nameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{1,31}$`)
 
 // hubVersion is sent in X-Agentbus-Version and join's client_version. Source
-// builds report their release line ("0.4.0-dev" -> "0.4.0") so a hub with
-// min_client_version 0.4.0 accepts them.
+// builds report their release line ("0.5.0-dev" -> "0.5.0") so a hub with
+// min_client_version 0.5.0 accepts them.
 func hubVersion() string { return strings.TrimSuffix(currentVersion(), "-dev") }
 
 // hubEnv is a loaded config dir.
