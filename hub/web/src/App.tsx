@@ -9,6 +9,7 @@ import { queryClient, selectTeam } from "./queries";
 import { router } from "./router";
 import { Background } from "./components/layout/Background";
 import { toast, Toaster } from "./components/ui/Toast";
+import { ChangelogDialog } from "./components/layout/Changelog";
 
 function UnauthorizedPage() {
   return (
@@ -47,6 +48,7 @@ export function App() {
         <Tooltip.Provider delayDuration={250}>
           <Background />
           {unauth ? <UnauthorizedPage /> : <RouterProvider router={router} />}
+          <ChangelogDialog />
           <Toaster />
         </Tooltip.Provider>
       </QueryClientProvider>
