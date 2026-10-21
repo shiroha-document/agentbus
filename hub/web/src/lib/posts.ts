@@ -91,3 +91,24 @@ export function nextPendingConfirm(posts: readonly Post[], afterId: string | nul
   const cur = posts.findIndex((p) => p.id === afterId);
   return pending.find((i) => i > cur) ?? pending[0]!;
 }
+
+/**
+ * Progress posts that a later progress post from the same author already replaces (no other
+ * author's msg/confirm in between). The worker collapses a running round into one post, but
+ * separate rounds can still repeat themselves; the UI folds the older ones.
+ */
+export function supersededProgress(posts: readonly Post[]): Set<string> {
+  const out = new Set<string>();
+  const lastByAuthor = new Map<string, string>();
+  for (const p of posts) {
+    if (p.kind === "progress") {
+      const prev = lastByAuthor.get(p.author_id);
+      if (prev) out.add(prev);
+      lastByAuthor.set(p.author_id, p.id);
+    } else if (p.kind === "msg" || p.kind === "confirm") {
+      // Someone (else) spoke: earlier progress stays visible as context.
+      for (const a of [...lastByAuthor.keys()]) if (a !== p.author_id || p.kind === "confirm") lastByAuthor.delete(a);
+    }
+  }
+  return out;
+}

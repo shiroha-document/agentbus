@@ -9,8 +9,8 @@ import {
   summaryStateFromCounts,
   visibleActivity,
 } from "../live";
-import { agentPeer, buildRows, continuesGroup, dayLabel, mergeOlder, nextPendingConfirm } from "../posts";
-import { formatBytes, isInlineImage, mimeGroup, validateFiles, MAX_ATTACHMENTS } from "../attachments";
+import { agentPeer, buildRows, continuesGroup, dayLabel, mergeOlder, nextPendingConfirm, supersededProgress } from "../posts";
+import { attachmentHref, formatBytes, isInlineImage, mimeGroup, validateFiles, MAX_ATTACHMENTS } from "../attachments";
 import { activeMentionQuery, rankMentions } from "../mentions";
 import type { Activity, Member, Post, Receipt, ThreadLive } from "../../types";
 
@@ -137,6 +137,11 @@ describe("post grouping", () => {
     expect(nextPendingConfirm(list, "d")).toBe(1);
     expect(nextPendingConfirm([P("a", "x", 1)], null)).toBe(-1);
   });
+  it("folds repeated progress from the same author", () => {
+    const pr = (id: string, author: string, at: number) => P(id, author, at, { kind: "progress" });
+    const list = [pr("a", "x", 1), pr("b", "y", 2), pr("c", "x", 3), P("m", "h", 4), pr("d", "x", 5), P("n", "x", 6), pr("e", "x", 7)];
+    expect([...supersededProgress(list)].sort()).toEqual(["a", "d"]);
+  });
 });
 
 describe("attachments", () => {
@@ -153,6 +158,14 @@ describe("attachments", () => {
   it("only inlines safe raster images", () => {
     expect(isInlineImage("image/png")).toBe(true);
     expect(isInlineImage("image/svg+xml")).toBe(false);
+  });
+  it("only allows safe attachment urls", () => {
+    expect(attachmentHref("/api/v1/web/files/f_1")).toBe("/api/v1/web/files/f_1");
+    expect(attachmentHref("https://x.test/a.png")).toBe("https://x.test/a.png");
+    expect(attachmentHref("data:image/png;base64,AAA")).toBe("data:image/png;base64,AAA");
+    expect(attachmentHref("data:text/html,<script>")).toBeNull();
+    expect(attachmentHref("javascript:alert(1)")).toBeNull();
+    expect(attachmentHref("//evil.test/x")).toBeNull();
   });
   it("formats sizes", () => {
     expect(formatBytes(512)).toBe("512 B");

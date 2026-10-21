@@ -56,3 +56,19 @@ export function validateFiles<T extends { name: string; size: number }>(files: r
   if (tooMany) errors.push(`每条消息最多 ${MAX_ATTACHMENTS} 个附件，已忽略 ${tooMany} 个`);
   return { ok, errors };
 }
+
+const SAFE_DATA_URL = /^data:(image\/(png|jpeg|gif|webp)(;base64)?|text\/plain(;charset=utf-8)?(;base64)?),/i;
+
+/**
+ * Attachment URL safe to put in href/src: the hub's relative `/api/v1/web/files/<id>`,
+ * http(s), or (mock / previews) a raster-image or plain-text data URL. Anything else → null.
+ */
+export function attachmentHref(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const u = url.trim();
+  if (u.startsWith("/") && !u.startsWith("//")) return u;
+  if (/^https?:\/\//i.test(u)) return u;
+  if (/^blob:/i.test(u)) return u;
+  if (SAFE_DATA_URL.test(u)) return u;
+  return null;
+}
