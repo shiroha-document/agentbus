@@ -4,14 +4,18 @@ import * as RDialog from "@radix-ui/react-dialog";
 import { motion, useReducedMotion } from "motion/react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { ArrowLeftRight, FileText, FolderKanban, Search, UserPlus, Users } from "lucide-react";
+import { ArrowLeftRight, FileText, FolderKanban, Info, LineChart, Search, Sparkles, UserPlus, Users, X } from "lucide-react";
 import { api } from "../../api";
 import { useMe, useMembers, useRole, useWorkspaces } from "../../queries";
 import { useAddAgent } from "../AddAgentDialog";
 import { sanitizeSnippet } from "../../lib/sanitize";
 import { formatRelative } from "../../lib/format";
 import { reducedFade, springSoft } from "../../lib/motion";
-import { NAV } from "./nav";
+import { visibleNav } from "./nav";
+import { track } from "../../lib/telemetry";
+import { THEME_LABEL, nextThemePref, useTheme } from "../../lib/theme";
+import { THEME_ICON } from "./ThemeToggle";
+import { openChangelog } from "./Changelog";
 import { Avatar } from "../ui/Avatar";
 import { TeamTile, useSwitchTeam } from "./TeamSwitcher";
 import { roleLabel } from "../../lib/team";
@@ -30,6 +34,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   const switchTeam = useSwitchTeam();
   const addAgent = useAddAgent();
   const { isAdmin } = useRole();
+  const theme = useTheme();
   const enabled = open && dq.length >= 1;
 
   useEffect(() => {
@@ -45,13 +50,41 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
 
   const memberById = useMemo(() => new Map((members.data?.members ?? []).map((m) => [m.id, m])), [members.data]);
 
-  const go = (fn: () => void) => {
+  /** Closes the palette, records the selection type, then runs the action. */
+  const go = (type: string, fn: () => void) => {
+    track("palette.select", { type });
     onOpenChange(false);
     fn();
   };
 
-  const navMatches = NAV.filter((n) => !dq || n.label.includes(dq));
-  const showAdd = isAdmin && (!dq || "添加 agent 接入 加入码 add agent".toLowerCase().includes(dq.toLowerCase()));
+  const navMatches = visibleNav(isAdmin).filter((n) => !dq || n.label.includes(dq));
+  const lq = dq.toLowerCase();
+  const kw = (words: string) => !dq || words.toLowerCase().includes(lq);
+  const nextTheme = nextThemePref(theme.pref);
+  const NextThemeIcon = THEME_ICON[nextTheme];
+  const actions = [
+    isAdmin && kw("添加 agent 接入 加入码 add agent")
+      ? { id: "add-agent", label: "添加 agent", hint: "一行命令接入新机器", icon: UserPlus, run: addAgent }
+      : null,
+    kw("切换主题 外观 深色 浅色 暗色 亮色 黑暗 跟随系统 theme dark light")
+      ? {
+          id: "theme",
+          label: "切换主题",
+          hint: `${THEME_LABEL[theme.pref]} → ${THEME_LABEL[nextTheme]}`,
+          icon: NextThemeIcon,
+          run: () => theme.setPref(nextTheme),
+        }
+      : null,
+    kw("查看更新日志 版本 新功能 changelog version")
+      ? { id: "changelog", label: "查看更新日志", hint: `v${__APP_VERSION__}`, icon: Sparkles, run: openChangelog }
+      : null,
+    kw("关于 agentbus 介绍 帮助 文档 about")
+      ? { id: "about", label: "关于 agentbus", hint: "功能介绍与版本", icon: Info, run: () => void navigate({ to: "/about" }) }
+      : null,
+    isAdmin && kw("数据统计 埋点 分析 看板 analytics stats")
+      ? { id: "analytics", label: "数据统计", hint: "使用情况与延迟", icon: LineChart, run: () => void navigate({ to: "/analytics" }) }
+      : null,
+  ].filter((a) => a !== null);
   const wsMatches = (workspaces.data?.workspaces ?? []).filter((w) => dq && w.name.toLowerCase().includes(dq.toLowerCase())).slice(0, 4);
   const memberMatches = (members.data?.members ?? [])
     .filter((m) => dq && (m.name.includes(dq.toLowerCase()) || m.display_name.toLowerCase().includes(dq.toLowerCase())))
@@ -70,7 +103,15 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
     <RDialog.Root open={open} onOpenChange={onOpenChange}>
       <RDialog.Portal>
         <RDialog.Overlay className="overlay" />
-        <RDialog.Content className="fixed inset-x-0 top-0 z-50 flex justify-center px-3 pt-[10vh] outline-none" aria-label="搜索">
+        {/* Content spans the viewport (it positions the panel), so a click on its empty area is
+            an outside click: close, same as the overlay / Esc / the X button. */}
+        <RDialog.Content
+          className="fixed inset-0 z-50 flex items-start justify-center px-3 pt-[10vh] outline-none"
+          aria-label="搜索"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) onOpenChange(false);
+          }}
+        >
           <RDialog.Title className="sr-only">搜索</RDialog.Title>
           <RDialog.Description className="sr-only">搜索帖子、工作区和成员</RDialog.Description>
           <motion.div
@@ -89,7 +130,12 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                   className="h-14 flex-1 bg-transparent text-body outline-none placeholder:text-fg-3"
                   autoFocus
                 />
-                <kbd className="rounded-[6px] border border-line px-1.5 text-caption text-fg-caption">Esc</kbd>
+                <kbd className="hidden rounded-[6px] border border-line px-1.5 text-caption text-fg-caption sm:inline" aria-hidden>
+                  Esc
+                </kbd>
+                <RDialog.Close className="btn btn-ghost btn-icon -mr-2 h-9 w-9" aria-label="关闭搜索">
+                  <X size={18} aria-hidden />
+                </RDialog.Close>
               </div>
               <div className="flex flex-wrap gap-2 border-b border-line px-5 py-2.5">
                 <select className="field h-8 min-h-0 w-auto py-0 text-caption" value={member} onChange={(e) => setMember(e.target.value)} aria-label="按成员筛选">
@@ -116,19 +162,21 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                 </select>
               </div>
               <Command.List className="max-h-[52vh] overflow-y-auto p-2">
-                {showAdd && (
+                {actions.length > 0 && (
                   <Command.Group heading="操作">
-                    <Command.Item value="action-add-agent" onSelect={() => go(addAgent)} className={itemCls}>
-                      <UserPlus size={16} className="text-mint-700" aria-hidden />
-                      <span className="flex-1">添加 agent</span>
-                      <span className="text-caption text-fg-caption">一行命令接入新机器</span>
-                    </Command.Item>
+                    {actions.map(({ id, label, hint, icon: Icon, run }) => (
+                      <Command.Item key={id} value={`action-${id}`} onSelect={() => go(`action.${id}`, run)} className={itemCls}>
+                        <Icon size={16} className="text-mint-700" aria-hidden />
+                        <span className="flex-1">{label}</span>
+                        <span className="text-caption text-fg-caption">{hint}</span>
+                      </Command.Item>
+                    ))}
                   </Command.Group>
                 )}
                 {navMatches.length > 0 && (
                   <Command.Group heading="跳转">
                     {navMatches.map(({ to, label, icon: Icon }) => (
-                      <Command.Item key={to} value={`nav-${to}`} onSelect={() => go(() => void navigate({ to }))} className={itemCls}>
+                      <Command.Item key={to} value={`nav-${to}`} onSelect={() => go("nav", () => void navigate({ to }))} className={itemCls}>
                         <Icon size={16} className="text-fg-2" aria-hidden />
                         {label}
                       </Command.Item>
@@ -138,7 +186,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                 {teamMatches.length > 0 && (
                   <Command.Group heading="切换团队">
                     {teamMatches.map((t) => (
-                      <Command.Item key={t.id} value={`team-${t.id}`} onSelect={() => go(() => void switchTeam(t.id))} className={itemCls}>
+                      <Command.Item key={t.id} value={`team-${t.id}`} onSelect={() => go("team", () => void switchTeam(t.id))} className={itemCls}>
                         <TeamTile id={t.id} name={t.name} size={22} />
                         <span className="flex-1 truncate">切换到 {t.name}</span>
                         <span className="flex items-center gap-1 text-caption text-fg-caption">
@@ -154,7 +202,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                       <Command.Item
                         key={w.id}
                         value={`ws-${w.id}`}
-                        onSelect={() => go(() => void navigate({ to: "/workspaces/$id", params: { id: w.id } }))}
+                        onSelect={() => go("workspace", () => void navigate({ to: "/workspaces/$id", params: { id: w.id } }))}
                         className={itemCls}
                       >
                         <FolderKanban size={16} className="text-fg-2" aria-hidden />
@@ -170,7 +218,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                       <Command.Item
                         key={m.id}
                         value={`m-${m.id}`}
-                        onSelect={() => go(() => void navigate({ to: "/members/$id", params: { id: m.id } }))}
+                        onSelect={() => go("member", () => void navigate({ to: "/members/$id", params: { id: m.id } }))}
                         className={itemCls}
                       >
                         <Avatar member={m} size={22} />
@@ -198,7 +246,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                           key={r.post.id}
                           value={`p-${r.post.id}`}
                           onSelect={() =>
-                            go(() => void navigate({ to: "/threads/$id", params: { id: r.thread.id }, hash: `post-${r.post.id}` }))
+                            go("post", () => void navigate({ to: "/threads/$id", params: { id: r.thread.id }, hash: `post-${r.post.id}` }))
                           }
                           className={`${itemCls} items-start`}
                         >
