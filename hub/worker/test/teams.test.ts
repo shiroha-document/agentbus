@@ -187,7 +187,7 @@ describe("join codes", () => {
   it("expired codes are rejected; bad expiry is 400", async () => {
     const env = makeEnv();
     const c = await api(env, "POST", "/join-codes", { expires_in_days: 1 });
-    env.d1.x("UPDATE join_codes SET expires_at = ? WHERE id = ?", Date.now() - 1, c.json.code.id);
+    env.d1.x("UPDATE join_codes SET expires_at = ? WHERE id = ?", Date.now() - 60_000, c.json.code.id);
     expect((await joinWith(env, "late", c.json.secret)).r.status).toBe(403);
     expect((await api(env, "POST", "/join-codes", { expires_in_days: 0 })).status).toBe(400);
     expect((await api(env, "POST", "/join-codes", { expires_in_days: 9999 })).status).toBe(400);
@@ -200,7 +200,7 @@ describe("join codes", () => {
     expect((await api(env, "POST", "/join-codes", {})).status).toBe(409);
     // one expires, another is revoked: two slots free up
     const codes = (await api(env, "GET", "/join-codes")).json.codes;
-    env.d1.x("UPDATE join_codes SET expires_at = ? WHERE id = ?", Date.now() - 1, codes[0].id);
+    env.d1.x("UPDATE join_codes SET expires_at = ? WHERE id = ?", Date.now() - 60_000, codes[0].id);
     expect((await api(env, "DELETE", `/join-codes/${codes[1].id}`)).status).toBe(200);
     expect((await api(env, "POST", "/join-codes", { label: "again" })).status).toBe(200);
     expect((await api(env, "POST", "/join-codes", { label: "again2" })).status).toBe(200);
