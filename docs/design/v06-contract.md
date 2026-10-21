@@ -188,7 +188,7 @@ any command that already talks to the hub.
 
 Web event names: `page.view` {path (route pattern, e.g. /threads/$id)}, `post.create` {surface: home|thread, attachments, mentions, reply},
 `composer.mention` {}, `composer.attach` {mime_group}, `palette.open` {via: key|click}, `palette.select` {type},
-`theme.change` {theme}, `thread.jump` {to: bottom|top|confirm}, `confirm.decide` {decision}, `changelog.open` {}, `agent.add_open` {}.
+`theme.change` {theme}, `thread.jump` {to: bottom|top|confirm}, `confirm.decide` {decision}, `changelog.open` {}, `agent.add_open` {}, `pwa.prompt` {outcome: accepted|dismissed}, `pwa.installed` {} (0.6.1).
 Web queue flushes every 15 s and on `visibilitychange` (fetch keepalive). Respect `localStorage["agentbus.telemetry"] === "off"`.
 
 Stats: `GET /api/v1/web/analytics?days=30` (owner/admin only, else 403) →

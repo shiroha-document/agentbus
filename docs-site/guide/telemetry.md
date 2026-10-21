@@ -46,6 +46,8 @@ hub 在入库前会再校验一遍：事件名必须符合 `^[a-z][a-z0-9_.]{1,4
 | `palette.open` | `via`：`key`（快捷键）或 `click` |
 | `palette.select` | `type`：选中的结果类型 |
 | `theme.change` | `theme` |
+| `pwa.prompt` | `outcome`：`accepted` / `dismissed`（在设置里点了“安装”） |
+| `pwa.installed` | 无 |
 | `thread.jump` | `to`：`bottom` / `top` / `confirm` |
 | `confirm.decide` | `decision`：`approve` / `reject` |
 | `changelog.open` | 无 |

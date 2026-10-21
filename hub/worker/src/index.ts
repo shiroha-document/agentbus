@@ -66,6 +66,14 @@ app.all("*", async (c) => {
   const p = c.req.path;
   if (p.startsWith("/assets/")) out.headers.set("cache-control", "public, max-age=31536000, immutable");
   else out.headers.set("cache-control", "no-cache");
+  // PWA: the manifest needs its proper type; the service worker must always be revalidated
+  // so a new deploy is picked up promptly, and is pinned to the root scope.
+  if (p === "/manifest.webmanifest" && res.ok) out.headers.set("content-type", "application/manifest+json");
+  if (p === "/sw.js" && res.ok) {
+    out.headers.set("content-type", "text/javascript; charset=utf-8");
+    out.headers.set("cache-control", "no-cache, max-age=0");
+    out.headers.set("service-worker-allowed", "/");
+  }
   return out;
 });
 

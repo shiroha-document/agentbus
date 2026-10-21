@@ -1,12 +1,44 @@
 // Settings → 偏好: personal, per-browser preferences (theme, anonymous usage statistics).
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { Palette, Sparkles } from "lucide-react";
+import { CheckCircle2, MonitorDown, Palette, Share, Sparkles } from "lucide-react";
 import { Switch } from "../../components/ui/Switch";
 import { ThemeSegmented } from "../../components/layout/ThemeToggle";
 import { NewDot, openChangelog, useChangelog } from "../../components/layout/Changelog";
 import { setTelemetryEnabled, telemetryEnabled } from "../../lib/telemetry";
 import { APP_VERSION } from "../../lib/version";
+import { promptInstall, useInstallState } from "../../lib/pwa";
+
+function InstallRow() {
+  const state = useInstallState();
+  return (
+    <div className="flex flex-wrap items-center gap-3 py-3">
+      <div className="min-w-[14rem] flex-1">
+        <div className="text-callout">安装为应用</div>
+        <div className="text-caption text-fg-caption">
+          {state === "installed"
+            ? "已经以应用方式打开，可以从桌面 / 主屏幕 / 程序坞直接启动。"
+            : state === "ios"
+              ? "在 Safari 里点底部的「分享」按钮，再选「添加到主屏幕」。"
+              : state === "available"
+                ? "装到桌面或主屏幕，独立窗口打开，不占浏览器标签页。"
+                : "用 Chrome / Edge 打开时，点地址栏右侧的「安装」图标；手机上在浏览器菜单里选「添加到主屏幕」。"}
+        </div>
+      </div>
+      {state === "installed" ? (
+        <span className="chip">
+          <CheckCircle2 size={12} aria-hidden /> 已安装
+        </span>
+      ) : state === "available" ? (
+        <button type="button" className="btn btn-primary" onClick={() => void promptInstall()}>
+          <MonitorDown size={16} aria-hidden /> 安装
+        </button>
+      ) : state === "ios" ? (
+        <Share size={18} className="text-fg-3" aria-hidden />
+      ) : null}
+    </div>
+  );
+}
 
 export function PreferencesSection() {
   const [telemetry, setTelemetry] = useState(() => telemetryEnabled());
@@ -20,12 +52,14 @@ export function PreferencesSection() {
 
       <div className="flex flex-col divide-y divide-[var(--border)]">
         <div className="flex flex-wrap items-center gap-3 py-3 first:pt-0">
-          <div className="min-w-0 flex-1">
+          <div className="min-w-[14rem] flex-1">
             <div className="text-callout">外观</div>
             <div className="text-caption text-fg-caption">「跟随系统」会随操作系统的深浅色自动切换。</div>
           </div>
           <ThemeSegmented />
         </div>
+
+        <InstallRow />
 
         <div className="flex items-center gap-3 py-3">
           <label htmlFor="pref-telemetry" className="min-w-0 flex-1 cursor-pointer">

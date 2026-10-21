@@ -47,14 +47,20 @@ let snap: Snapshot = { pref: "system", resolved: "light" };
 const listeners = new Set<() => void>();
 let installed = false;
 
+/** Browser-chrome / installed-app title bar colour per theme (= --bg in tokens.css). */
+export const THEME_COLOR: Record<ResolvedTheme, string> = { light: "#f7fbf9", dark: "#0b110e" };
+
+function paint(resolved: ResolvedTheme): void {
+  const el = document.documentElement;
+  el.dataset.theme = resolved;
+  el.style.colorScheme = resolved;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", THEME_COLOR[resolved]);
+}
+
 function apply(): void {
   const pref = readPref();
   const resolved = resolveTheme(pref, media()?.matches ?? false);
-  if (hasDom) {
-    const el = document.documentElement;
-    el.dataset.theme = resolved;
-    el.style.colorScheme = resolved;
-  }
+  if (hasDom) paint(resolved);
   if (pref !== snap.pref || resolved !== snap.resolved) {
     snap = { pref, resolved };
     listeners.forEach((fn) => fn());
@@ -90,8 +96,7 @@ export function setThemePref(pref: ThemePref): void {
   if (hasDom && snap.pref !== pref) {
     // Storage failed — apply in-memory.
     const resolved = resolveTheme(pref, media()?.matches ?? false);
-    document.documentElement.dataset.theme = resolved;
-    document.documentElement.style.colorScheme = resolved;
+    paint(resolved);
     snap = { pref, resolved };
     listeners.forEach((fn) => fn());
   }

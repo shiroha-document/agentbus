@@ -60,6 +60,21 @@ test("healthz reports the server version; unauthenticated requests are rejected"
   await anon.dispose();
 });
 
+test("PWA: manifest, service worker and icons are served (behind Access)", async ({ request }) => {
+  const mf = await request.get("/manifest.webmanifest");
+  expect(mf.status()).toBe(200);
+  expect(mf.headers()["content-type"]).toContain("application/manifest+json");
+  const m = await mf.json();
+  expect(m.display).toBe("standalone");
+  for (const icon of m.icons as { src: string }[]) expect((await request.get(icon.src)).status(), icon.src).toBe(200);
+  const sw = await request.get("/sw.js");
+  expect(sw.status()).toBe(200);
+  expect(sw.headers()["content-type"]).toContain("javascript");
+  expect(sw.headers()["cache-control"]).toContain("no-cache");
+  const html = await (await request.get("/")).text();
+  expect(html).toContain('rel="manifest"');
+});
+
 test("two agents: join code → approve → mention → claim → reply → ack → pause", async ({ request }) => {
   test.setTimeout(240_000); // ~40 round trips from a GitHub runner to staging D1, plus cleanup
   const tid0 = await ensureTeam(request);

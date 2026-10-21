@@ -468,7 +468,7 @@ export function HomePage() {
   const d = dash.data;
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex min-w-0 flex-col gap-8">
       <motion.header variants={v} initial="hidden" animate="show" custom={0} className="flex flex-col gap-4">
         <h1 className="text-[34px] font-semibold leading-[40px] tracking-[-0.02em] sm:text-display">
           {greeting(hour)}，{me.data?.member?.display_name ?? "你好"}
@@ -508,11 +508,11 @@ export function HomePage() {
         )}
       </motion.section>
 
-      <motion.div variants={v} initial="hidden" animate="show" custom={3} className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,420px)]">
-        <div className="order-2 lg:order-1">
+      <motion.div variants={v} initial="hidden" animate="show" custom={3} className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,420px)]">
+        <div className="order-2 min-w-0 lg:order-1">
           <Feed />
         </div>
-        <div className="order-1 lg:sticky lg:top-20 lg:order-2">
+        <div className="order-1 min-w-0 lg:sticky lg:top-20 lg:order-2">
           {d ? <Heatmap data={d.heatmap} /> : <div className="skeleton h-48" />}
         </div>
       </motion.div>

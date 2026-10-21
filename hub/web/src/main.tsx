@@ -13,6 +13,10 @@ async function boot() {
   // team before the first request goes out, then strip it from the address bar.
   const { applyTeamParamFromLocation } = await import("./lib/team");
   applyTeamParamFromLocation();
+  // Installable app (PWA): registers /sw.js in production builds only; also starts listening
+  // for the browser's install prompt before React mounts.
+  const { registerServiceWorker } = await import("./lib/pwa");
+  registerServiceWorker();
   const { App } = await import("./App");
   const el = document.getElementById("root");
   if (!el) return;

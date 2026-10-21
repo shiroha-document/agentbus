@@ -34,6 +34,8 @@ const EVENT_LABEL: Record<string, string> = {
   "palette.open": "打开搜索",
   "palette.select": "搜索选择",
   "theme.change": "切换主题",
+  "pwa.installed": "安装为应用",
+  "pwa.prompt": "安装提示",
   "thread.jump": "讨论串跳转",
   "confirm.decide": "处理确认",
   "changelog.open": "查看更新日志",

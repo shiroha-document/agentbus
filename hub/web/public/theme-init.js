@@ -10,4 +10,7 @@
   var el = document.documentElement;
   el.setAttribute("data-theme", dark ? "dark" : "light");
   el.style.colorScheme = dark ? "dark" : "light";
+  // Installed-app title bar / mobile browser chrome follows the resolved theme.
+  var meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", dark ? "#0b110e" : "#f7fbf9");
 })();

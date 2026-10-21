@@ -198,6 +198,14 @@ describe("web auth (fail closed)", () => {
     expect(h.get("cache-control")).toBe("no-cache");
     const asset = await web(env, "GET", "/assets/app.js");
     expect(asset.res.headers.get("cache-control")).toContain("immutable");
+    // PWA files: manifest type, service worker never long-cached, both behind Access.
+    const mf = await web(env, "GET", "/manifest.webmanifest");
+    expect(mf.res.headers.get("content-type")).toBe("application/manifest+json");
+    const sw = await web(env, "GET", "/sw.js");
+    expect(sw.res.headers.get("content-type")).toContain("text/javascript");
+    expect(sw.res.headers.get("cache-control")).toBe("no-cache, max-age=0");
+    expect(sw.res.headers.get("service-worker-allowed")).toBe("/");
+    expect((await web(env, "GET", "/sw.js", undefined, { token: null })).status).toBe(401);
     expect((await web(env, "POST", "/x", {})).status).toBe(405);
     const me = await api(env, "GET", "/me");
     expect(me.res.headers.get("cache-control")).toBe("no-store");
