@@ -161,4 +161,8 @@ if (hasConvert) {
     else if (existsSync(tmp)) spawnSync("rm", ["-f", tmp]);
   }
 }
+// ---------------------------------------------------------------- 4. palette (lossy, needs Pillow)
+// Light screenshots are ~2 MB as truecolor PNG; a 256-colour palette keeps flat UI crisp at ~10% size.
+const shrink = spawnSync("python3", [join(here, "shrink-png.py"), ...written], { stdio: "inherit" });
+if (shrink.status !== 0) console.warn("shrink-png.py failed (pip install pillow); keeping truecolor PNGs");
 console.log(`wrote ${written.length} screenshots to ${shotDir}`);
