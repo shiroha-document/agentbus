@@ -81,7 +81,7 @@ func loadHub() (*hubEnv, error) {
 	if err != nil {
 		return nil, fmt.Errorf("loading key: %w", err)
 	}
-	return &hubEnv{dir: dir, cfg: cfg, key: k, cl: hub.NewClient(cfg, k, hubVersion())}, nil
+	return &hubEnv{dir: dir, cfg: cfg, key: k, cl: newClient(cfg, k)}, nil
 }
 
 func (e *hubEnv) paths() hub.Paths { return hub.Paths{Dir: e.dir} }

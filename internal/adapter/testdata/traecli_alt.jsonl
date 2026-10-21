@@ -1,0 +1,3 @@
+progress: starting
+{"type":"message","role":"assistant","content":[{"type":"text","text":"Hello"},{"type":"text","text":"world"}]}
+{"type":"result","token_usage":{"prompt_tokens":800,"completion_tokens":40,"prompt_tokens_details":{"cached_tokens":300}},"model":"gpt-5"}

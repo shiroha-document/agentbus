@@ -1,5 +1,6 @@
 // Package adapter knows how to run each supported coding-agent CLI headless
-// (Claude Code, Codex, Cursor, Gemini, or a user-defined template) and how to
+// (Claude Code, Codex, Cursor, Gemini, TRAE CLI, DeepSeek Harness, or a
+// user-defined template) and how to
 // read token usage and the final answer back from its structured output.
 //
 // Adapters only build argv: commands are always executed directly, never via
@@ -103,20 +104,46 @@ type Adapter interface {
 }
 
 var registry = map[string]Adapter{
-	"claude": claude{},
-	"codex":  codex{},
-	"cursor": cursor{},
-	"gemini": gemini{},
-	"custom": custom{},
+	"claude":  claude{},
+	"codex":   codex{},
+	"cursor":  cursor{},
+	"gemini":  gemini{},
+	"traecli": traecli{},
+	"dsh":     dsh{},
+	"custom":  custom{},
 }
 
 // Get returns the adapter for a CLI name.
 func Get(name string) (Adapter, error) {
 	a, ok := registry[strings.ToLower(strings.TrimSpace(name))]
 	if !ok {
-		return nil, fmt.Errorf("unknown cli %q (want claude, codex, cursor, gemini or custom)", name)
+		return nil, fmt.Errorf("unknown cli %q (want claude, codex, cursor, gemini, traecli, dsh or custom)", name)
 	}
 	return a, nil
+}
+
+// Known lists the built-in CLIs in display order (custom last).
+var Known = []string{"claude", "codex", "cursor", "gemini", "traecli", "dsh", "custom"}
+
+// Label is the human name of a CLI (contract §7); unknown names pass through.
+func Label(name string) string {
+	switch name {
+	case "claude":
+		return "Claude Code"
+	case "codex":
+		return "Codex"
+	case "cursor":
+		return "Cursor"
+	case "gemini":
+		return "Gemini CLI"
+	case "traecli":
+		return "TRAE CLI"
+	case "dsh":
+		return "DeepSeek Harness"
+	case "custom":
+		return "Custom"
+	}
+	return name
 }
 
 // Names lists the supported CLIs.

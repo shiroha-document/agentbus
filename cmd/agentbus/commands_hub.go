@@ -17,6 +17,7 @@ import (
 
 	"github.com/shiroha-document/agentbus/internal/adapter"
 	"github.com/shiroha-document/agentbus/internal/hub"
+	"github.com/shiroha-document/agentbus/internal/i18n"
 	"github.com/shiroha-document/agentbus/internal/quota"
 )
 
@@ -39,7 +40,7 @@ func cmdHubJoin(c *cli, args []string) error {
 	fs.StringVar(&o.joinCode, "join-code", "", "team join code abj_… from a team admin (hub Settings → Agent 加入码); default $AGENTBUS_JOIN_CODE")
 	fs.StringVar(&o.name, "name", "", "agent name (^[a-z0-9][a-z0-9_-]{1,31}$)")
 	fs.StringVar(&o.display, "display-name", "", "display name shown on the hub")
-	fs.StringVar(&o.cli, "cli", "claude", "coding CLI: claude|codex|cursor|gemini|custom")
+	fs.StringVar(&o.cli, "cli", "claude", "coding CLI: "+strings.Join(adapter.Known, "|"))
 	fs.StringVar(&o.binary, "binary", "", "path or name of the CLI executable (default: look it up on PATH)")
 	fs.StringVar(&o.template, "template", "", "custom CLI command line, e.g. `mycli --input {prompt_file} --json`")
 	var paths multi
@@ -58,13 +59,13 @@ func cmdHubJoin(c *cli, args []string) error {
 		o.url = pos[0]
 	}
 	if o.interval, err = parseDur(*interval); err != nil {
-		return &exitError{code: exitUsage, msg: "bad --wake-interval: " + err.Error()}
+		return &exitError{code: exitUsage, msg: i18n.Pick("bad --wake-interval: ", "--wake-interval 无效：") + err.Error()}
 	}
 	o.usagePaths = map[string]string{}
 	for _, p := range paths {
 		k, v, ok := strings.Cut(p, "=")
 		if !ok {
-			return &exitError{code: exitUsage, msg: "--usage-path wants field=path"}
+			return &exitError{code: exitUsage, msg: i18n.Pick("--usage-path wants field=path", "--usage-path 的格式是 field=path")}
 		}
 		o.usagePaths[k] = v
 	}
@@ -86,7 +87,16 @@ const (
 	joinCodeMissing = "a join code is required to join a hub team: " + askAdminForCode +
 		", then pass --join-code abj_… or set AGENTBUS_JOIN_CODE"
 	joinCodeBad = "the hub rejected this join code (wrong, expired or revoked): " + askAdminForCode + " and try again"
+
+	askAdminForCodeZh = "向团队管理员要一个加入码（hub Settings → Agent 加入码）"
+	joinCodeMissingZh = "加入 hub 团队需要加入码：" + askAdminForCodeZh + "，然后加 --join-code abj_… 或设置 AGENTBUS_JOIN_CODE"
+	joinCodeBadZh     = "hub 拒绝了这个加入码（错误、过期或已撤销）：" + askAdminForCodeZh + "后重试"
+	pendingEN         = "waiting for a team admin to approve this agent on the hub web UI"
+	pendingZh         = "等待团队管理员在 hub 网页上批准这个 agent"
 )
+
+func joinCodeMissingText() string { return i18n.Pick(joinCodeMissing, joinCodeMissingZh) }
+func pendingText() string         { return i18n.Pick(pendingEN, pendingZh) }
 
 // envJoinCode is $AGENTBUS_JOIN_CODE, the default for --join-code.
 func envJoinCode() string { return strings.TrimSpace(os.Getenv("AGENTBUS_JOIN_CODE")) }
@@ -114,11 +124,12 @@ func normalizeJoinCode(s string) string {
 func joinError(err error, name, hubURL string) error {
 	switch {
 	case hub.IsCode(err, "join_code_required"):
-		return fmt.Errorf("%s (%v)", joinCodeMissing, err)
+		return fmt.Errorf("%s (%v)", joinCodeMissingText(), err)
 	case hub.IsCode(err, "bad_join_code"):
-		return fmt.Errorf("%s (%v)", joinCodeBad, err)
+		return fmt.Errorf("%s (%v)", i18n.Pick(joinCodeBad, joinCodeBadZh), err)
 	case hub.IsStatus(err, 409):
-		return fmt.Errorf("the name %q is taken in this team on %s: pick another --name (%v)", name, hubURL, err)
+		return fmt.Errorf(i18n.Pick("the name %q is taken in this team on %s: pick another --name (%v)",
+			"名字 %q 在 %s 的这个团队里已被占用：换一个 --name（%v）"), name, hubURL, err)
 	}
 	return err
 }
@@ -151,10 +162,10 @@ func rememberTeam(dir string, cfg *hub.Config, t hub.TeamRef) {
 func printJoined(c *cli, cfg *hub.Config, status string) {
 	c.emit(map[string]any{"member_id": cfg.MemberID, "name": cfg.Name, "hub": cfg.HubURL, "team": teamOf(cfg),
 		"status": status, "dir": hub.Dir()}, func() {
-		fmt.Fprintf(c.out, "joined %s as %s (%s) in team %s, status %s; config in %s\n", cfg.HubURL, cfg.Name, cfg.MemberID,
+		fmt.Fprintf(c.out, i18n.Pick("joined %s as %s (%s) in team %s, status %s; config in %s\n", "已加入 %s，身份 %s（%s），团队 %s，状态 %s；配置在 %s\n"), cfg.HubURL, cfg.Name, cfg.MemberID,
 			teamText(cfg), status, hub.Dir())
 		if status == "pending" {
-			fmt.Fprintln(c.out, "waiting for a team admin to approve this agent on the hub web UI")
+			fmt.Fprintln(c.out, pendingText())
 		}
 	})
 }
@@ -168,7 +179,7 @@ func hubJoin(ctx context.Context, o joinOpts) (*hub.Config, string, error) {
 			if o.name == "" || o.name == cfg.Name {
 				st := "unknown"
 				if k, err := hub.LoadKey(hub.Paths{Dir: dir}.Key()); err == nil {
-					if s, err := hub.NewClient(cfg, k, hubVersion()).State(ctx); err == nil {
+					if s, err := newClient(cfg, k).State(ctx); err == nil {
 						st = s.Member.Status
 						rememberTeam(dir, cfg, s.Team)
 					}
@@ -176,36 +187,37 @@ func hubJoin(ctx context.Context, o joinOpts) (*hub.Config, string, error) {
 				return cfg, st, nil
 			}
 		}
-		return nil, "", fmt.Errorf("%s is already joined to %s as %s; use --hub-home DIR (or AGENTBUS_HUB_HOME) for another identity",
+		return nil, "", fmt.Errorf(i18n.Pick("%s is already joined to %s as %s; use --hub-home DIR (or AGENTBUS_HUB_HOME) for another identity", "%s 已经以 %[3]s 的身份加入了 %[2]s；要用另一个身份请加 --hub-home DIR（或设置 AGENTBUS_HUB_HOME）"),
 			dir, cfg.HubURL, cfg.Name)
 	}
 	if !isHubURL(o.url) {
-		return nil, "", &exitError{code: exitUsage, msg: "join needs the hub URL: agentbus join https://hub.example.com --join-code abj_… --name NAME"}
+		return nil, "", &exitError{code: exitUsage, msg: i18n.Pick("join needs the hub URL: agentbus join https://hub.example.com --join-code abj_… --name NAME", "join 需要 hub 地址：agentbus join https://hub.example.com --join-code abj_… --name NAME")}
 	}
 	o.joinCode = normalizeJoinCode(firstOr(strings.TrimSpace(o.joinCode), envJoinCode()))
 	if o.joinCode == "" {
-		return nil, "", &exitError{code: exitUsage, msg: joinCodeMissing}
+		return nil, "", &exitError{code: exitUsage, msg: joinCodeMissingText()}
 	}
 	if !strings.HasPrefix(o.joinCode, joinCodePrefix) {
-		return nil, "", &exitError{code: exitUsage, msg: "join codes start with abj_: " + askAdminForCode}
+		return nil, "", &exitError{code: exitUsage, msg: i18n.Pick("join codes start with abj_: "+askAdminForCode,
+			"加入码以 abj_ 开头："+askAdminForCodeZh)}
 	}
 	if !nameRE.MatchString(o.name) {
-		return nil, "", &exitError{code: exitUsage, msg: "join needs --name matching ^[a-z0-9][a-z0-9_-]{1,31}$"}
+		return nil, "", &exitError{code: exitUsage, msg: i18n.Pick("join needs --name matching ^[a-z0-9][a-z0-9_-]{1,31}$", "join 需要符合 ^[a-z0-9][a-z0-9_-]{1,31}$ 的 --name")}
 	}
 	if _, err := adapter.Get(o.cli); err != nil {
 		return nil, "", &exitError{code: exitUsage, msg: err.Error()}
 	}
 	if o.cli == "custom" && o.template == "" {
-		return nil, "", &exitError{code: exitUsage, msg: "--cli custom needs --template 'CMD ... {prompt_file}'"}
+		return nil, "", &exitError{code: exitUsage, msg: i18n.Pick("--cli custom needs --template 'CMD ... {prompt_file}'", "--cli custom 需要 --template 'CMD ... {prompt_file}'")}
 	}
 	if o.wake == "" {
 		o.wake = "poll"
 	}
 	if o.wake != "poll" && o.wake != "trigger" {
-		return nil, "", &exitError{code: exitUsage, msg: "--wake must be poll or trigger"}
+		return nil, "", &exitError{code: exitUsage, msg: i18n.Pick("--wake must be poll or trigger", "--wake 只能是 poll 或 trigger")}
 	}
 	if o.wake == "trigger" && o.triggerURL == "" {
-		return nil, "", &exitError{code: exitUsage, msg: "--wake trigger needs --trigger-url"}
+		return nil, "", &exitError{code: exitUsage, msg: i18n.Pick("--wake trigger needs --trigger-url", "--wake trigger 需要 --trigger-url")}
 	}
 	if o.interval <= 0 {
 		o.interval = 5 * time.Minute
@@ -239,7 +251,7 @@ func hubJoin(ctx context.Context, o joinOpts) (*hub.Config, string, error) {
 	if len(o.usagePaths) > 0 {
 		cfg.CLIUsagePaths = o.usagePaths
 	}
-	cl := hub.NewClient(cfg, k, hubVersion())
+	cl := newClient(cfg, k)
 	base := o.name
 	var res *hub.JoinResp
 	for n := 1; ; n++ {
@@ -289,10 +301,10 @@ func cmdHubState(c *cli, args []string) error {
 		m := s.Member
 		fmt.Fprintf(c.out, "%s (%s) on %s\n", m.Name, m.ID, e.cfg.HubURL)
 		fmt.Fprintf(c.out, "team %s\n", teamText(e.cfg))
-		fmt.Fprintf(c.out, "role %s, status %s%s\n", m.Role, m.Status, pauseText(s))
-		fmt.Fprintf(c.out, "pending deliveries %d; cli %s, tier %s, wake %s every %s\n", s.Pending, e.cfg.CLI, e.cfg.Tier,
+		fmt.Fprintf(c.out, i18n.Pick("role %s, status %s%s\n", "角色 %s，状态 %s%s\n"), m.Role, m.Status, pauseText(s))
+		fmt.Fprintf(c.out, i18n.Pick("pending deliveries %d; cli %s, tier %s, wake %s every %s\n", "待处理投递 %d；cli %s，权限 %s，唤醒 %s 每 %s\n"), s.Pending, e.cfg.CLI, e.cfg.Tier,
 			e.cfg.Wake, FmtDurS(e.cfg.WakeIntervalS))
-		fmt.Fprintf(c.out, "hub %s, min client %s, this client %s\n", dash(s.ServerVersion), dash(s.MinClientVersion), hubVersion())
+		fmt.Fprintf(c.out, i18n.Pick("hub %s, min client %s, this client %s\n", "hub %s，最低客户端 %s，本客户端 %s\n"), dash(s.ServerVersion), dash(s.MinClientVersion), hubVersion())
 	})
 	return nil
 }
@@ -372,25 +384,25 @@ func cmdHubStatus(c *cli, args []string) error {
 		if serr != nil {
 			fmt.Fprintf(c.out, "hub: %v\n", serr)
 		} else {
-			fmt.Fprintf(c.out, "status %s, role %s%s; pending deliveries %d\n", s.Member.Status, s.Member.Role, pauseText(s), s.Pending)
+			fmt.Fprintf(c.out, i18n.Pick("status %s, role %s%s; pending deliveries %d\n", "状态 %s，角色 %s%s；待处理投递 %d\n"), s.Member.Status, s.Member.Role, pauseText(s), s.Pending)
 		}
 		lt := "never"
 		if ls.LastTickAt > 0 {
 			lt = fmt.Sprintf("%s (exit %d, %s)", agoMS(ls.LastTickAt), ls.LastExit, tickExitText[ls.LastExit])
 		}
-		fmt.Fprintf(c.out, "last tick %s\n", lt)
+		fmt.Fprintf(c.out, i18n.Pick("last tick %s\n", "上次 tick %s\n"), lt)
 		if ls.LastError != "" {
-			fmt.Fprintf(c.out, "last error %s\n", ls.LastError)
+			fmt.Fprintf(c.out, i18n.Pick("last error %s\n", "上次错误 %s\n"), ls.LastError)
 		}
 		if ls.LastRunAt > 0 {
-			fmt.Fprintf(c.out, "last run %s in %s\n", agoMS(ls.LastRunAt), ls.LastThread)
+			fmt.Fprintf(c.out, i18n.Pick("last run %s in %s\n", "上次运行 %s，线程 %s\n"), agoMS(ls.LastRunAt), ls.LastThread)
 		}
 		if ls.BaselineInput > 0 {
-			fmt.Fprintf(c.out, "wake-up baseline %s input tokens\n", hub.FmtTokens(ls.BaselineInput))
+			fmt.Fprintf(c.out, i18n.Pick("wake-up baseline %s input tokens\n", "每次唤醒基线 %s 输入 token\n"), hub.FmtTokens(ls.BaselineInput))
 		}
-		fmt.Fprintf(c.out, "scheduler %s: %s\n", st.Method, schedText(st))
+		fmt.Fprintf(c.out, i18n.Pick("scheduler %s: %s\n", "定时任务 %s：%s\n"), st.Method, schedText(st))
 		if !*noQuota {
-			fmt.Fprintf(c.out, "quota %s\n", quotaSummary(rs))
+			fmt.Fprintf(c.out, i18n.Pick("quota %s\n", "额度 %s\n"), quotaSummary(rs))
 		}
 	})
 	return nil
@@ -450,6 +462,9 @@ func cmdTick(c *cli, args []string) error {
 	if err != nil {
 		return err
 	}
+	if !*dry {
+		recordTick(out, e.cfg.CLI)
+	}
 	c.emit(out, func() {
 		fmt.Fprintf(c.errw, "agentbus tick: %s\n", out.Message)
 		for _, t := range out.Threads {
@@ -506,7 +521,7 @@ func bodyArg(text, file string, pos []string) (string, error) {
 		return "", err
 	}
 	if strings.TrimSpace(b) == "" {
-		return "", &exitError{code: exitUsage, msg: "empty body: pass --body TEXT, --body-file F or - (stdin)"}
+		return "", &exitError{code: exitUsage, msg: i18n.Pick("empty body: pass --body TEXT, --body-file F or - (stdin)", "正文为空：用 --body TEXT、--body-file F 或 -（标准输入）")}
 	}
 	return b, nil
 }
@@ -522,6 +537,8 @@ func cmdPost(c *cli, args []string) error {
 	ws := fs.String("workspace", "", "open a new thread in this workspace (with --title)")
 	title := fs.String("title", "", "title of the new thread")
 	assignee := fs.String("assignee", "", "assignee of the new thread (name)")
+	var attach multi
+	fs.Var(&attach, "attach", "attach a file (repeatable, up to 6 files of 10 MB each)")
 	pos, err := parse(fs, args)
 	if err != nil {
 		return err
@@ -529,7 +546,7 @@ func cmdPost(c *cli, args []string) error {
 	switch *kind {
 	case "msg", "progress", "confirm":
 	default:
-		return &exitError{code: exitUsage, msg: "--kind must be msg, progress or confirm"}
+		return &exitError{code: exitUsage, msg: i18n.Pick("--kind must be msg, progress or confirm", "--kind 只能是 msg、progress 或 confirm")}
 	}
 	b, err := bodyArg(*body, *file, pos)
 	if err != nil {
@@ -538,23 +555,48 @@ func cmdPost(c *cli, args []string) error {
 	np := hub.NewPost{Body: b, Kind: *kind, ReplyTo: *reply}
 	if *ws != "" || *title != "" {
 		if *ws == "" || *title == "" {
-			return &exitError{code: exitUsage, msg: "a new thread needs both --workspace and --title"}
+			return &exitError{code: exitUsage, msg: i18n.Pick("a new thread needs both --workspace and --title", "新建线程需要同时给出 --workspace 和 --title")}
 		}
 		np = hub.NewPost{WorkspaceID: *ws, Title: *title, Assignee: *assignee, Body: b}
 	} else if np.ThreadID, err = threadArg(*thread); err != nil {
 		return err
 	}
-	np.IdempotencyKey = postKey(*key, np.Kind+np.Title, b)
-	return doPost(c, np)
+	files, err := readAttachments(attach)
+	if err != nil {
+		return err
+	}
+	np.IdempotencyKey = postKey(*key, np.Kind+np.Title, b+attachKey(files))
+	return doPostFiles(c, np, files)
 }
 
-func doPost(c *cli, np hub.NewPost) error {
+func doPost(c *cli, np hub.NewPost) error { return doPostFiles(c, np, nil) }
+
+// doPostFiles uploads files, then posts np with them attached. Inside a tick
+// round it first shows "typing" on the thread (best effort).
+func doPostFiles(c *cli, np hub.NewPost, files []attachFile) error {
 	e, err := loadHub()
 	if err != nil {
 		return err
 	}
 	ctx, cancel := cmdContext()
 	defer cancel()
+	np.CLI = firstOr(strings.TrimSpace(os.Getenv("AGENTBUS_CLI")), e.cfg.CLI)
+	np.Model = strings.TrimSpace(os.Getenv("AGENTBUS_MODEL"))
+	if os.Getenv("AGENTBUS_IN_TICK") == "1" && np.ThreadID != "" {
+		actx, acancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+		_ = e.cl.Activity(actx, hub.ActivityReq{ThreadID: np.ThreadID, State: "typing", CLI: np.CLI, Model: np.Model})
+		acancel()
+	}
+	for _, f := range files {
+		a, err := e.cl.Upload(ctx, f.name, f.mime, f.data)
+		if err != nil {
+			return fmt.Errorf(i18n.Pick("uploading %s: %w", "上传 %s 失败：%w"), f.name, err)
+		}
+		if a.ID == "" {
+			return fmt.Errorf(i18n.Pick("uploading %s: the hub returned no attachment id", "上传 %s 失败：hub 没有返回附件 id"), f.name)
+		}
+		np.Attachments = append(np.Attachments, a.ID)
+	}
 	r, err := e.cl.Post(ctx, np)
 	if err != nil {
 		return err
@@ -568,9 +610,16 @@ func doPost(c *cli, np hub.NewPost) error {
 		if np.Title != "" {
 			fmt.Fprintf(c.out, " (new thread %q)", r.Thread.Title)
 		}
+		if n := len(np.Attachments); n > 0 {
+			fmt.Fprintf(c.out, i18n.Pick(" with %d attachment(s)", "，附件 %d 个"), n)
+		}
 		fmt.Fprintln(c.out)
+		if r.Collapsed {
+			fmt.Fprintln(c.out, i18n.Pick("updated the previous progress post", "已更新上一条进度"))
+		}
 		if len(r.Redacted) > 0 {
-			fmt.Fprintf(c.errw, "agentbus: the hub redacted secrets from the post: %s\n", strings.Join(r.Redacted, ", "))
+			fmt.Fprintf(c.errw, i18n.Pick("agentbus: the hub redacted secrets from the post: %s\n", "agentbus: hub 从帖子中抹掉了密钥：%s\n"),
+				strings.Join(r.Redacted, ", "))
 		}
 	})
 	return nil
@@ -700,7 +749,7 @@ func threadShow(c *cli, args []string) error {
 			fmt.Fprintln(c.out)
 		}
 		if hasMore && len(posts) > 0 {
-			fmt.Fprintf(c.out, "(older: agentbus thread show %s --before %s)\n", t, posts[0].ID)
+			fmt.Fprintf(c.out, i18n.Pick("(older: agentbus thread show %s --before %s)\n", "（更早的：agentbus thread show %s --before %s）\n"), t, posts[0].ID)
 		}
 		for _, p := range posts {
 			who := firstOr(names[p.AuthorID], p.AuthorID)
@@ -879,7 +928,7 @@ func cmdQuota(c *cli, args []string) error {
 	}
 	c.emit(map[string]any{"readings": rs, "hub": qr}, func() {
 		if len(rs) == 0 {
-			fmt.Fprintln(c.out, "no quota readings on this machine")
+			fmt.Fprintln(c.out, i18n.Pick("no quota readings on this machine", "本机没有额度读数"))
 		} else {
 			tw := tabwriter.NewWriter(c.out, 0, 2, 2, ' ', 0)
 			fmt.Fprintln(tw, "PROVIDER\tWINDOW\tUSED\tRESETS\tPLAN\tSOURCE\tNOTE")
@@ -900,9 +949,9 @@ func cmdQuota(c *cli, args []string) error {
 		}
 		if qr != nil {
 			if qr.Paused {
-				fmt.Fprintf(c.out, "hub: paused (%s)%s\n", derefS(qr.PauseReason), untilText(qr.PausedUntil))
+				fmt.Fprintf(c.out, i18n.Pick("hub: paused (%s)%s\n", "hub：已暂停（%s）%s\n"), derefS(qr.PauseReason), untilText(qr.PausedUntil))
 			} else {
-				fmt.Fprintln(c.out, "hub: reported, not paused")
+				fmt.Fprintln(c.out, i18n.Pick("hub: reported, not paused", "hub：已上报，未暂停"))
 			}
 		}
 	})
@@ -1005,7 +1054,7 @@ func cmdUsage(c *cli, args []string) error {
 	ls := hub.LoadState(dir)
 	c.emit(map[string]any{"days": days_, "threads": threads, "total": total, "baseline_tokens": ls.BaselineInput}, func() {
 		if total.Runs == 0 {
-			fmt.Fprintf(c.out, "no runs in the last %d day(s) (%s)\n", *days, hub.Paths{Dir: dir}.Usage())
+			fmt.Fprintf(c.out, i18n.Pick("no runs in the last %d day(s) (%s)\n", "最近 %d 天没有运行记录（%s）\n"), *days, hub.Paths{Dir: dir}.Usage())
 			return
 		}
 		tw := tabwriter.NewWriter(c.out, 0, 2, 2, ' ', 0)
@@ -1023,10 +1072,10 @@ func cmdUsage(c *cli, args []string) error {
 		}
 		tw.Flush()
 		if ls.BaselineInput > 0 {
-			fmt.Fprintf(c.out, "\nwake-up baseline: %s input tokens per round\n", hub.FmtTokens(ls.BaselineInput))
+			fmt.Fprintf(c.out, i18n.Pick("\nwake-up baseline: %s input tokens per round\n", "\n每次唤醒基线：每轮 %s 输入 token\n"), hub.FmtTokens(ls.BaselineInput))
 		}
 		if total.Unreport > 0 {
-			fmt.Fprintf(c.out, "%d run(s) not yet reported to the hub (the next tick retries)\n", total.Unreport)
+			fmt.Fprintf(c.out, i18n.Pick("%d run(s) not yet reported to the hub (the next tick retries)\n", "%d 次运行还没上报 hub（下次 tick 会重试）\n"), total.Unreport)
 		}
 	})
 	return nil
@@ -1061,7 +1110,7 @@ func usageBaseline(c *cli, args []string) error {
 	}
 	ctx, cancel := cmdContext()
 	defer cancel()
-	fmt.Fprintf(c.errw, "agentbus: running %s %d time(s) with a trivial prompt…\n", e.cfg.CLI, *runs)
+	fmt.Fprintf(c.errw, i18n.Pick("agentbus: running %s %d time(s) with a trivial prompt…\n", "agentbus：用一个简单提示运行 %s %d 次…\n"), e.cfg.CLI, *runs)
 	r, _, err := hub.Baseline(ctx, e.dir, e.cfg, hub.BaselineOptions{Runs: *runs, Timeout: to, LookPath: baselineLookPath})
 	if err != nil {
 		return err
@@ -1069,7 +1118,7 @@ func usageBaseline(c *cli, args []string) error {
 	_ = hub.AppendUsage(e.paths().Usage(), hub.UsageEntry{Run: *r})
 	reported := false
 	if _, err := e.cl.Runs(ctx, []hub.Run{*r}); err != nil {
-		fmt.Fprintf(c.errw, "agentbus: reporting the baseline failed (the next tick retries): %v\n", err)
+		fmt.Fprintf(c.errw, i18n.Pick("agentbus: reporting the baseline failed (the next tick retries): %v\n", "agentbus：上报基线失败（下次 tick 会重试）：%v\n"), err)
 	} else {
 		reported = true
 		_ = hub.MarkReported(e.paths().Usage(), []string{r.ID})
@@ -1124,10 +1173,10 @@ func cmdKeys(c *cli, args []string) error {
 		return err
 	}
 	if err := os.Rename(staged, p.Key()); err != nil {
-		return fmt.Errorf("the hub accepted the new key but installing it failed (it is in %s): %w", staged, err)
+		return fmt.Errorf(i18n.Pick("the hub accepted the new key but installing it failed (it is in %s): %w", "hub 已接受新密钥，但本地安装失败（新密钥在 %s）：%w"), staged, err)
 	}
 	c.emit(map[string]any{"public_key": hub.PublicKeyB64(nk), "old_key_expires_at": exp}, func() {
-		fmt.Fprintf(c.out, "rotated key; new public key %s; the old key stops working at %s\n", hub.PublicKeyB64(nk), fmtMS(exp))
+		fmt.Fprintf(c.out, i18n.Pick("rotated key; new public key %s; the old key stops working at %s\n", "已轮换密钥；新公钥 %s；旧密钥在 %s 失效\n"), hub.PublicKeyB64(nk), fmtMS(exp))
 	})
 	return nil
 }
@@ -1145,7 +1194,7 @@ func resolveMember(ctx context.Context, cl *hub.Client, who string) (*hub.Member
 			return &ms[i], nil
 		}
 	}
-	return nil, fmt.Errorf("no member named %q (see `agentbus manage members`)", who)
+	return nil, fmt.Errorf(i18n.Pick("no member named %q (see `agentbus manage members`)", "没有名为 %q 的成员（见 `agentbus manage members`）"), who)
 }
 
 func memberAction(c *cli, who, action string, body any) error {
@@ -1313,27 +1362,29 @@ func manageWorkspace(c *cli, args []string) error {
 		return nil
 	case "create":
 		if *name == "" || *goal == "" {
-			return &exitError{code: exitUsage, msg: "manage workspace create needs --name and --goal"}
+			return &exitError{code: exitUsage, msg: i18n.Pick("manage workspace create needs --name and --goal", "manage workspace create 需要 --name 和 --goal")}
 		}
 		w, err := e.cl.CreateWorkspace(ctx, req)
 		if err != nil {
 			return err
 		}
-		c.emit(map[string]any{"workspace": w}, func() { fmt.Fprintf(c.out, "created workspace %s (%s)\n", w.Name, w.ID) })
+		c.emit(map[string]any{"workspace": w}, func() {
+			fmt.Fprintf(c.out, i18n.Pick("created workspace %s (%s)\n", "已创建工作区 %s（%s）\n"), w.Name, w.ID)
+		})
 		return nil
 	case "update":
 		if err := need(pos, 1, "workspace id"); err != nil {
 			return err
 		}
 		if len(set) == 0 {
-			return &exitError{code: exitUsage, msg: "nothing to update"}
+			return &exitError{code: exitUsage, msg: i18n.Pick("nothing to update", "没有要更新的内容")}
 		}
 		w, err := e.cl.UpdateWorkspace(ctx, pos[0], req)
 		if err != nil {
 			return err
 		}
 		c.emit(map[string]any{"workspace": w}, func() {
-			fmt.Fprintf(c.out, "updated workspace %s (%s)\n", firstOr(w.Name, pos[0]), firstOr(w.ID, pos[0]))
+			fmt.Fprintf(c.out, i18n.Pick("updated workspace %s (%s)\n", "已更新工作区 %s（%s）\n"), firstOr(w.Name, pos[0]), firstOr(w.ID, pos[0]))
 		})
 		return nil
 	}

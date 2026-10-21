@@ -1,8 +1,8 @@
 package main
 
 import (
-	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,8 +14,10 @@ import (
 
 	"github.com/shiroha-document/agentbus/internal/adapter"
 	"github.com/shiroha-document/agentbus/internal/hub"
+	"github.com/shiroha-document/agentbus/internal/i18n"
 	"github.com/shiroha-document/agentbus/internal/quota"
 	"github.com/shiroha-document/agentbus/internal/sched"
+	"github.com/shiroha-document/agentbus/internal/tui"
 )
 
 // Test seams.
@@ -31,8 +33,6 @@ var (
 		return strings.TrimSpace(string(out)), err
 	}
 )
-
-const magpieInstall = "curl -fsSL https://usemagpie.ai/install.sh | sh"
 
 // ---- schedule ----
 
@@ -84,7 +84,7 @@ func cmdSchedule(c *cli, args []string) error {
 		if *interval != "" {
 			d, err := parseDur(*interval)
 			if err != nil || d < time.Minute {
-				return &exitError{code: exitUsage, msg: "--interval must be a duration of at least 1m"}
+				return &exitError{code: exitUsage, msg: i18n.Pick("--interval must be a duration of at least 1m", "--interval 必须是至少 1m 的时长")}
 			}
 			cfg.WakeIntervalS = int64(d / time.Second)
 			if err := cfg.Save(dir); err != nil {
@@ -97,7 +97,9 @@ func cmdSchedule(c *cli, args []string) error {
 		if err != nil {
 			return err
 		}
-		c.emit(map[string]any{"method": m, "installed": false}, func() { fmt.Fprintf(c.out, "removed the %s job for %s\n", m, cfg.Name) })
+		c.emit(map[string]any{"method": m, "installed": false}, func() {
+			fmt.Fprintf(c.out, i18n.Pick("removed the %s job for %s\n", "已移除 %[2]s 的 %[1]s 定时任务\n"), m, cfg.Name)
+		})
 		return nil
 	case "status":
 		st := sched.Query(schedHost(), *method, cfg.Name)
@@ -117,7 +119,7 @@ func installSchedule(c *cli, cfg *hub.Config, method string) error {
 		return err
 	}
 	c.emit(map[string]any{"method": m, "installed": true, "interval_s": cfg.WakeIntervalS, "exe": j.Exe}, func() {
-		fmt.Fprintf(c.out, "installed %s job: `%s %s` every %s\n", m, j.Exe, strings.Join(j.Args(), " "), FmtDurS(cfg.WakeIntervalS))
+		fmt.Fprintf(c.out, i18n.Pick("installed %s job: `%s %s` every %s\n", "已安装 %s 定时任务：`%s %s`，每 %s 一次\n"), m, j.Exe, strings.Join(j.Args(), " "), FmtDurS(cfg.WakeIntervalS))
 	})
 	return nil
 }
@@ -148,9 +150,9 @@ func cmdDoctor(c *cli, args []string) error {
 			fmt.Fprintf(c.out, "%-5s %-10s %s\n", strings.ToUpper(ch.Status), ch.Name, ch.Detail)
 		}
 		if failed == 0 {
-			fmt.Fprintln(c.out, "all checks passed")
+			fmt.Fprintln(c.out, i18n.Pick("all checks passed", "全部检查通过"))
 		} else {
-			fmt.Fprintf(c.out, "%d check(s) failed\n", failed)
+			fmt.Fprintf(c.out, i18n.Pick("%d check(s) failed\n", "%d 项检查未通过\n"), failed)
 		}
 	})
 	if failed > 0 {
@@ -229,7 +231,7 @@ func runDoctor(ctx context.Context) []check {
 		add("hub", "skip", "no key")
 		return cs
 	}
-	cl := hub.NewClient(cfg, k, hubVersion())
+	cl := newClient(cfg, k)
 	hctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	s, err := cl.State(hctx)
@@ -252,7 +254,7 @@ func runDoctor(ctx context.Context) []check {
 		rememberTeam(dir, cfg, s.Team)
 		add("hub", "ok", "reachable, signature accepted; %s is %s in team %s", s.Member.Name, s.Member.Status, teamText(cfg))
 		if s.Member.Status == "pending" {
-			add("approval", "warn", "waiting for a team admin to approve this agent on the hub web UI")
+			add("approval", "warn", pendingText())
 		}
 		if s.MinClientVersion != "" && newerVersion(s.MinClientVersion, hubVersion()) {
 			add("version", "fail", "client %s is older than the hub minimum %s; run `agentbus self-update`", hubVersion(), s.MinClientVersion)
@@ -271,46 +273,60 @@ func runDoctor(ctx context.Context) []check {
 
 // ---- setup ----
 
-type prompter struct {
-	r   *bufio.Reader
-	out io.Writer
+// setupUI wraps the prompts of one setup run; in --yes mode every question
+// returns its default without asking.
+type setupUI struct {
+	ui  *tui.UI
 	yes bool
 }
 
-// ask returns def without asking in --yes mode.
-func (p *prompter) ask(q, def string) string {
-	if p.yes {
+// ask returns one line (def when empty or at end of input).
+func (s *setupUI) ask(q, def string) string {
+	if s.yes {
 		return def
 	}
-	if def != "" {
-		fmt.Fprintf(p.out, "%s [%s]: ", q, def)
-	} else {
-		fmt.Fprintf(p.out, "%s: ", q)
-	}
-	line, _ := p.r.ReadString('\n')
-	if line = strings.TrimSpace(line); line == "" {
-		return def
-	}
-	return line
+	a, _ := s.ui.Input(q, def)
+	return a
 }
 
-func (p *prompter) confirm(q string, def bool) bool {
-	d := "Y/n"
-	if !def {
-		d = "y/N"
-	}
-	a := strings.ToLower(p.ask(q+" ("+d+")", ""))
-	if a == "" {
+func (s *setupUI) confirm(q string, def bool) bool {
+	if s.yes {
 		return def
 	}
-	return strings.HasPrefix(a, "y")
+	a, _ := s.ui.Confirm(q, def)
+	return a
+}
+
+// choose shows a menu (arrow keys on a terminal, a numbered list otherwise)
+// and returns the chosen option's value; def is the preselected value.
+func (s *setupUI) choose(title string, opts []tui.Option, def string) (string, error) {
+	di := 0
+	for i, o := range opts {
+		if o.Value == def {
+			di = i
+		}
+	}
+	if s.yes {
+		return opts[di].Value, nil
+	}
+	i, err := s.ui.Select(title, opts, di)
+	if errors.Is(err, tui.ErrInterrupted) {
+		return "", &exitError{code: exitErr, msg: i18n.Pick("setup cancelled", "已取消安装")}
+	}
+	if err != nil {
+		return "", &exitError{code: exitUsage, msg: err.Error()}
+	}
+	return opts[i].Value, nil
 }
 
 // detectCLIs returns the supported CLIs found on PATH (name -> path).
 func detectCLIs() (map[string]string, []string) {
 	found := map[string]string{}
 	var order []string
-	for _, n := range []string{"claude", "codex", "cursor", "gemini"} {
+	for _, n := range adapter.Known {
+		if n == "custom" {
+			continue
+		}
 		ad, _ := adapter.Get(n)
 		if p, err := adapter.Resolve(ad, adapter.Options{LookPath: lookPath}); err == nil {
 			found[n] = p
@@ -320,19 +336,61 @@ func detectCLIs() (map[string]string, []string) {
 	return found, order
 }
 
+// cliOptions is the CLI menu: every adapter with its label and where it was
+// found (or that it is missing).
+func cliOptions(found map[string]string) []tui.Option {
+	var opts []tui.Option
+	for _, n := range adapter.Known {
+		o := tui.Option{Value: n, Label: adapter.Label(n) + " (" + n + ")"}
+		switch {
+		case n == "custom":
+			o.Hint = i18n.Pick("your own command line with {prompt_file}", "自定义命令行，用 {prompt_file} 传入提示词")
+		case found[n] != "":
+			o.Hint = found[n]
+		default:
+			o.Hint = i18n.Pick("not found on PATH", "PATH 中未找到")
+		}
+		opts = append(opts, o)
+	}
+	return opts
+}
+
+func tierOptions() []tui.Option {
+	return []tui.Option{
+		{Value: adapter.TierReadonly, Label: "readonly", Hint: i18n.Pick("read code, post only", "只读代码，只能发帖")},
+		{Value: adapter.TierWorkspace, Label: "workspace", Hint: i18n.Pick("edit files in the repo", "可修改仓库内的文件")},
+		{Value: adapter.TierFull, Label: "full", Hint: i18n.Pick("no limits (dangerous)", "不设限制（危险）")},
+	}
+}
+
+// intervalOptions are the wake intervals offered interactively.
+var intervalChoices = []string{"1m", "2m", "5m", "10m", "15m", "30m", "1h"}
+
+func intervalOptions() []tui.Option {
+	var opts []tui.Option
+	for _, v := range intervalChoices {
+		o := tui.Option{Value: v, Label: v}
+		if v == "5m" {
+			o.Hint = i18n.Pick("recommended", "推荐")
+		}
+		opts = append(opts, o)
+	}
+	return opts
+}
+
 func cmdSetup(c *cli, args []string) error {
 	fs := newFlags("setup")
 	yes := fs.Bool("yes", false, "non-interactive: take flags and defaults, ask nothing")
 	joinCode := fs.String("join-code", "", "team join code abj_… from a team admin (hub Settings → Agent 加入码); default $AGENTBUS_JOIN_CODE")
 	name := fs.String("name", "", "agent name")
-	cliName := fs.String("cli", "", "claude | codex | cursor | gemini | custom (default: first found)")
+	cliName := fs.String("cli", "", strings.Join(adapter.Known, " | ")+" (default: first found)")
 	binary := fs.String("binary", "", "CLI executable path")
 	template := fs.String("template", "", "custom CLI command line with {prompt_file}")
 	tier := fs.String("tier", "", "permission tier: readonly | workspace | full (default workspace)")
 	var repoFlags multi
 	fs.Var(&repoFlags, "repo", "OWNER/REPO=PATH local checkout (repeatable)")
 	interval := fs.String("interval", "", "tick interval (default 5m)")
-	qsrc := fs.String("quota-source", "", "auto | native | magpie | both (default auto)")
+	qsrc := fs.String("quota-source", "", "auto | native (default auto)")
 	noSched := fs.Bool("no-schedule", false, "do not install the scheduler job")
 	method := fs.String("method", "", "scheduler: launchd | systemd | cron | schtasks (default: detect)")
 	noDoctor := fs.Bool("no-doctor", false, "skip the final doctor run")
@@ -342,13 +400,21 @@ func cmdSetup(c *cli, args []string) error {
 	if err != nil {
 		return err
 	}
-	pr := &prompter{r: bufio.NewReader(setupIn), out: c.out, yes: *yes}
+	if *qsrc != "" {
+		switch *qsrc {
+		case quota.SourceAuto, quota.SourceNative, quota.SourceMagpie, quota.SourceBoth:
+		default:
+			return &exitError{code: exitUsage, msg: i18n.Pick("--quota-source must be auto or native", "--quota-source 只能是 auto 或 native")}
+		}
+	}
+	pr := &setupUI{ui: tui.New(setupIn, c.out), yes: *yes}
 	say := func(f string, a ...any) {
 		if !c.json {
 			fmt.Fprintf(c.out, f+"\n", a...)
 		}
 	}
-	ctx, cancel := cmdContext()
+	// Ctrl-C at a prompt ends setup at once (every step saves as it goes)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	dir := hub.Dir()
 	existing, _ := hub.LoadConfig(dir)
@@ -356,13 +422,19 @@ func cmdSetup(c *cli, args []string) error {
 	// 1. CLIs
 	found, order := detectCLIs()
 	if len(order) == 0 {
-		say("1/7 coding CLIs: none of claude, codex, cursor-agent, gemini found on PATH")
+		var names []string
+		for _, n := range adapter.Known {
+			if n != "custom" {
+				names = append(names, n)
+			}
+		}
+		say(i18n.Pick("1/6 coding CLIs: none of %s found on PATH", "1/6 编码 CLI：PATH 中没有找到 %s"), strings.Join(names, ", "))
 	} else {
 		var parts []string
 		for _, n := range order {
-			parts = append(parts, n+" ("+found[n]+")")
+			parts = append(parts, adapter.Label(n)+" ("+found[n]+")")
 		}
-		say("1/7 coding CLIs: %s", strings.Join(parts, ", "))
+		say(i18n.Pick("1/6 coding CLIs: %s", "1/6 编码 CLI：%s"), strings.Join(parts, ", "))
 	}
 	def := "claude"
 	if existing != nil {
@@ -370,12 +442,18 @@ func cmdSetup(c *cli, args []string) error {
 	} else if len(order) > 0 {
 		def = order[0]
 	}
-	cn := firstOr(*cliName, pr.ask("which CLI should this agent run", def))
+	cn := strings.ToLower(strings.TrimSpace(*cliName))
+	if cn == "" {
+		if cn, err = pr.choose(i18n.Pick("Which coding CLI should this agent run?", "这个 agent 用哪个编码 CLI？"), cliOptions(found), def); err != nil {
+			return err
+		}
+	}
 	if _, err := adapter.Get(cn); err != nil {
 		return &exitError{code: exitUsage, msg: err.Error()}
 	}
+	recordEvent("cli.setup", map[string]any{"step": "cli", "choice": cn})
 	if cn == "custom" && *template == "" && existing == nil {
-		*template = pr.ask("custom command line (use {prompt_file})", "")
+		*template = pr.ask(i18n.Pick("custom command line (use {prompt_file})", "自定义命令行（用 {prompt_file} 表示提示词文件）"), "")
 	}
 
 	// 2. join
@@ -392,53 +470,76 @@ func cmdSetup(c *cli, args []string) error {
 		o.name = firstOr(o.name, existing.Name)
 	} else {
 		if o.url == "" {
-			o.url = pr.ask("hub URL", "")
+			o.url = pr.ask(i18n.Pick("hub URL", "hub 地址"), "")
 		}
 		if o.joinCode == "" {
-			o.joinCode = strings.TrimSpace(pr.ask("team join code (abj_…; "+askAdminForCode+")", ""))
+			o.joinCode = strings.TrimSpace(pr.ask(i18n.Pick("team join code (abj_…; "+askAdminForCode+")",
+				"团队加入码（abj_…；"+askAdminForCodeZh+"）"), ""))
 		}
 		if o.joinCode == "" {
-			return &exitError{code: exitUsage, msg: joinCodeMissing}
+			return &exitError{code: exitUsage, msg: joinCodeMissingText()}
 		}
 		if o.name == "" {
 			h, _ := os.Hostname()
 			sug := suggestName(h, cn)
-			o.name = pr.ask("agent name", sug)
+			o.name = pr.ask(i18n.Pick("agent name", "agent 名字"), sug)
 			o.autoName = o.name == sug // taken? the join picks sug-2, sug-3, …
 		}
 	}
 	if *interval != "" {
 		if o.interval, err = parseDur(*interval); err != nil || o.interval < time.Minute {
-			return &exitError{code: exitUsage, msg: "--interval must be a duration of at least 1m"}
+			return &exitError{code: exitUsage, msg: i18n.Pick("--interval must be a duration of at least 1m", "--interval 必须是至少 1m 的时长")}
 		}
+	} else if pr.ui.Interactive() && !*yes && !*noSched && (existing == nil || existing.Wake != "trigger") {
+		cur := "5m"
+		if existing != nil {
+			cur = hub.FmtDuration(time.Duration(existing.WakeIntervalS) * time.Second)
+		}
+		v, err := pr.choose(i18n.Pick("How often should this agent check for new messages?", "多久检查一次新消息？"), intervalOptions(), cur)
+		if err != nil {
+			return err
+		}
+		o.interval, _ = parseDur(v)
+		recordEvent("cli.setup", map[string]any{"step": "interval", "choice": v})
 	}
 	cfg, status, err := hubJoin(ctx, o)
 	if err != nil {
 		return err
 	}
-	say("2/7 joined %s as %s (%s) in team %s, status %s", cfg.HubURL, cfg.Name, cfg.MemberID, teamText(cfg), status)
+	say(i18n.Pick("2/6 joined %s as %s (%s) in team %s, status %s", "2/6 已加入 %s，名字 %s（%s），团队 %s，状态 %s"),
+		cfg.HubURL, cfg.Name, cfg.MemberID, teamText(cfg), status)
 	if status == "pending" {
-		say("    waiting for a team admin to approve this agent on the hub web UI")
+		say("    " + pendingText())
 	}
+	recordEvent("cli.setup", map[string]any{"step": "join", "choice": status})
 	if cn != cfg.CLI || (*binary != "" && *binary != cfg.CLIBinary) || (*template != "" && *template != cfg.CLITemplate) {
 		cfg.CLI, cfg.CLIBinary, cfg.CLITemplate = cn, firstOr(*binary, cfg.CLIBinary), firstOr(*template, cfg.CLITemplate)
 	}
 	if o.interval > 0 {
 		cfg.WakeIntervalS = int64(o.interval / time.Second)
 	}
+	if *qsrc != "" {
+		cfg.QuotaSource = *qsrc
+	}
 
 	// 3. tier
-	t := firstOr(*tier, pr.ask("permission tier: readonly (read code, post only) | workspace (edit files in the repo) | full (no limits)", cfg.Tier))
+	t := *tier
+	if t == "" {
+		if t, err = pr.choose(i18n.Pick("Permission tier (what the CLI may do)", "权限级别（CLI 能做什么）"), tierOptions(), cfg.Tier); err != nil {
+			return err
+		}
+	}
 	switch t {
 	case adapter.TierReadonly, adapter.TierWorkspace, adapter.TierFull:
 	default:
-		return &exitError{code: exitUsage, msg: "--tier must be readonly, workspace or full"}
+		return &exitError{code: exitUsage, msg: i18n.Pick("--tier must be readonly, workspace or full", "--tier 只能是 readonly、workspace 或 full")}
 	}
 	cfg.Tier = t
 	if err := cfg.Save(dir); err != nil {
 		return err
 	}
-	say("3/7 permission tier %s", t)
+	say(i18n.Pick("3/6 permission tier %s", "3/6 权限级别 %s"), t)
+	recordEvent("cli.setup", map[string]any{"step": "tier", "choice": t})
 
 	// 4. repos
 	p := hub.Paths{Dir: dir}
@@ -452,7 +553,8 @@ func cmdSetup(c *cli, args []string) error {
 	entries := []string(repoFlags)
 	if len(entries) == 0 && !*yes {
 		for {
-			e := pr.ask("map a GitHub repo to a local checkout, OWNER/REPO=PATH (empty to finish)", "")
+			e := pr.ask(i18n.Pick("map a GitHub repo to a local checkout, OWNER/REPO=PATH (empty to finish)",
+				"把 GitHub 仓库映射到本地目录，OWNER/REPO=PATH（直接回车结束）"), "")
 			if e == "" {
 				break
 			}
@@ -463,13 +565,13 @@ func cmdSetup(c *cli, args []string) error {
 		r, path, ok := strings.Cut(e, "=")
 		r, path = strings.TrimSpace(r), strings.TrimSpace(path)
 		if !ok || hub.NormalizeRepo(r) == "" || path == "" {
-			return &exitError{code: exitUsage, msg: "--repo wants OWNER/REPO=PATH, got " + e}
+			return &exitError{code: exitUsage, msg: i18n.Pick("--repo wants OWNER/REPO=PATH, got ", "--repo 格式应为 OWNER/REPO=PATH，收到 ") + e}
 		}
 		if abs, err := filepath.Abs(path); err == nil {
 			path = abs
 		}
 		if fi, err := os.Stat(path); err != nil || !fi.IsDir() {
-			return fmt.Errorf("repo %s: %s is not a directory", r, path)
+			return fmt.Errorf(i18n.Pick("repo %s: %s is not a directory", "仓库 %s：%s 不是目录"), r, path)
 		}
 		repos[hub.NormalizeRepo(r)] = path
 	}
@@ -478,53 +580,34 @@ func cmdSetup(c *cli, args []string) error {
 			return err
 		}
 	}
-	say("4/7 %d repo(s) mapped in %s", len(repos), p.Repos())
+	say(i18n.Pick("4/6 %d repo(s) mapped in %s", "4/6 已映射 %d 个仓库，见 %s"), len(repos), p.Repos())
+	recordEvent("cli.setup", map[string]any{"step": "repos", "count": len(repos)})
 
 	// 5. scheduler
+	schedChoice := "skipped"
 	if *noSched || cfg.Wake == "trigger" {
-		say("5/7 scheduler skipped")
-	} else if pr.confirm(fmt.Sprintf("install a scheduler job running `agentbus tick` every %s", FmtDurS(cfg.WakeIntervalS)), true) {
+		say(i18n.Pick("5/6 scheduler skipped", "5/6 跳过定时任务"))
+	} else if pr.confirm(fmt.Sprintf(i18n.Pick("install a scheduler job running `agentbus tick` every %s", "安装定时任务，每 %s 运行一次 `agentbus tick`"),
+		FmtDurS(cfg.WakeIntervalS)), true) {
 		j := schedJob(cfg)
 		m, err := sched.Install(schedHost(), *method, j)
 		if err != nil {
-			return fmt.Errorf("installing the scheduler job: %w", err)
+			return fmt.Errorf(i18n.Pick("installing the scheduler job: %w", "安装定时任务失败：%w"), err)
 		}
-		say("5/7 installed %s job every %s", m, FmtDurS(cfg.WakeIntervalS))
+		schedChoice = m
+		say(i18n.Pick("5/6 installed %s job every %s", "5/6 已安装 %s 定时任务，每 %s 一次"), m, FmtDurS(cfg.WakeIntervalS))
 	} else {
-		say("5/7 scheduler skipped (run `agentbus schedule install` later)")
+		say(i18n.Pick("5/6 scheduler skipped (run `agentbus schedule install` later)", "5/6 跳过定时任务（之后可运行 `agentbus schedule install`）"))
 	}
+	recordEvent("cli.setup", map[string]any{"step": "scheduler", "choice": schedChoice})
 
-	// 6. quota source
-	q := firstOr(*qsrc, pr.ask("quota source: auto | native | magpie | both", cfg.QuotaSource))
-	switch q {
-	case quota.SourceAuto, quota.SourceNative, quota.SourceMagpie, quota.SourceBoth:
-	default:
-		return &exitError{code: exitUsage, msg: "--quota-source must be auto, native, magpie or both"}
-	}
-	cfg.QuotaSource = q
-	if err := cfg.Save(dir); err != nil {
-		return err
-	}
-	say("6/7 quota source %s", q)
-	magpieMissing := false
-	if q != quota.SourceNative {
-		if _, err := lookPath("magpie"); err != nil {
-			magpieMissing = true
-			if q == quota.SourceAuto {
-				say("    optional: magpie reads more providers' quota; install it with:\n      %s", magpieInstall)
-			} else {
-				say("    magpie is not installed; install it with:\n      %s", magpieInstall)
-			}
-		}
-	}
-
-	// 7. doctor
+	// 6. doctor
 	var cs []check
 	failed := 0
 	if *noDoctor {
-		say("7/7 doctor skipped")
+		say(i18n.Pick("6/6 doctor skipped", "6/6 跳过体检"))
 	} else {
-		say("7/7 doctor")
+		say(i18n.Pick("6/6 doctor", "6/6 体检"))
 		cs = runDoctor(ctx)
 		for _, ch := range cs {
 			if ch.Status == "fail" {
@@ -532,16 +615,17 @@ func cmdSetup(c *cli, args []string) error {
 			}
 			say("    %-5s %-10s %s", strings.ToUpper(ch.Status), ch.Name, ch.Detail)
 		}
+		recordEvent("cli.setup", map[string]any{"step": "doctor", "choice": map[bool]string{true: "ok", false: "failed"}[failed == 0], "failed": failed})
 	}
 	if c.json {
-		c.emit(map[string]any{"config": cfg, "status": status, "repos": repos, "magpie_missing": magpieMissing,
-			"magpie_install": magpieInstall, "checks": cs}, func() {})
+		c.emit(map[string]any{"config": cfg, "status": status, "repos": repos, "checks": cs}, func() {})
 	}
 	if failed > 0 {
-		say("setup finished with %d failing check(s); fix them and run `agentbus doctor`", failed)
+		say(i18n.Pick("setup finished with %d failing check(s); fix them and run `agentbus doctor`",
+			"安装完成，但有 %d 项检查未通过；修复后运行 `agentbus doctor`"), failed)
 		return &exitError{code: exitErr}
 	}
-	say("setup done")
+	say(i18n.Pick("setup done", "安装完成"))
 	return nil
 }
 
