@@ -247,14 +247,14 @@ export function adminEmails(env: Env): string[] {
 }
 
 /** Identity (email) for verified claims; null when the claims carry none we accept. */
-export function identityFor(env: Env, claims: Claims): { email: string; preferred: string } | null {
+export function identityFor(env: Env, claims: Claims): { email: string; preferred: string; service: boolean } | null {
   if (claims.email) {
     const email = claims.email.trim().toLowerCase();
-    return email ? { email, preferred: email.split("@")[0] } : null;
+    return email ? { email, preferred: email.split("@")[0], service: false } : null;
   }
   if (claims.common_name) {
     if (!env.E2E_SERVICE_TOKEN_ID || claims.common_name !== env.E2E_SERVICE_TOKEN_ID) return null;
-    return { email: E2E_EMAIL, preferred: "e2e" };
+    return { email: E2E_EMAIL, preferred: "e2e", service: true };
   }
   return null;
 }
@@ -299,6 +299,8 @@ export async function humanFor(env: Env, claims: Claims, teamHeader?: string | n
   const db = new DB(env.DB);
   const { email } = ident;
   const platform_admin = adminEmails(env).includes(email);
+  // Only a real service-token JWT (never an email claim that happens to match) counts.
+  const service_token = ident.service && !!env.E2E_SERVICE_TOKEN_ID;
   const cols = "m.id, m.kind, m.role, m.name, m.status, m.team_id";
   let row: Me | null;
   if (teamHeader) {
@@ -316,8 +318,8 @@ export async function humanFor(env: Env, claims: Claims, teamHeader?: string | n
       email,
     );
   }
-  if (row) return { ...row, email, platform_admin };
-  return { id: "", kind: "human", role: "admin", name: "", status: "active", team_id: null, email, platform_admin };
+  if (row) return { ...row, email, platform_admin, service_token };
+  return { id: "", kind: "human", role: "admin", name: "", status: "active", team_id: null, email, platform_admin, service_token };
 }
 
 /** Web endpoints a team-less identity may call (path relative to /api/v1/web). */

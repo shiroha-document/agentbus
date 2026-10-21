@@ -144,7 +144,7 @@ export async function createPost(env: Env, me: Me, input: CreatePostInput): Prom
   const idem = input.idempotency_key ? String(input.idempotency_key).slice(0, 200) : null;
 
   if (idem) {
-    const dup = await db.first("SELECT * FROM posts WHERE author_id = ? AND idempotency_key = ?", me.id, idem);
+    const dup = await db.first("SELECT * FROM posts WHERE author_id = ? AND idempotency_key = ? AND team_id = ?", me.id, idem, team);
     if (dup) {
       const thread = threadOut(await loadThread(db, dup.thread_id as string));
       return { post: (await hydratePosts(db, [dup]))[0], thread, duplicate: true, redacted: [] };
@@ -340,7 +340,7 @@ export async function createPost(env: Env, me: Me, input: CreatePostInput): Prom
     await db.batch(stmts);
   } catch (e) {
     if (idem && /UNIQUE/i.test(String((e as Error).message))) {
-      const dup = await db.first("SELECT * FROM posts WHERE author_id = ? AND idempotency_key = ?", me.id, idem);
+      const dup = await db.first("SELECT * FROM posts WHERE author_id = ? AND idempotency_key = ? AND team_id = ?", me.id, idem, team);
       if (dup) {
         const t = threadOut(await loadThread(db, dup.thread_id as string));
         return { post: (await hydratePosts(db, [dup]))[0], thread: t, duplicate: true, redacted: [] };
@@ -388,9 +388,10 @@ export async function checkFlood(env: Env, teamId: string, threadId: string, now
   if (!t || t.auto_paused) return false;
   const since = Math.max(now - 3600_000, t.flood_reset_at ?? 0);
   const rows = await db.all<{ author_id: string }>(
-    `SELECT p.author_id FROM posts p JOIN members m ON m.id = p.author_id
-     WHERE p.thread_id = ? AND p.created_at >= ? AND m.kind = 'agent' ORDER BY p.rowid`,
+    `SELECT p.author_id FROM posts p JOIN members m ON m.id = p.author_id AND m.team_id = p.team_id
+     WHERE p.thread_id = ? AND p.team_id = ? AND p.created_at >= ? AND m.kind = 'agent' ORDER BY p.rowid`,
     threadId,
+    teamId,
     since,
   );
   // Count alternations per unordered author pair in the agent-only sequence.
@@ -405,10 +406,10 @@ export async function checkFlood(env: Env, teamId: string, threadId: string, now
   const hit = [...pairs.entries()].find(([, n]) => n > FLOOD_LIMIT);
   if (!hit) return false;
   const [a, b] = hit[0].split("|");
-  const names = await db.all<{ id: string; name: string }>("SELECT id, name FROM members WHERE id IN (?, ?)", a, b);
+  const names = await db.all<{ id: string; name: string }>("SELECT id, name FROM members WHERE id IN (?, ?) AND team_id = ?", a, b, teamId);
   const label = names.map((n) => "@" + n.name).join(" 和 ");
   await db.batch([
-    db.stmt("UPDATE threads SET auto_paused = 1, updated_at = ? WHERE id = ?", now, threadId),
+    db.stmt("UPDATE threads SET auto_paused = 1, updated_at = ? WHERE id = ? AND team_id = ?", now, threadId, teamId),
     notify(
       db,
       "flood_blocked",
@@ -577,16 +578,17 @@ export async function decideConfirmation(env: Env, me: Me, id: string, decision:
   const status = decision === "approve" ? "approved" : "rejected";
   const cleanNote = note ? redact(String(note).slice(0, 2000)).text : null;
   const changed = await db.run(
-    "UPDATE confirmations SET status = ?, decided_by = ?, decided_at = ?, note = ? WHERE id = ? AND status = 'pending'",
+    "UPDATE confirmations SET status = ?, decided_by = ?, decided_at = ?, note = ? WHERE id = ? AND team_id = ? AND status = 'pending'",
     status,
     me.id,
     now,
     cleanNote,
     id,
+    db.team,
   );
   if (!changed) throw conflict("这个确认请求已经处理过了");
   await db.batch([db.audit(me.id, `confirmation.${decision}`, id, cleanNote), db.bumpSeq()]);
-  const requester = await db.first<{ name: string }>("SELECT name FROM members WHERE id = ?", c.requester_id as string);
+  const requester = await db.first<{ name: string }>("SELECT name FROM members WHERE id = ? AND team_id = ?", c.requester_id as string, db.team);
   await createPost(env, systemFor(me.team_id), {
     thread_id: c.thread_id as string,
     kind: "system",
@@ -595,7 +597,7 @@ export async function decideConfirmation(env: Env, me: Me, id: string, decision:
     body: `${me.name} ${decision === "approve" ? "✅ 批准了" : "❌ 拒绝了"} @${requester?.name ?? c.requester_id} 的确认请求${cleanNote ? `：${cleanNote}` : ""}`,
     extra: [{ id: c.requester_id as string, reason: "event" }],
   });
-  const row = await db.first("SELECT * FROM confirmations WHERE id = ?", id);
+  const row = await db.first("SELECT * FROM confirmations WHERE id = ? AND team_id = ?", id, db.team);
   return row!;
 }
 

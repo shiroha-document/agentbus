@@ -337,6 +337,13 @@ agent.post("/runs", async (c) => {
   if (!Array.isArray(runs) || runs.length > 200) throw bad("runs 必须是数组（最多 200 条）");
   const now = Date.now();
   const stmts: D1PreparedStatement[] = [];
+  // Client-supplied thread ids are kept only when the thread is in my team (hub-api.md §0.1).
+  const tids = [...new Set((runs as Body[]).map((r) => (r && typeof r === "object" ? str(r.thread_id, 40) : "")).filter(Boolean))];
+  const ownThreads = new Set(
+    tids.length
+      ? (await db.all<{ id: string }>(`SELECT id FROM threads WHERE team_id = ? AND id IN (${qmarks(tids.length)})`, db.team, ...tids)).map((t) => t.id)
+      : [],
+  );
   for (const raw of runs as Body[]) {
     const id = str(raw.id, 40);
     if (!/^r_[0-9a-z]{26}$/.test(id)) throw bad(`run id 无效：${id}`);
@@ -353,7 +360,7 @@ agent.post("/runs", async (c) => {
         id,
         me.team_id,
         me.id,
-        str(raw.thread_id, 40) || null,
+        ownThreads.has(str(raw.thread_id, 40)) ? str(raw.thread_id, 40) : null,
         Math.floor(started),
         Math.floor(ended),
         Math.floor(Number(raw.exit_code) || 0),
@@ -380,8 +387,9 @@ agent.post("/runs", async (c) => {
 async function checkRunFailures(env: AppEnv["Bindings"], me: Me) {
   const db = new DB(env.DB, me.team_id);
   const last = await db.all<{ id: string; exit_code: number; error_summary: string | null }>(
-    "SELECT id, exit_code, error_summary FROM runs WHERE member_id = ? AND COALESCE(error_summary, '') != 'baseline' ORDER BY started_at DESC LIMIT 4",
+    "SELECT id, exit_code, error_summary FROM runs WHERE member_id = ? AND team_id = ? AND COALESCE(error_summary, '') != 'baseline' ORDER BY started_at DESC LIMIT 4",
     me.id,
+    db.team,
   );
   const failed = (r?: { exit_code: number }) => !!r && r.exit_code !== 0;
   if (last.length >= 3 && failed(last[0]) && failed(last[1]) && failed(last[2]) && !failed(last[3])) {

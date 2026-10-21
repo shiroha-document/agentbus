@@ -41,6 +41,8 @@ export interface Me {
   email?: string;
   /** Email is in ADMIN_EMAILS. */
   platform_admin?: boolean;
+  /** Authenticated with the E2E_SERVICE_TOKEN_ID service token (may create teams, nothing else extra). */
+  service_token?: boolean;
 }
 
 export type Vars = { me: Me; body: unknown; rawBody: string };

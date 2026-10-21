@@ -164,14 +164,20 @@ describe("web auth (fail closed)", () => {
     const svc = await api(env, "GET", "/me", undefined, { token: await jwt({ common_name: "svc-id" }) });
     expect(svc.status).toBe(200);
     expect(svc.json.team).toBeNull(); // service identity has no team until it creates one
-    const created = await api(env, "POST", "/teams", { name: "e2e" }, { token: await jwt({ common_name: "svc-id" }) });
-    expect(created.status).toBe(403); // not a platform admin under SIGNUP=invite
-    const env2 = makeEnv({ E2E_SERVICE_TOKEN_ID: "svc-id", SIGNUP: "open" });
+    // The configured e2e service token may create teams even under SIGNUP=invite (staging e2e) …
+    expect(svc.json.can_create_team).toBe(true);
     const svcTok = await jwt({ common_name: "svc-id" });
-    expect((await api(env2, "POST", "/teams", { name: "e2e" }, { token: svcTok })).status).toBe(200);
-    const svc2 = await api(env2, "GET", "/me", undefined, { token: svcTok });
+    expect((await api(env, "POST", "/teams", { name: "e2e" }, { token: svcTok })).status).toBe(200);
+    const svc2 = await api(env, "GET", "/me", undefined, { token: svcTok });
     expect(svc2.json.member.name).toBe("e2e");
     expect(svc2.json.identity.email).toMatch(/@agentbus\.invalid$/);
+    expect(svc2.json.identity.platform_admin).toBe(false); // … but gains nothing else
+    // … and is rejected outright where no service token is configured (production).
+    const prod = makeEnv();
+    expect((await api(prod, "POST", "/teams", { name: "e2e" }, { token: svcTok })).status).toBe(401);
+    // A regular email identity under SIGNUP=invite still cannot create teams.
+    const outsider = await api(env, "POST", "/teams", { name: "x" }, { token: await jwt({ email: "stranger@example.com" }) });
+    expect(outsider.status).toBe(403);
   });
 
   it("writes need application/json", async () => {

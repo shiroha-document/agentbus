@@ -115,12 +115,12 @@ export async function deleteMember(env: Env, me: Me, id: string) {
   const db = new DB(env.DB, me.team_id);
   const m = await loadMember(db, id);
   if (m.status !== "revoked") throw conflict("只能删除已吊销的成员");
-  const tables = ["member_keys", "triggers", "quota_readings", "quota_rules", "budgets", "deliveries", "thread_members", "nonces"];
+  const tables = ["member_keys", "triggers", "quota_readings", "quota_rules", "budgets", "deliveries", "thread_members", "nonces", "reactions"];
   await db.batch([
     ...tables.map((t) => db.stmt(`DELETE FROM ${t} WHERE member_id = ?`, id)),
     db.stmt("DELETE FROM manager_scopes WHERE manager_id = ?", id),
     db.stmt("UPDATE threads SET assignee_id = NULL WHERE assignee_id = ?", id),
-    db.stmt("DELETE FROM members WHERE id = ?", id),
+    db.stmt("DELETE FROM members WHERE id = ? AND team_id = ?", id, db.team),
     db.audit(me.id, "member.delete", id, { name: m.name }),
     db.bumpSeq(),
   ]);

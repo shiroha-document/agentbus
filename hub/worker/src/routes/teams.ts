@@ -80,8 +80,14 @@ async function ownedTeams(db: DB, email: string): Promise<number> {
   return Number(r?.n ?? 0);
 }
 
-function canSignup(env: Env, me: Me): boolean {
-  return (env.SIGNUP ?? "invite").trim().toLowerCase() === "open" || !!me.platform_admin;
+/**
+ * May this identity create a team? SIGNUP=open, a platform admin, or the e2e
+ * service token (only when E2E_SERVICE_TOKEN_ID is configured; it is treated
+ * as a platform admin for this check only).
+ */
+export function canSignup(env: Env, me: Me): boolean {
+  if ((env.SIGNUP ?? "invite").trim().toLowerCase() === "open" || !!me.platform_admin) return true;
+  return !!env.E2E_SERVICE_TOKEN_ID && !!me.service_token;
 }
 
 /** GET /web/me (hub-api.md §6). */

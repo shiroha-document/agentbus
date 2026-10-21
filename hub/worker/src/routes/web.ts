@@ -74,7 +74,8 @@ web.patch("/me", async (c) => {
     args.push(u || null);
   }
   if (sets.length) {
-    await db.batch([db.stmt(`UPDATE members SET ${sets.join(", ")} WHERE id = ?`, ...args, me.id), db.bumpSeq()]);
+    // Only the current team's member row: a human in several teams has one profile per team (hub-api.md §6).
+    await db.batch([db.stmt(`UPDATE members SET ${sets.join(", ")} WHERE id = ? AND team_id = ?`, ...args, me.id, db.team), db.bumpSeq()]);
   }
   return c.json({ member: memberOut(await loadMember(db, me.id)) });
 });
@@ -141,7 +142,10 @@ web.get("/feed", async (c) => {
   const tids = [...new Set(page.map((p) => p.thread_id as string))];
   const threads = tids.length
     ? await db.all<{ id: string; title: string; workspace_id: string; ws_name: string }>(
-        `SELECT t.id, t.title, t.workspace_id, w.name AS ws_name FROM threads t LEFT JOIN workspaces w ON w.id = t.workspace_id WHERE t.id IN (${qmarks(tids.length)})`,
+        `SELECT t.id, t.title, t.workspace_id, w.name AS ws_name FROM threads t
+         LEFT JOIN workspaces w ON w.id = t.workspace_id AND w.team_id = t.team_id
+         WHERE t.team_id = ? AND t.id IN (${qmarks(tids.length)})`,
+        db.team,
         ...tids,
       )
     : [];
@@ -198,7 +202,7 @@ web.get("/threads/:id", async (c) => {
   const db = new DB(c.env.DB, c.get("me").team_id);
   const id = c.req.param("id");
   const t = await loadThread(db, id);
-  const rows = await db.all("SELECT * FROM posts WHERE thread_id = ? ORDER BY id DESC LIMIT 200", id);
+  const rows = await db.all("SELECT * FROM posts WHERE thread_id = ? AND team_id = ? ORDER BY id DESC LIMIT 200", id, db.team);
   const [posts, ws, members] = await Promise.all([
     hydratePosts(db, rows.reverse()),
     db.first(`${WORKSPACE_SELECT} WHERE w.id = ? AND w.team_id = ?`, t.workspace_id as string, db.team),
@@ -417,7 +421,7 @@ web.patch("/members/:id", async (c) => {
   }
   if (sets.length) {
     await db.batch([
-      db.stmt(`UPDATE members SET ${sets.join(", ")} WHERE id = ?`, ...args, id),
+      db.stmt(`UPDATE members SET ${sets.join(", ")} WHERE id = ? AND team_id = ?`, ...args, id, db.team),
       ...(b.role === "agent" ? [db.stmt("DELETE FROM manager_scopes WHERE manager_id = ?", id)] : []),
       db.audit(me.id, "member.update", id, b),
       db.bumpSeq(),
@@ -728,7 +732,7 @@ web.get("/search", async (c) => {
     ),
     db.all(
       `SELECT p.* FROM posts p JOIN threads t ON t.id = p.thread_id
-       WHERE t.title LIKE ? ESCAPE '\\' AND p.id = (SELECT MIN(id) FROM posts WHERE thread_id = t.id)${extra}
+       WHERE t.title LIKE ? ESCAPE '\\' AND p.id = (SELECT MIN(id) FROM posts WHERE thread_id = t.id AND team_id = t.team_id)${extra}
        ORDER BY p.id DESC LIMIT 20`,
       pat,
       ...args,
@@ -741,7 +745,7 @@ web.get("/search", async (c) => {
     .slice(0, 50);
   const posts = await hydratePosts(db, rows);
   const tids = [...new Set(posts.map((p) => p.thread_id))];
-  const threads = tids.length ? await db.all(`SELECT id, title, status, workspace_id FROM threads WHERE id IN (${qmarks(tids.length)})`, ...tids) : [];
+  const threads = tids.length ? await db.all(`SELECT id, title, status, workspace_id FROM threads WHERE team_id = ? AND id IN (${qmarks(tids.length)})`, db.team, ...tids) : [];
   const tmap = new Map(threads.map((t) => [t.id as string, t]));
   return c.json({
     results: posts.map((p) => {
