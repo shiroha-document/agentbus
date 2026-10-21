@@ -86,7 +86,7 @@ func (h *cliHub) serve(w http.ResponseWriter, r *http.Request) {
 		reply(200, hub.JoinResp{MemberID: "m_1", Status: "pending", Team: h.team})
 	case path == "/agent/state":
 		reply(200, hub.State{Member: hub.Member{ID: "m_1", Name: "alice", Role: "agent", Status: h.status}, Team: h.team,
-			MinClientVersion: "0.5.0"})
+			MinClientVersion: "0.6.0"})
 	case path == "/agent/posts" && r.Method == "POST":
 		var np hub.NewPost
 		_ = json.Unmarshal(b, &np)
@@ -135,7 +135,7 @@ func TestHubJoinPostThread(t *testing.T) {
 	if h.code != testJoinCode {
 		t.Fatalf("join_code %q", h.code)
 	}
-	if h.version != "0.5.0" {
+	if h.version != "0.6.0" {
 		t.Fatalf("version header %q", h.version)
 	}
 	// re-running join is idempotent and needs no join code
@@ -349,7 +349,7 @@ func TestExtractHubFlags(t *testing.T) {
 
 func TestVersionDev(t *testing.T) {
 	code, out := run(t, "--version")
-	if code != 0 || strings.TrimSpace(out) != "0.5.0-dev" || hubVersion() != "0.5.0" {
+	if code != 0 || strings.TrimSpace(out) != "0.6.0-dev" || hubVersion() != "0.6.0" {
 		t.Fatalf("%d %q", code, out)
 	}
 }

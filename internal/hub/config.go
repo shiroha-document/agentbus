@@ -52,8 +52,9 @@ type Config struct {
 	TriggerURL    string            `json:"trigger_url,omitempty"`
 	Owner         string            `json:"owner,omitempty"`
 	Machine       string            `json:"machine,omitempty"`
-	Tier          string            `json:"permission_tier"` // readonly | workspace | full
-	QuotaSource   string            `json:"quota_source"`    // auto | native | magpie | both
+	Tier          string            `json:"permission_tier"`     // readonly | workspace | full
+	QuotaSource   string            `json:"quota_source"`        // auto | native | magpie | both
+	Telemetry     *bool             `json:"telemetry,omitempty"` // nil = on; false = opt out (contract §5)
 	JoinedAt      int64             `json:"joined_at,omitempty"`
 }
 
