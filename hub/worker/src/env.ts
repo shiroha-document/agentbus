@@ -19,6 +19,10 @@ export interface Env {
   PUBLIC_URL?: string;
   /** Sender address for notifications. */
   MAIL_FROM?: string;
+  /** "open": anyone past Access can create a team; "invite" (default): only ADMIN_EMAILS. */
+  SIGNUP?: string;
+  /** Base URL of public email images (default https://docs.shiroha.tech/email). */
+  EMAIL_ASSET_BASE?: string;
   /** "production" | "staging" | "test". */
   ENVIRONMENT?: string;
   /** base64 32-byte AES-GCM key for trigger URLs (secret). */
