@@ -12,6 +12,7 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { QueryError } from "../components/layout/RouteStates";
 import { useMemberMap } from "../components/threads";
 import { DangerSection, InvitesSection, JoinCodesSection, TeamSection } from "./settings/TeamSections";
+import { PreferencesSection } from "./settings/PreferencesSection";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -368,6 +369,8 @@ export function SettingsPage() {
       ) : null}
 
       <TeamSection key={teamId} />
+
+      <PreferencesSection />
 
       {isAdmin ? (
         <>
