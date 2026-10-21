@@ -94,6 +94,7 @@ func (c *cli) autoUpdate(cmd string, argv []string) (bool, int) {
 		fmt.Fprintf(c.errw, "agentbus: auto-update to %s failed (%v); continuing with %s. Fix: `agentbus self-update` or reinstall\n", latest, err, cur)
 		return false, 0
 	}
+	recordUpdate(cur, latest)
 	note := "bug-fix release"
 	if !update.SameMajor(latest, cur) {
 		note = "commands may have changed"

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/shiroha-document/agentbus/internal/hub"
+	"github.com/shiroha-document/agentbus/internal/i18n"
 	"github.com/shiroha-document/agentbus/internal/update"
 )
 
@@ -78,9 +79,9 @@ func cmdSelfUpdate(c *cli, args []string) error {
 	if *check {
 		c.emit(res, func() {
 			if newer {
-				fmt.Fprintf(c.out, "agentbus %s is available (you have %s); run `agentbus self-update`\n", tag, cur)
+				fmt.Fprintf(c.out, i18n.Pick("agentbus %s is available (you have %s); run `agentbus self-update`\n", "agentbus %s 已发布（当前 %s）；运行 `agentbus self-update` 升级\n"), tag, cur)
 			} else {
-				fmt.Fprintf(c.out, "agentbus %s is up to date (latest %s)\n", cur, tag)
+				fmt.Fprintf(c.out, i18n.Pick("agentbus %s is up to date (latest %s)\n", "agentbus %s 已是最新（最新 %s）\n"), cur, tag)
 			}
 		})
 		if !newer {
@@ -91,9 +92,9 @@ func cmdSelfUpdate(c *cli, args []string) error {
 	if !newer && !*force && *want == "" {
 		c.emit(res, func() {
 			if isDev(cur) {
-				fmt.Fprintf(c.out, "this is a dev build; latest release is %s (use --force to replace it)\n", tag)
+				fmt.Fprintf(c.out, i18n.Pick("this is a dev build; latest release is %s (use --force to replace it)\n", "这是开发版；最新发布版是 %s（加 --force 替换）\n"), tag)
 			} else {
-				fmt.Fprintf(c.out, "agentbus %s is up to date\n", cur)
+				fmt.Fprintf(c.out, i18n.Pick("agentbus %s is up to date\n", "agentbus %s 已是最新\n"), cur)
 			}
 		})
 		return nil
@@ -102,6 +103,7 @@ func cmdSelfUpdate(c *cli, args []string) error {
 	if err != nil {
 		return err
 	}
+	recordUpdate(cur, tag)
 	res["installed"], res["path"] = tag, path
 	c.emit(res, func() { fmt.Fprintf(c.out, "agentbus %s -> %s (%s)\n", cur, tag, path) })
 	return nil

@@ -7,9 +7,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -18,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/shiroha-document/agentbus/internal/hub"
+	"github.com/shiroha-document/agentbus/internal/i18n"
 )
 
 // cliHub is a minimal signed fake hub for the v3 commands.
@@ -32,6 +35,14 @@ type cliHub struct {
 	code    string // join_code of the last join
 	team    hub.TeamRef
 	taken   map[string]bool // names the join answers 409 for
+
+	// v0.6 endpoints
+	uploads    []hub.Attachment  // received uploads (Size = body length)
+	files      map[string][]byte // GET /agent/files/:id
+	listed     []hub.Post        // GET /agent/posts
+	activities []hub.ActivityReq
+	events     []hub.Event
+	collapsed  bool // POST /agent/posts answers collapsed
 }
 
 const testJoinCode = "abj_k3x9abcdefghijklmnopqrst"
@@ -91,7 +102,35 @@ func (h *cliHub) serve(w http.ResponseWriter, r *http.Request) {
 		var np hub.NewPost
 		_ = json.Unmarshal(b, &np)
 		h.posts = append(h.posts, np)
-		reply(200, hub.PostResp{Post: hub.Post{ID: "p_9", ThreadID: firstOr(np.ThreadID, "t_new")}, Thread: hub.Thread{ID: firstOr(np.ThreadID, "t_new"), Title: np.Title}})
+		reply(200, hub.PostResp{Post: hub.Post{ID: "p_9", ThreadID: firstOr(np.ThreadID, "t_new")}, Thread: hub.Thread{ID: firstOr(np.ThreadID, "t_new"), Title: np.Title},
+			Collapsed: h.collapsed})
+	case path == "/agent/posts" && r.Method == "GET":
+		reply(200, hub.PostsResp{Posts: h.listed})
+	case path == "/agent/uploads" && r.Method == "POST":
+		name, _ := neturl.PathUnescape(r.Header.Get("X-File-Name"))
+		a := hub.Attachment{ID: fmt.Sprintf("f_%d", len(h.uploads)+1), Name: name, Mime: r.Header.Get("Content-Type"), Size: int64(len(b))}
+		h.uploads = append(h.uploads, a)
+		reply(200, map[string]any{"attachment": a})
+	case strings.HasPrefix(path, "/agent/files/") && r.Method == "GET":
+		data, ok := h.files[strings.TrimPrefix(path, "/agent/files/")]
+		if !ok {
+			reply(404, map[string]any{"error": map[string]any{"code": "not_found", "message": "no such file"}})
+			return
+		}
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write(data)
+	case path == "/agent/activity":
+		var a hub.ActivityReq
+		_ = json.Unmarshal(b, &a)
+		h.activities = append(h.activities, a)
+		reply(200, map[string]any{"ok": true})
+	case path == "/agent/events":
+		var in struct {
+			Events []hub.Event `json:"events"`
+		}
+		_ = json.Unmarshal(b, &in)
+		h.events = append(h.events, in.Events...)
+		reply(200, map[string]any{"accepted": len(in.Events)})
 	case strings.HasPrefix(path, "/agent/threads/") && r.Method == "PATCH":
 		var p hub.ThreadPatch
 		_ = json.Unmarshal(b, &p)
@@ -113,6 +152,10 @@ func newCLIHub(t *testing.T) (*cliHub, string) {
 	t.Setenv("AGENTBUS_THREAD", "")
 	t.Setenv("AGENTBUS_JOIN_CODE", "")
 	t.Setenv("AGENTBUS_HUB", "")
+	t.Setenv("AGENTBUS_TELEMETRY", "")
+	t.Setenv("AGENTBUS_IN_TICK", "")
+	t.Setenv("AGENTBUS_CLI", "")
+	t.Setenv("AGENTBUS_MODEL", "")
 	return h, srv.URL
 }
 
@@ -429,7 +472,7 @@ func TestSetupNonInteractive(t *testing.T) {
 	code, out := run(t, "setup", "--yes", "--hub", url, "--join-code", testJoinCode, "--name", "alice", "--cli", "codex", "--tier", "readonly",
 		"--repo", "Acme/App="+repo, "--interval", "15m", "--quota-source", "magpie")
 	// doctor fails: codex is not on PATH
-	if code != exitErr || !strings.Contains(out, "usemagpie.ai/install.sh") || !strings.Contains(out, "codex not found") ||
+	if code != exitErr || strings.Contains(out, "magpie") || !strings.Contains(out, "codex not found") ||
 		!strings.Contains(out, "waiting for a team admin") || !strings.Contains(out, "in team Acme (o_team1)") {
 		t.Fatalf("%d %s", code, out)
 	}
@@ -437,6 +480,16 @@ func TestSetupNonInteractive(t *testing.T) {
 	if err != nil || cfg.CLI != "codex" || cfg.Tier != "readonly" || cfg.QuotaSource != "magpie" || cfg.WakeIntervalS != 900 ||
 		cfg.TeamID != "o_team1" {
 		t.Fatalf("%+v %v", cfg, err)
+	}
+	// setup steps are recorded (choices only) and flushed after the join
+	steps := map[string]any{}
+	for _, ev := range h.events {
+		if ev.Name == "cli.setup" {
+			steps[ev.Props["step"].(string)] = ev.Props["choice"]
+		}
+	}
+	if steps["cli"] != "codex" || steps["tier"] != "readonly" || steps["join"] != "pending" || steps["doctor"] != "failed" {
+		t.Fatalf("setup events %v", steps)
 	}
 	rs, _ := hub.LoadRepos(hub.Paths{Dir: hub.Dir()}.Repos())
 	if v, ok := rs.Lookup("acme/app"); !ok || v != repo {
@@ -459,8 +512,8 @@ func TestSetupInteractiveAsksJoinCode(t *testing.T) {
 	h, url := newCLIHub(t)
 	oldL, oldIn := lookPath, setupIn
 	lookPath = func(string) (string, error) { return "", errors.New("not found") }
-	// cli, join code, name, tier, repos (none), scheduler (no), quota source
-	setupIn = strings.NewReader("codex\n  " + testJoinCode + "  \nalice\nreadonly\n\nn\nnative\n")
+	// cli, join code, name, tier, repos (none), scheduler (no)
+	setupIn = strings.NewReader("codex\n  " + testJoinCode + "  \nalice\nreadonly\n\nn\n")
 	defer func() { lookPath, setupIn = oldL, oldIn }()
 	code, out := run(t, "setup", "--hub", url, "--no-doctor")
 	if code != 0 || !strings.Contains(out, "team join code (abj_…; ask a team admin") || h.code != testJoinCode {
@@ -472,7 +525,7 @@ func TestSetupInteractiveAsksJoinCode(t *testing.T) {
 	}
 	// already joined: setup re-runs without asking for (or sending) a code
 	h.code = "untouched"
-	setupIn = strings.NewReader("codex\nreadonly\n\nn\nnative\n")
+	setupIn = strings.NewReader("codex\nreadonly\n\nn\n")
 	code, out = run(t, "setup", "--no-doctor")
 	if code != 0 || strings.Contains(out, "team join code") || h.code != "untouched" {
 		t.Fatalf("rerun: %d %q %s", code, h.code, out)
@@ -580,6 +633,9 @@ func TestMain(m *testing.M) {
 	if err == nil {
 		os.Setenv("AGENTBUS_HUB_HOME", dir)
 	}
+	// tests assert the English texts; telemetry is opted in per test
+	os.Setenv("AGENTBUS_LANG", "en")
+	i18n.Set("en")
 	code := m.Run()
 	if dir != "" {
 		os.RemoveAll(dir)
