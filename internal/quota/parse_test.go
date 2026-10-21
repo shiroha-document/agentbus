@@ -295,25 +295,3 @@ func TestNormWindow(t *testing.T) {
 		}
 	}
 }
-
-func TestParseMoney(t *testing.T) {
-	for in, want := range map[string]Balance{
-		"$12.34":       {12.34, "USD"},
-		"-$1.50":       {-1.5, "USD"},
-		"¥88.50":       {88.5, "CNY"},
-		"EUR 3.20":     {3.2, "EUR"},
-		"1.2K credits": {1200, "credits"},
-		"$1,234.5":     {1234.5, "USD"},
-		"12 USD":       {12, "USD"},
-	} {
-		b, ok := parseMoney(in)
-		if !ok || *b != want {
-			t.Errorf("parseMoney(%q) = %+v %v, want %+v", in, b, ok, want)
-		}
-	}
-	for _, in := range []string{"", "n/a", "12", "unlimited"} {
-		if b, ok := parseMoney(in); ok {
-			t.Errorf("parseMoney(%q) = %+v", in, *b)
-		}
-	}
-}

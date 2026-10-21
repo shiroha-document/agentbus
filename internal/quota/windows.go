@@ -12,7 +12,7 @@ import (
 // "balance", otherwise a short lowercase token. A model- or pool-specific
 // window is "<span>_<model>" for subscription sub-windows ("7d_opus") and
 // "<bucket>_<span>" for a plan's side buckets ("video_5h", "mcp_month"),
-// matching how magpie names them ("7 days · Opus", "Video · 5 hours").
+// from labels such as "7 days · Opus" or "Video · 5 hours".
 
 const (
 	windowBalance = "balance"
@@ -37,7 +37,7 @@ func spanWindow(d time.Duration) string {
 
 var reSpanPart = regexp.MustCompile(`^(\d+)\s*(minutes?|mins?|m|hours?|hrs?|h|days?|d|weeks?|w)$`)
 
-// normWindow turns a magpie window name into a hub window name.
+// normWindow turns a window label ("7 days · Opus") into a hub window name.
 func normWindow(name string) string {
 	name = strings.TrimSpace(name)
 	if name == "" {

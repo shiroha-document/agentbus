@@ -10,7 +10,7 @@ import (
 
 // Provider is one native quota reader.
 type Provider interface {
-	// ID is the provider id, the same as magpie's (claude, codex, zhipu…).
+	// ID is the provider id (claude, codex, zhipu…), listed in COVERAGE.md.
 	ID() string
 	// Detect says the provider is installed / configured on this machine.
 	// It must be cheap: no network, no subprocess other than a PATH lookup.
@@ -27,10 +27,6 @@ var errNotLoggedIn = errors.New("not logged in")
 // WindowAll is the window of a reading about the provider as a whole: an
 // error that stopped every window from being read.
 const WindowAll = "*"
-
-// staleAfter is how old a native reading may be before auto mode prefers
-// magpie's.
-const staleAfter = 10 * time.Minute
 
 // readerTimeoutMax caps one reader's time; the overall Timeout caps it too.
 var readerTimeoutMax = 15 * time.Second
@@ -91,7 +87,10 @@ func builtinProviders() []Provider {
 		cursorProvider{},
 		openRouterProvider{},
 	}
-	return append(ps, planProviders()...)
+	ps = append(ps, planProviders()...)
+	ps = append(ps, balanceProviders()...)
+	ps = append(ps, keyedPlanProviders()...)
+	return append(ps, copilotProvider{}, clinePassProvider{})
 }
 
 type nowKey struct{}

@@ -27,6 +27,19 @@ var (
 	minimaxBaseURL      = "https://api.minimax.io"
 	minimaxCNBaseURL    = "https://api.minimaxi.com"
 	geminiCodeAssistURL = "https://cloudcode-pa.googleapis.com"
+
+	deepSeekBalanceURL   = "https://api.deepseek.com/user/balance"
+	moonshotBalanceURL   = "https://api.moonshot.ai/v1/users/me/balance"
+	moonshotCNBalanceURL = "https://api.moonshot.cn/v1/users/me/balance"
+	siliconFlowInfoURL   = "https://api.siliconflow.cn/v1/user/info"
+	stepFunAccountsURL   = "https://api.stepfun.ai/v1/accounts"
+	stepFunCNAccountsURL = "https://api.stepfun.com/v1/accounts"
+	aiHubMixBaseURL      = "https://aihubmix.com"
+	ollamaBalanceURL     = "https://ollama.com/api/balance"
+	openCodeGoUsageURL   = "https://opencode.ai/zen/go/v1/usage"
+	commandCodeBaseURL   = "https://api.commandcode.ai"
+	copilotUserURL       = "https://api.github.com/copilot_internal/user"
+	clineBaseURL         = "https://api.cline.bot/api/v1"
 )
 
 const userAgent = "agentbus-quota/1"

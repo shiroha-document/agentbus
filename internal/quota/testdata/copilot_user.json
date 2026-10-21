@@ -1,0 +1,6 @@
+{"login":"octocat","copilot_plan":"individual","access_type_sku":"monthly_subscriber_quota",
+ "quota_reset_date":"2026-11-01","quota_reset_date_utc":"2026-11-01T00:00:00.000Z",
+ "quota_snapshots":{
+   "chat":{"entitlement":0,"remaining":0,"percent_remaining":100,"unlimited":true,"quota_id":"chat"},
+   "completions":{"entitlement":0,"remaining":0,"percent_remaining":100,"unlimited":true,"quota_id":"completions"},
+   "premium_interactions":{"entitlement":300,"remaining":"120","percent_remaining":40,"unlimited":false,"quota_id":"premium_interactions"}}}

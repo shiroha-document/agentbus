@@ -2,7 +2,6 @@ package quota
 
 import (
 	"context"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,8 +17,7 @@ func fixedNow() time.Time { return testNow }
 
 // isolate keeps a test away from this machine's real sign-ins and keys:
 // home and the CLIs' config dirs point at an empty temp dir, keys come from
-// the returned map only, PATH lookups fail, the keychain is off and magpie
-// is not run unless the test stubs it.
+// the returned map only, PATH lookups fail and the keychain is off.
 func isolate(t *testing.T) (env map[string]string, home string) {
 	t.Helper()
 	home = t.TempDir()
@@ -29,15 +27,15 @@ func isolate(t *testing.T) (env map[string]string, home string) {
 	t.Setenv("CODEX_HOME", filepath.Join(home, ".codex"))
 	t.Setenv("GOOGLE_CLOUD_PROJECT", "")
 	env = map[string]string{}
-	oldEnv, oldLook, oldKC, oldClient, oldRun := lookupEnv, lookPath, claudeKeychainOff, httpClient, runMagpie
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("COPILOT_HOME", filepath.Join(home, ".copilot"))
+	oldEnv, oldLook, oldKC, oldClient := lookupEnv, lookPath, claudeKeychainOff, httpClient
 	lookupEnv = func(k string) string { return env[k] }
 	lookPath = func(string) (string, error) { return "", exec.ErrNotFound }
 	claudeKeychainOff = true
-	runMagpie = func(context.Context, string, ...string) ([]byte, error) {
-		return nil, errors.New("magpie not stubbed")
-	}
 	t.Cleanup(func() {
-		lookupEnv, lookPath, claudeKeychainOff, httpClient, runMagpie = oldEnv, oldLook, oldKC, oldClient, oldRun
+		lookupEnv, lookPath, claudeKeychainOff, httpClient = oldEnv, oldLook, oldKC, oldClient
 	})
 	return env, home
 }

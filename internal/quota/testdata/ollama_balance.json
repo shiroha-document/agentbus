@@ -1,0 +1,5 @@
+{"included":{"balance_usd":72.5,"allowance_usd":100,
+  "period":{"from":"2026-10-01T00:00:00Z","until":"2026-11-01T00:00:00Z"},
+  "session":{"remaining_percent":75,"resets_at":"2026-10-20T15:00:00Z"},
+  "weekly":{"remaining_percent":40,"resets_at":"2026-10-26T00:00:00Z"}},
+ "purchased":{"balance_usd":25}}

@@ -1,0 +1,4 @@
+{"success":true,"data":{"limits":[
+  {"type":"weekly","percentUsed":41.5,"resetsAt":"2026-10-26T00:00:00Z"},
+  {"type":"five_hour","percentUsed":12,"resetsAt":"2026-10-20T15:00:00Z"},
+  {"type":"monthly","percentUsed":8,"resetsAt":"2026-11-01T00:00:00Z"}]}}
