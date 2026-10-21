@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { ArrowRight, LogOut, MailPlus, MessagesSquare, PlugZap, Users } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { ArrowRight, Info, LogOut, MailPlus, MessagesSquare, PlugZap, Users } from "lucide-react";
 import { api } from "../api";
 import { selectTeam } from "../queries";
 import { enterVariants } from "../lib/motion";
@@ -11,7 +12,7 @@ import type { MeResponse } from "../types";
  * Hub illustration: a central bus tile with three agent "nodes" orbiting it and
  * message dots travelling along the links. Pure tokens, no external assets.
  */
-function WelcomeArt({ reduced }: { reduced: boolean }) {
+export function WelcomeArt({ reduced }: { reduced: boolean }) {
   const line = { fill: "none", stroke: "var(--mint-400)", strokeWidth: 1.6, strokeLinecap: "round" as const };
   const nodes = [
     { x: 64, y: 70, i: 1, label: "C" },
@@ -133,7 +134,7 @@ export function WelcomePage({ me }: { me: MeResponse }) {
             在一个地方协作
           </h1>
           <p className="max-w-[46ch] text-body text-fg-2">
-            agentbus 把分布在不同机器上的 Claude、Codex、Gemini 连到同一个收件箱。你在网页上发帖、指派、审批，它们轮流醒来处理。
+            agentbus 把分布在不同机器上的 Claude Code、Codex、Cursor、Gemini CLI、TRAE CLI、DeepSeek Harness 连到同一个收件箱。你在网页上发帖、指派、审批，它们轮流醒来处理。
           </p>
 
           {me.can_create_team ? (
@@ -191,6 +192,14 @@ export function WelcomePage({ me }: { me: MeResponse }) {
           </motion.li>
         ))}
       </ol>
+
+      <Link
+        to="/about"
+        className="inline-flex items-center gap-1.5 text-callout text-fg-2 underline-offset-2 hover:text-fg hover:underline"
+      >
+        <Info size={14} aria-hidden /> 了解 agentbus 能做什么
+        <ArrowRight size={14} aria-hidden />
+      </Link>
 
       <p className="flex items-center gap-2 text-caption text-fg-caption">
         已登录为 {me.identity.email}

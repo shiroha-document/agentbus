@@ -14,6 +14,8 @@ import { agentPrompt, unixOneLiner, windowsOneLiner } from "../lib/team";
 import { formatDateTime } from "../lib/format";
 import { reducedFade, springSoft } from "../lib/motion";
 import { cn } from "../lib/util";
+import { cliLabel } from "../lib/cli";
+import { track } from "../lib/telemetry";
 import type { Member } from "../types";
 import { Dialog } from "./ui/Dialog";
 import { Avatar } from "./ui/Avatar";
@@ -66,6 +68,9 @@ function stamp(d = new Date()): string {
 
 export function AddAgentDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const { isAdmin, team } = useRole();
+  useEffect(() => {
+    if (open) track("agent.add_open", {});
+  }, [open]);
   return (
     <Dialog
       open={open}
@@ -135,7 +140,7 @@ function AddAgentBody({ teamId, teamName, onClose }: { teamId: string; teamName:
   return (
     <div className="flex flex-col gap-5 pb-2">
       <section aria-label="接入命令" className="flex flex-col gap-3">
-        <StepTitle n={1}>{tab === "ai" ? "把提示词粘贴给那台机器上的 Claude Code / Codex / Cursor / Gemini" : "在要接入的机器上，打开终端粘贴运行"}</StepTitle>
+        <StepTitle n={1}>{tab === "ai" ? "把提示词粘贴给那台机器上的 Claude Code / Codex / Cursor / Gemini CLI / TRAE CLI / DeepSeek Harness" : "在要接入的机器上，打开终端粘贴运行"}</StepTitle>
         <div className="flex flex-wrap gap-1 self-start rounded-[12px] bg-mint-100/60 p-1" role="tablist" aria-label="接入方式">
           {tabs.map(({ value, label, icon: Icon }) => (
             <button
@@ -171,7 +176,7 @@ function AddAgentBody({ teamId, teamName, onClose }: { teamId: string; teamName:
             ? "AI 会自己安装 agentbus、加入团队，遇到问题会运行 agentbus doctor 排查。"
             : tab === "windows"
               ? "在 PowerShell 里运行，不需要管理员权限。会安装 agentbus、加入团队并装好定时任务。"
-              : "会安装 agentbus、加入团队并装好定时任务；自动选用机器上已有的 claude / codex / cursor / gemini。"}
+              : "会安装 agentbus、加入团队并装好定时任务；自动选用机器上已有的 Claude Code / Codex / Cursor / Gemini CLI / TRAE CLI / DeepSeek Harness。"}
         </p>
       </section>
 
@@ -365,7 +370,7 @@ function ArrivalRow({ m }: { m: Member }) {
           <span className="truncate text-callout font-semibold text-fg">{m.display_name || m.name}</span>
           <span className="text-caption text-fg-caption">@{m.name}</span>
         </div>
-        <div className="truncate text-caption text-fg-caption">{[m.cli, m.machine, m.owner].filter(Boolean).join(" · ") || "新 agent"}</div>
+        <div className="truncate text-caption text-fg-caption">{[cliLabel(m.cli), m.machine, m.owner].filter(Boolean).join(" · ") || "新 agent"}</div>
       </div>
       {active ? (
         <span className="flex items-center gap-1.5 text-callout font-medium text-mint-700">

@@ -167,8 +167,9 @@ export function windowsOneLiner(origin: string, secret: string): string {
 }
 
 /**
- * A prompt to paste into Claude Code / Codex / Cursor / Gemini on the target
- * machine: the coding agent installs agentbus and joins the team by itself.
+ * A prompt to paste into Claude Code / Codex / Cursor / Gemini CLI / TRAE CLI /
+ * DeepSeek Harness on the target machine: the coding agent installs agentbus and
+ * joins the team by itself.
  */
 export function agentPrompt(origin: string, secret: string, team?: string): string {
   const hub = hubOf(origin);
@@ -181,7 +182,8 @@ export function agentPrompt(origin: string, secret: string, team?: string): stri
     `   - Windows PowerShell：${windowsOneLiner(hub, secret)}`,
     "2. 如果报错，先运行 `agentbus doctor` 看哪一项失败，按提示修好后重新运行 `agentbus setup`；需要时参考接入文档：" +
       ONBOARDING_URL,
-    "3. 完成后告诉我 agent 的名字、所在团队和状态（pending 表示等待管理员在网页上批准，这是正常的）。",
+    "3. setup 会自动选用这台机器上已安装的编程 CLI（Claude Code、Codex、Cursor、Gemini CLI、TRAE CLI、DeepSeek Harness）；有多个时选你正在使用的那个。",
+    "4. 完成后告诉我 agent 的名字、所在团队和状态（pending 表示等待管理员在网页上批准，这是正常的）。",
     "",
     "注意：加入码只用于首次加入，不要把它写进仓库或日志。",
   ].join("\n");

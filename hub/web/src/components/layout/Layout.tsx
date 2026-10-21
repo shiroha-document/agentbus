@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { motion, useReducedMotion } from "motion/react";
 import { useQuery } from "@tanstack/react-query";
@@ -6,6 +6,8 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
   Check,
   ChevronRight,
+  Info,
+  LineChart,
   LogOut,
   Plus,
   PanelLeftClose,
@@ -13,6 +15,7 @@ import {
   PauseCircle,
   Search,
   Settings,
+  Sparkles,
 } from "lucide-react";
 import { api } from "../../api";
 import { qk, useAction, useChangePolling, useMe, useRole, useSettings } from "../../queries";
@@ -26,8 +29,11 @@ import { AddAgentProvider } from "../AddAgentDialog";
 import { CreateTeamDialog, TeamSwitcher, TeamTile, useSwitchTeam } from "./TeamSwitcher";
 import { WelcomePage } from "../../pages/Welcome";
 import { roleLabel } from "../../lib/team";
-import { NAV } from "./nav";
+import { primaryNav, visibleNav } from "./nav";
 import { QueryError } from "./RouteStates";
+import { ThemeToggle } from "./ThemeToggle";
+import { NewDot, VersionBadge, openChangelog, useChangelog } from "./Changelog";
+import { track } from "../../lib/telemetry";
 
 import type { ThreadDetailResponse, WorkspaceDetailResponse } from "../../types";
 
@@ -41,6 +47,7 @@ function isActive(path: string, to: string): boolean {
 const COLLAPSE_KEY = "agentbus.sidebar.collapsed";
 
 function Sidebar({ collapsed, onToggle, path }: { collapsed: boolean; onToggle: () => void; path: string }) {
+  const { isAdmin } = useRole();
   return (
     <motion.aside
       animate={{ width: collapsed ? 72 : 240 }}
@@ -52,7 +59,7 @@ function Sidebar({ collapsed, onToggle, path }: { collapsed: boolean; onToggle: 
         <TeamSwitcher collapsed={collapsed} />
       </div>
       <nav className="mt-3 flex flex-1 flex-col gap-1 px-3">
-        {NAV.map(({ to, label, icon: Icon }) => {
+        {visibleNav(isAdmin).map(({ to, label, icon: Icon }) => {
           const active = isActive(path, to);
           const link = (
             <Link
@@ -85,7 +92,8 @@ function Sidebar({ collapsed, onToggle, path }: { collapsed: boolean; onToggle: 
           );
         })}
       </nav>
-      <div className="p-3">
+      <div className="flex flex-col gap-1 p-3">
+        <VersionBadge collapsed={collapsed} />
         <button
           className="btn btn-ghost h-10 w-full justify-start gap-3 px-3"
           onClick={onToggle}
@@ -105,7 +113,7 @@ function BottomTabs({ path }: { path: string }) {
       className="glass-2 fixed inset-x-0 bottom-0 z-30 flex border-x-0 border-b-0 pb-[env(safe-area-inset-bottom)] md:hidden"
       aria-label="主导航"
     >
-      {NAV.map(({ to, label, icon: Icon }) => {
+      {primaryNav().map(({ to, label, icon: Icon }) => {
         const active = isActive(path, to);
         return (
           <Link
@@ -162,6 +170,10 @@ function useCrumbs(path: string): Crumb[] {
       return [home, { label: "用量" }];
     case "settings":
       return [home, { label: "设置" }];
+    case "analytics":
+      return [home, { label: "数据统计" }];
+    case "about":
+      return [home, { label: "关于 agentbus" }];
     default:
       return [home];
   }
@@ -229,11 +241,16 @@ function AvatarMenu() {
   const switchTeam = useSwitchTeam();
   const [creating, setCreating] = useState(false);
   const teams = data?.teams ?? [];
+  const { isAdmin } = useRole();
+  const { unseen } = useChangelog();
   return (
     <>
       <DropdownMenu.Root>
-        <DropdownMenu.Trigger className="flex h-9 w-9 items-center justify-center rounded-full" aria-label="账户菜单">
+        <DropdownMenu.Trigger className="relative flex h-9 w-9 items-center justify-center rounded-full" aria-label={unseen ? "账户菜单（有新的更新日志）" : "账户菜单"}>
           <Avatar member={me} size={32} />
+          {unseen ? (
+            <span className="absolute right-0 top-0 h-2.5 w-2.5 rounded-full border-2 border-[var(--bg)] bg-mint-500 md:hidden" aria-hidden />
+          ) : null}
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
           <DropdownMenu.Content align="end" sideOffset={8} className="glass-3 z-50 min-w-[240px] rounded-[16px] p-1.5">
@@ -269,6 +286,24 @@ function AvatarMenu() {
                 <Settings size={16} aria-hidden /> 设置
               </Link>
             </DropdownMenu.Item>
+            {isAdmin ? (
+              <DropdownMenu.Item asChild>
+                <Link to="/analytics" className={menuItemCls}>
+                  <LineChart size={16} aria-hidden /> 数据统计
+                </Link>
+              </DropdownMenu.Item>
+            ) : null}
+            <DropdownMenu.Item asChild>
+              <Link to="/about" className={menuItemCls}>
+                <Info size={16} aria-hidden /> 关于 agentbus
+              </Link>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item className={menuItemCls} onSelect={openChangelog}>
+              <Sparkles size={16} aria-hidden />
+              <span className="flex-1">更新日志</span>
+              <span className="tabular text-caption text-fg-caption">v{__APP_VERSION__}</span>
+              {unseen ? <NewDot /> : null}
+            </DropdownMenu.Item>
             <DropdownMenu.Item asChild>
               <a href="/cdn-cgi/access/logout" className={cn(menuItemCls, "text-danger-text")}>
                 <LogOut size={16} aria-hidden /> 退出登录
@@ -294,7 +329,8 @@ function BareShell({ children }: { children: ReactNode }) {
         >
           ab
         </span>
-        <span className="text-[17px] font-semibold tracking-tight">agentbus hub</span>
+        <span className="flex-1 text-[17px] font-semibold tracking-tight">agentbus hub</span>
+        <ThemeToggle />
       </header>
       <main id="main" className="mx-auto flex w-full max-w-[1080px] flex-1 flex-col px-4 pb-12 md:px-8">
         {children}
@@ -328,7 +364,7 @@ function BootSkeleton() {
 export function Layout() {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const me = useMe();
-  if (path.startsWith("/invite/")) {
+  if (path.startsWith("/invite/") || (path === "/about" && me.data && !me.data.team)) {
     return (
       <BareShell>
         <Outlet />
@@ -365,7 +401,13 @@ function Shell({ path, teamId }: { path: string; teamId: string }) {
       return false;
     }
   });
-  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteOpen, setPaletteOpenState] = useState(false);
+  const paletteRef = useRef(false);
+  const setPaletteOpen = useCallback((o: boolean, via?: "key" | "click") => {
+    if (o && !paletteRef.current && via) track("palette.open", { via });
+    paletteRef.current = o;
+    setPaletteOpenState(o);
+  }, []);
 
   useEffect(() => {
     try {
@@ -379,12 +421,12 @@ function Shell({ path, teamId }: { path: string; teamId: string }) {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setPaletteOpen((o) => !o);
+        setPaletteOpen(!paletteRef.current, "key");
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [setPaletteOpen]);
 
   const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
   const variants = enterVariants(reduced);
@@ -404,7 +446,7 @@ function Shell({ path, teamId }: { path: string; teamId: string }) {
           <Breadcrumb path={path} />
           <button
             className="btn btn-secondary h-9 w-9 px-0 sm:w-auto sm:min-w-[200px] sm:justify-start sm:px-3"
-            onClick={() => setPaletteOpen(true)}
+            onClick={() => setPaletteOpen(true, "click")}
             aria-label="搜索"
             aria-keyshortcuts={isMac ? "Meta+K" : "Control+K"}
           >
@@ -414,6 +456,7 @@ function Shell({ path, teamId }: { path: string; teamId: string }) {
               {isMac ? "⌘K" : "Ctrl K"}
             </kbd>
           </button>
+          <ThemeToggle />
           <GlobalPause />
           <AvatarMenu />
         </header>
@@ -424,7 +467,7 @@ function Shell({ path, teamId }: { path: string; teamId: string }) {
         </main>
       </div>
       <BottomTabs path={path} />
-      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+      <CommandPalette open={paletteOpen} onOpenChange={(o) => setPaletteOpen(o)} />
     </div>
     </AddAgentProvider>
   );
