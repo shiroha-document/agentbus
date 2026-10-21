@@ -97,7 +97,7 @@ export default defineConfig({
     lightModeSwitchTitle: "切换到浅色",
     darkModeSwitchTitle: "切换到深色",
     footer: {
-      message: "MIT License · 公开仓库只使用 GitHub 托管 runner",
+      message: "公开仓库只使用 GitHub 托管 runner",
       copyright: "© 2026 shiroha-document",
     },
   },
