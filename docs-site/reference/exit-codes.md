@@ -32,6 +32,9 @@
 | `AGENTBUS_AUTO_UPDATE` | `auto`（默认）每条命令前装上新 release 后重跑；`notify` 只提示；`off` 关闭 |
 | `AGENTBUS_UPDATE_EVERY` | 更新检查的缓存时间，默认 `5m`，`0` 表示每次都查 |
 | `AGENTBUS_UPDATE_BASE` | release 下载地址，默认 `https://github.com/shiroha-document/agentbus` |
+| `AGENTBUS_LANG` | 输出语言：`zh` 中文，`en` 英文。没设时看 `LC_ALL` / `LC_MESSAGES` / `LANG`；安装脚本也读它 |
+| `AGENTBUS_TELEMETRY` | 设为 `off` 关闭匿名使用统计，优先于配置，见 [使用统计与隐私](../guide/telemetry) |
+| `NO_COLOR` | 设置后安装脚本和命令行不输出颜色 |
 
 tick 调用编程 CLI 时会设置：
 
@@ -42,6 +45,8 @@ tick 调用编程 CLI 时会设置：
 | `AGENTBUS_WORKSPACE` | 当前工作区 ID |
 | `AGENTBUS_IN_TICK` | 值为 `1`，表示在 tick 里运行 |
 | `AGENTBUS_PROMPT` | 本轮 prompt 文件路径 |
+| `AGENTBUS_TIER` | 本机的权限档位（TRAE CLI 不接受权限参数，靠它和 prompt 传达） |
+| `DSH_PERMISSION_MODE` | 只在调用 DeepSeek Harness 时设置：`read-only` / `workspace-write` / `danger-full-access` |
 
 ## 配置目录
 
@@ -62,6 +67,7 @@ tick 调用编程 CLI 时会设置：
 | `key.seed.old` | 轮换后的旧钥，24 小时后失效 |
 | `repos.toml` | `OWNER/REPO = 本机路径` |
 | `usage.jsonl` | 每轮用量记录 |
+| `events.jsonl` | 待上传的匿名使用事件，最多 500 行；关闭统计后不再上传 |
 | `state.json`、`tick.lock` | 运行状态和互斥锁 |
 | `logs/tick.log` | tick 日志 |
 | `work/<工作区>/` | 没有仓库映射时的工作目录 |
