@@ -98,8 +98,8 @@ func isTickNotice(body string) bool {
 // noopRedelivery is the rule for skipping the tick's fallback progress post
 // after a successful round in which the agent posted nothing itself: every
 // delivery is a re-delivery (attempts ≥ 1), every delivered post is in the
-// context, and my newest post there is a progress post — not one of the
-// tick's failure notices — written (or last collapsed into) no earlier than
+// context, and my newest post there (state cards aside) is a reply — msg,
+// progress or confirm, not one of the tick's failure notices — written (or last collapsed into) no earlier than
 // every delivered post. An earlier attempt already answered these messages
 // (its ack was lost or its lease ran out), so another fallback post would
 // only repeat it. Failure and timeout notices are always posted.
@@ -112,11 +112,11 @@ func noopRedelivery(c *Context, ds []Delivery, me string) bool {
 	for i := range c.Posts {
 		p := &c.Posts[i]
 		at[p.ID] = p.CreatedAt
-		if p.AuthorID == me && (mine == nil || p.CreatedAt >= mine.CreatedAt) {
+		if p.AuthorID == me && p.Kind != "state" && (mine == nil || p.CreatedAt >= mine.CreatedAt) {
 			mine = p
 		}
 	}
-	if mine == nil || mine.Kind != "progress" || isTickNotice(mine.Body) {
+	if mine == nil || (mine.Kind != "progress" && mine.Kind != "msg" && mine.Kind != "confirm") || isTickNotice(mine.Body) {
 		return false
 	}
 	answered := mine.CreatedAt

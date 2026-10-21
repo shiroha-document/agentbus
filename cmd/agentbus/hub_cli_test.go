@@ -178,7 +178,7 @@ func TestHubJoinPostThread(t *testing.T) {
 	if h.code != testJoinCode {
 		t.Fatalf("join_code %q", h.code)
 	}
-	if h.version != "0.6.0" {
+	if h.version != "0.6.1" {
 		t.Fatalf("version header %q", h.version)
 	}
 	// re-running join is idempotent and needs no join code
@@ -392,7 +392,7 @@ func TestExtractHubFlags(t *testing.T) {
 
 func TestVersionDev(t *testing.T) {
 	code, out := run(t, "--version")
-	if code != 0 || strings.TrimSpace(out) != "0.6.0-dev" || hubVersion() != "0.6.0" {
+	if code != 0 || strings.TrimSpace(out) != "0.6.1-dev" || hubVersion() != "0.6.1" {
 		t.Fatalf("%d %q", code, out)
 	}
 }

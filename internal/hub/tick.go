@@ -68,10 +68,10 @@ type ThreadOutcome struct {
 	Acked       bool
 	Nacked      bool
 	TimedOut    bool
-	AgentPosted bool
+	AgentPosted bool // the agent wrote a post of its own this round
 	TickPosted  bool
-	// SkippedPost: a no-op re-delivery round, so no fallback progress post
-	// (see noopRedelivery)
+	// SkippedPost: a successful round that needs no fallback post — a no-op
+	// re-delivery (see noopRedelivery), or the agent said nothing / NO_REPLY
 	SkippedPost  bool
 	ErrorSummary string
 	Run          *Run
@@ -398,7 +398,7 @@ func (t *Ticker) processThread(ctx context.Context, ct ClaimedThread) (to Thread
 		}
 	}
 
-	to.AgentPosted = t.agentPostedProgress(ctx, ct.ThreadID, before, cutoff)
+	to.AgentPosted = t.agentPosted(ctx, ct.ThreadID, before, cutoff)
 	var uptr *adapter.Usage
 	if parsed.Known {
 		uptr = &u
@@ -415,7 +415,7 @@ func (t *Ticker) processThread(ctx context.Context, ct ClaimedThread) (to Thread
 		t.release(ctx, &to, ct.ThreadID, ids, "timeout")
 		return to
 	case to.AgentPosted:
-		// the agent wrote its own progress post; usage goes to the run record
+		// the agent spoke for itself; usage goes to the run record
 	case failed:
 		msg := fmt.Sprintf(noticeFailed+"%s 退出码 %d。\n\n%s", t.Cfg.CLI, res.ExitCode, quote(truncate1(firstNonEmpty(to.ErrorSummary, "（没有错误输出）"), 2000)))
 		if txt := strings.TrimSpace(parsed.Text); txt != "" && !strings.Contains(to.ErrorSummary, txt) {
@@ -429,8 +429,11 @@ func (t *Ticker) processThread(ctx context.Context, ct ClaimedThread) (to Thread
 		t.logf("%s: re-delivery already answered; no fallback progress post", ct.ThreadID)
 	default:
 		txt := strings.TrimSpace(parsed.Text)
-		if txt == "" {
-			txt = "（本轮结束，agent 没有留下说明。）"
+		if txt == "" || IsNoReply(txt) {
+			// nothing worth a post: the run record still carries the usage
+			to.SkippedPost = true
+			t.logf("%s: the agent left nothing to post; no fallback post", ct.ThreadID)
+			break
 		}
 		t.tickPost(ctx, &to, ct.ThreadID, round, truncate1(txt, 30000)+"\n\n---\n"+footer, uptr, postModel)
 	}
@@ -441,6 +444,17 @@ func (t *Ticker) processThread(ctx context.Context, ct ClaimedThread) (to Thread
 		to.Acked = true
 	}
 	return to
+}
+
+// NoReply is the final answer an agent gives when the round needs no post.
+const NoReply = "NO_REPLY"
+
+// IsNoReply reports whether an agent's final answer opts out of the
+// fallback post: its last non-empty line is NO_REPLY (markup ignored).
+func IsNoReply(txt string) bool {
+	lines := strings.Split(strings.TrimSpace(txt), "\n")
+	last := strings.Trim(strings.TrimSpace(lines[len(lines)-1]), "`*_.。 ")
+	return strings.EqualFold(last, NoReply)
 }
 
 func (t *Ticker) timeout() time.Duration {
@@ -471,16 +485,16 @@ func (t *Ticker) release(ctx context.Context, to *ThreadOutcome, thread string, 
 	to.Nacked = true
 }
 
-// agentPostedProgress reports whether I wrote a progress post in thread
-// after the context snapshot.
-func (t *Ticker) agentPostedProgress(ctx context.Context, thread string, before map[string]bool, cutoff int64) bool {
+// agentPosted reports whether I wrote a post of any kind (msg, progress,
+// confirm, state) in thread after the context snapshot.
+func (t *Ticker) agentPosted(ctx context.Context, thread string, before map[string]bool, cutoff int64) bool {
 	pr, err := t.Client.Posts(ctx, thread, "", 50)
 	if err != nil {
 		t.logf("%s: checking for progress post: %v", thread, err)
 		return false
 	}
 	for _, p := range pr.Posts {
-		if p.AuthorID == t.Cfg.MemberID && p.Kind == "progress" && !before[p.ID] && p.CreatedAt >= cutoff {
+		if p.AuthorID == t.Cfg.MemberID && !before[p.ID] && p.CreatedAt >= cutoff {
 			return true
 		}
 	}

@@ -3,7 +3,7 @@ import { createHash, generateKeyPairSync, randomBytes, sign, type KeyObject } fr
 
 export const CLIENT_VERSION = "0.5.0";
 /** Hub version the deployed worker reports on /healthz. */
-export const SERVER_VERSION = "0.6.0";
+export const SERVER_VERSION = "0.6.1";
 
 export class TestAgent {
   id = "join";

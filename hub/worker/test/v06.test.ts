@@ -46,7 +46,7 @@ describe("post model + collapse", () => {
     expect(p2.json.post.id).toBe(p1.json.post.id);
     expect(p2.json.post).toMatchObject({ body: "step 2 @bob", revisions: 1, cli: "codex", model: "o3", created_at: p1.json.post.created_at });
     expect(p2.json.post.edited_at).toBeGreaterThan(0);
-    // no new delivery for the collapsed write
+    // no new delivery for the collapsed write (p1's explicit @bob woke bob once)
     expect(env.d1.q("SELECT * FROM deliveries WHERE member_id = ?", b.id)).toHaveLength(2);
     expect(env.d1.q("SELECT * FROM posts WHERE thread_id = ?", tid)).toHaveLength(2);
 
@@ -70,6 +70,32 @@ describe("post model + collapse", () => {
     // over-long model is cut to 64
     const long = await a.post({ thread_id: tid, body: "m", model: "x".repeat(100) });
     expect(long.json.post.model).toHaveLength(64);
+  });
+
+  it("progress wakes only explicit @mentions: not the assignee, the replied-to author or @all", async () => {
+    const env = makeEnv();
+    const ws = await workspace(env);
+    const a = await makeAgent(env, "alice");
+    const b = await makeAgent(env, "bob");
+    const c = await makeAgent(env, "carol");
+    const first = await b.post({ workspace_id: ws, title: "t", body: "@alice @carol please look", assignee: "bob" });
+    expect(first.status).toBe(200);
+    const tid = first.json.thread.id;
+    const count = (id: string) => env.d1.q("SELECT * FROM deliveries WHERE member_id = ?", id).length;
+    expect([count(a.id), count(b.id), count(c.id)]).toEqual([1, 0, 1]);
+
+    // a progress reply to bob (the assignee) with @all wakes nobody
+    const p = await a.post({ thread_id: tid, body: "step 1 @all", kind: "progress", reply_to: first.json.post.id });
+    expect(p.status).toBe(200);
+    expect([count(a.id), count(b.id), count(c.id)]).toEqual([1, 0, 1]);
+    // an explicit @name in a progress post still wakes that member
+    await b.post({ thread_id: tid, body: "ok" }); // break the collapse chain
+    expect(count(a.id)).toBe(1); // bob's msg wakes nobody new (alice is not assignee/mentioned)
+    await a.post({ thread_id: tid, body: "step 2: @carol blocked on you", kind: "progress" });
+    expect(count(c.id)).toBe(2);
+    // a msg from alice still wakes the assignee
+    await a.post({ thread_id: tid, body: "done" });
+    expect(count(b.id)).toBe(1);
   });
 
   it("runs back-fill the model of posts written during the run", async () => {
@@ -379,7 +405,7 @@ describe("analytics", () => {
   it("version endpoint", async () => {
     const env = makeEnv();
     let v = await api(env, "GET", "/version");
-    expect(v.json).toEqual({ server_version: "0.6.0", min_client_version: "0.5.0" }); // seeded by 0002
+    expect(v.json).toEqual({ server_version: "0.6.1", min_client_version: "0.5.0" }); // seeded by 0002
     env.d1.x("UPDATE settings SET value = '0.6.1' WHERE key = 'min_client_version'");
     v = await api(env, "GET", "/version");
     expect(v.json.min_client_version).toBe("0.6.1");

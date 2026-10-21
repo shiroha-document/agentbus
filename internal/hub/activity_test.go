@@ -178,6 +178,44 @@ func TestTickSkipsNoopRedelivery(t *testing.T) {
 	}
 }
 
+func TestTickNoFallbackPost(t *testing.T) {
+	for _, mode := range []string{"noreply", "empty", "msg"} {
+		h, tk := tickEnv(t, mode)
+		h.addThread("t_1", d("d_1", "p_1"))
+		out, err := tk.Run(context.Background())
+		if err != nil || out.Code != ExitOK {
+			t.Fatalf("%s: %+v %v", mode, out, err)
+		}
+		to := out.Threads[0]
+		if to.TickPosted || !to.Acked || to.ErrorSummary != "" {
+			t.Fatalf("%s: %+v", mode, to)
+		}
+		if to.SkippedPost == (mode == "msg") || to.AgentPosted != (mode == "msg") {
+			t.Fatalf("%s: %+v", mode, to)
+		}
+		for _, p := range h.posts["t_1"] {
+			if p.Kind == "progress" {
+				t.Fatalf("%s: unexpected progress post %+v", mode, p)
+			}
+		}
+		if len(h.runs) != 1 {
+			t.Fatalf("%s: the run is still reported: %+v", mode, h.runs)
+		}
+	}
+}
+
+func TestIsNoReply(t *testing.T) {
+	for in, want := range map[string]bool{
+		"NO_REPLY": true, " no_reply \n": true, "`NO_REPLY`": true, "**NO_REPLY**。": true,
+		"Checked: nothing changed.\n\nNO_REPLY": true,
+		"NO_REPLY\nbut actually I fixed it":     false, "Fixed it": false, "": false, "NO_REPLY_X": false,
+	} {
+		if got := IsNoReply(in); got != want {
+			t.Errorf("IsNoReply(%q) = %v, want %v", in, got, want)
+		}
+	}
+}
+
 func TestNoopRedeliveryRule(t *testing.T) {
 	post := func(id, author, kind string, at int64) Post {
 		return Post{ID: id, AuthorID: author, Kind: kind, Body: "x", CreatedAt: at}
@@ -197,7 +235,9 @@ func TestNoopRedeliveryRule(t *testing.T) {
 		{"first delivery", []Post{post("p_1", "m_bob", "msg", 100), post("p_me", "m_1", "progress", 200)}, []Delivery{re("p_1", 0)}, false},
 		{"one new message", []Post{post("p_1", "m_bob", "msg", 100), post("p_me", "m_1", "progress", 200), post("p_2", "m_bob", "msg", 300)},
 			[]Delivery{re("p_1", 1), re("p_2", 1)}, false},
-		{"my last post is a msg", []Post{post("p_1", "m_bob", "msg", 100), post("p_me", "m_1", "msg", 200)}, []Delivery{re("p_1", 2)}, false},
+		{"answered with a msg", []Post{post("p_1", "m_bob", "msg", 100), post("p_me", "m_1", "msg", 200)}, []Delivery{re("p_1", 2)}, true},
+		{"my last post is a state card", []Post{post("p_1", "m_bob", "msg", 100), post("p_me", "m_1", "state", 200)}, []Delivery{re("p_1", 1)}, false},
+		{"my last post is a system post", []Post{post("p_1", "m_bob", "msg", 100), post("p_me", "m_1", "system", 200)}, []Delivery{re("p_1", 1)}, false},
 		{"never answered", []Post{post("p_1", "m_bob", "msg", 100)}, []Delivery{re("p_1", 1)}, false},
 		{"delivered post not shown", []Post{post("p_me", "m_1", "progress", 200)}, []Delivery{re("p_old", 1)}, false},
 		{"collapsed progress counts at its edit", []Post{edited, post("p_1", "m_bob", "msg", 200)}, []Delivery{re("p_1", 1)}, true},
@@ -278,7 +318,9 @@ func TestPromptAttachmentsAndKinds(t *testing.T) {
 		"agentbus post --attach",
 		"`state`", "`system`", "`confirm`",
 		"合并成一张卡片",
-		"什么都没变就不要发进度帖",
+		"什么都没变就不要发帖",
+		"`NO_REPLY`",
+		"不会唤醒负责人",
 		"跟进进度", // manager duties
 	} {
 		if !strings.Contains(out, want) {

@@ -238,14 +238,18 @@ func fakeCLI(mode string) int {
 	switch mode {
 	case "ok":
 		fmt.Println(fakeClaudeOK)
+	case "noreply":
+		fmt.Println(strings.Replace(fakeClaudeOK, "Fixed the flaky test; CI is green.", "Already handled.\\n\\nNO_REPLY", 1))
+	case "empty":
+		fmt.Println(strings.Replace(fakeClaudeOK, "Fixed the flaky test; CI is green.", "", 1))
 	case "fail":
 		fmt.Fprintln(os.Stderr, "boom: model overloaded")
 		return 1
 	case "sleep":
 		fmt.Println(`{"type":"partial"}`)
 		time.Sleep(60 * time.Second)
-	case "post":
-		// behave like an agent that runs `agentbus post --kind progress`
+	case "post", "msg":
+		// behave like an agent that runs `agentbus post [--kind progress]`
 		dir := os.Getenv("AGENTBUS_HUB_HOME")
 		cfg, err := LoadConfig(dir)
 		if err != nil {
@@ -258,8 +262,12 @@ func fakeCLI(mode string) int {
 			return 1
 		}
 		c := NewClient(cfg, k, "0.4.0-test")
-		_, err = c.Post(context.Background(), NewPost{ThreadID: os.Getenv("AGENTBUS_THREAD"), Kind: "progress",
-			Body: "要做什么 → 修测试；改了什么 → x_test.go", IdempotencyKey: os.Getenv("AGENTBUS_ROUND") + ":agent"})
+		np := NewPost{ThreadID: os.Getenv("AGENTBUS_THREAD"), Kind: "progress",
+			Body: "要做什么 → 修测试；改了什么 → x_test.go", IdempotencyKey: os.Getenv("AGENTBUS_ROUND") + ":agent"}
+		if mode == "msg" {
+			np.Kind, np.Body = "msg", "@bob 测试是哪个？"
+		}
+		_, err = c.Post(context.Background(), np)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 1

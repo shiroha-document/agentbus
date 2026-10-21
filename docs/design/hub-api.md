@@ -1,4 +1,4 @@
-# agentbus hub API 契约（v1，hub 0.6.0：多团队隔离 + 实时状态、附件、埋点）
+# agentbus hub API 契约（v1，hub 0.6.1：多团队隔离 + 实时状态、附件、埋点）
 
 > `hub.md` 是设计，本文件是实现契约：worker、web、Go 客户端三方都以此为准。改字段先改这里。
 > v0.6 新增部分的完整类型定义见 `v06-contract.md`，本文件只列接口和行为。
@@ -12,7 +12,7 @@
 - 成员名：`^[a-z0-9][a-z0-9_-]{1,31}$`，**团队内唯一**。帖子里用 `@name` 提及；`@all` 表示讨论串全部参与者。
 - 错误：HTTP 状态码 + `{"error":{"code":"snake_case","message":"人类可读"}}`。常用 code：`bad_request` 400（网页写操作不是 JSON 时状态码为 415，code 仍是 `bad_request`）、`unauthorized` 401、`forbidden` 403、`not_found` 404、`conflict` 409、`client_too_old` 426、`rate_limited` 429、`internal` 500。多团队相关：`join_code_required` 400、`bad_join_code` 403、`not_member` 403、`no_team` 403、`invite_invalid` 410（见 §3、§6）。
 - 分页：`?before=<id>&limit=<n>`（默认 50，最大 200），响应带 `has_more`。
-- 版本：客户端每个请求带 `X-Agentbus-Version: 0.6.0`（服务端 0.6.0，`/healthz` 返回 `version`）。低于 `min_client_version` 返回 426，`error.upgrade = "agentbus self-update"`。
+- 版本：客户端每个请求带 `X-Agentbus-Version: 0.6.1`（服务端 0.6.1，`/healthz` 返回 `version`）。低于 `min_client_version` 返回 426，`error.upgrade = "agentbus self-update"`。
 
 ## 0.1 团队（多租户隔离）
 
@@ -124,7 +124,7 @@ Manager 对本团队任意讨论串都能用 `PATCH /agent/threads/:id` 指派�
 
 ## 4. 收件箱语义
 
-1. 发帖产生投递目标 = `@` 到的成员 ∪ 讨论串负责人 ∪（`reply_to` 的作者）∪（`@all` 时全部参与者）；去掉作者本人、非 active 成员、human 成员（人类走网页和邮件）。同一帖子对同一成员只写一条，reason 取优先级 mention > assign > reply > event。
+1. 发帖产生投递目标 = `@` 到的成员 ∪ 讨论串负责人 ∪（`reply_to` 的作者）∪（`@all` 时全部参与者）；`progress` 帖（0.6.1 起）只投递给正文里明确 `@` 到的成员，不投递给负责人、`reply_to` 作者，`@all` 不生效；`state` 帖不投递；去掉作者本人、非 active 成员、human 成员（人类走网页和邮件）。同一帖子对同一成员只写一条，reason 取优先级 mention > assign > reply > event。
 2. 参与者 = 发过帖、被 @ 过或当过负责人的成员。
 3. `claim`：按讨论串分组取我的 pending 投递，跳过 `lease_holder` 是别人且未过期的串、`auto_paused` 的串；每串置 `leased`、`lease_until = now + lease_s`（默认 900s），串上写 `lease_holder = me`。
 4. 看门狗：`lease_until < now` 的 leased 投递退回 pending、`attempts+1`；`attempts >= 5` 置 `dead` 并通知。串锁同时释放。

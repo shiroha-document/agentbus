@@ -203,6 +203,6 @@ describe("web auth (fail closed)", () => {
     expect(me.res.headers.get("cache-control")).toBe("no-store");
     const hz = await web(env, "GET", "/healthz", undefined, { token: null });
     expect(hz.status).toBe(200);
-    expect(hz.json.version).toBe("0.6.0");
+    expect(hz.json.version).toBe("0.6.1");
   });
 });

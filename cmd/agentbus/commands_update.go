@@ -23,7 +23,7 @@ var version = ""
 
 // devVersion is what source builds report (and send to the hub in
 // X-Agentbus-Version). Bump it with each minor release line.
-const devVersion = "0.6.0-dev"
+const devVersion = "0.6.1-dev"
 
 // isDev reports a source build ("dev" is the pre-0.4 spelling).
 func isDev(v string) bool { return v == "dev" || strings.HasSuffix(v, "-dev") }

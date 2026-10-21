@@ -50,4 +50,4 @@ export interface Me {
 export type Vars = { me: Me; body: unknown; rawBody: string; rawBytes?: Uint8Array };
 export type AppEnv = { Bindings: Env; Variables: Vars };
 
-export const SERVER_VERSION = "0.6.0";
+export const SERVER_VERSION = "0.6.1";

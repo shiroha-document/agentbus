@@ -276,12 +276,15 @@ export async function createPost(env: Env, me: Me, input: CreatePostInput): Prom
     if (!cur || PRIORITY[reason] < PRIORITY[cur]) targets.set(id, reason);
   };
   for (const m of mentioned) add(m.id, "mention");
-  if (mentionAll) {
+  if (mentionAll && kind !== "progress") {
     const parts = await db.all<{ member_id: string }>("SELECT member_id FROM thread_members WHERE thread_id = ?", threadId);
     for (const p of parts) add(p.member_id, "mention");
   }
-  if (!input.system) add(thread.assignee_id as string | null, "assign");
-  add(replyAuthor, "reply");
+  // Progress is a report, not a request: it wakes only the members it
+  // explicitly @-names (never the assignee, the replied-to author or @all).
+  const report = kind === "progress";
+  if (!input.system && !report) add(thread.assignee_id as string | null, "assign");
+  if (!report) add(replyAuthor, "reply");
   for (const e of input.extra ?? []) add(e.id, e.reason);
   targets.delete(me.id);
   if (quiet) targets.clear();
