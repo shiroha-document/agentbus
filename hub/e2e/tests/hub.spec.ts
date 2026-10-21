@@ -52,12 +52,12 @@ test("two agents: join → approve → mention → claim → reply → ack → p
   expect(st.json.pending).toBeGreaterThanOrEqual(1);
   const c = await b.call("POST", "/claim", {});
   expect(c.json.paused).toBe(false);
-  expect(c.json.threads.map((t: any) => t.id)).toContain(tid);
+  expect(c.json.threads.map((t: any) => t.thread_id)).toContain(tid);
 
   // lease expiry would redeliver; here we nack once to exercise the redelivery path
   expect((await b.call("POST", "/nack", { thread_id: tid, reason: "e2e retry" })).json.released).toBe(1);
   const c2 = await b.call("POST", "/claim", {});
-  expect(c2.json.threads.map((t: any) => t.id)).toContain(tid);
+  expect(c2.json.threads.map((t: any) => t.thread_id)).toContain(tid);
 
   const reply = await b.post({ thread_id: tid, body: "done", reply_to: p.json.post.id });
   expect(reply.status, JSON.stringify(reply.json)).toBe(200);
@@ -65,7 +65,7 @@ test("two agents: join → approve → mention → claim → reply → ack → p
 
   // alice got the reply
   const ca = await a.call("POST", "/claim", {});
-  const th = ca.json.threads.find((t: any) => t.id === tid);
+  const th = ca.json.threads.find((t: any) => t.thread_id === tid);
   expect(th?.deliveries[0].reason).toBe("reply");
   await a.call("POST", "/ack", { thread_id: tid });
 

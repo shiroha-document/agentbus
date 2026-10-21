@@ -16,7 +16,7 @@
 set -euo pipefail
 
 TOKEN_FILE=${1:?usage: setup-access.sh TOKEN_FILE}
-: "${ACCESS_TEAM:?set ACCESS_TEAM (Zero Trust team name, e.g. shiroha)}"
+: "${ACCESS_TEAM:?set ACCESS_TEAM (Zero Trust team name = <team>.cloudflareaccess.com, see Zero Trust → Settings)}"
 : "${ADMIN_EMAIL_FILE:?set ADMIN_EMAIL_FILE (file containing the admin email)}"
 ACCOUNT=${CLOUDFLARE_ACCOUNT_ID:-9ef7b5b2b8b7edd222d26495c6c71cc9}
 REPO=${GH_REPO:-shiroha-document/agentbus}
@@ -103,9 +103,9 @@ for env in staging production; do
 done
 
 if [ -f "$OUT/st.json" ] && [ -n "${GH_PAT_FILE:-}" ]; then
-  GH_TOKEN=$(cat "$GH_PAT_FILE") gh secret set CF_ACCESS_CLIENT_ID -R "$REPO" --env staging --body "$(jq -r '.client_id' "$OUT/st.json")"
-  jq -r '.client_secret' "$OUT/st.json" | GH_TOKEN=$(cat "$GH_PAT_FILE") gh secret set CF_ACCESS_CLIENT_SECRET -R "$REPO" --env staging
-  echo "GitHub secrets CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET set (env staging)"
+  GH_TOKEN=$(cat "$GH_PAT_FILE") gh secret set CF_ACCESS_CLIENT_ID -R "$REPO" --body "$(jq -r '.client_id' "$OUT/st.json")"
+  jq -r '.client_secret' "$OUT/st.json" | GH_TOKEN=$(cat "$GH_PAT_FILE") gh secret set CF_ACCESS_CLIENT_SECRET -R "$REPO"
+  echo "GitHub secrets CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET set (repo)"
 elif [ -f "$OUT/st.json" ]; then
   keep=/tmp/agentbus-secrets/e2e-service-token.json
   mkdir -p "$(dirname "$keep")"
