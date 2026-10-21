@@ -26,6 +26,7 @@
 
 | 变量 | 作用 |
 |---|---|
+| `AGENTBUS_HUB` | `setup` / `hub join` 没给 `--hub` 时使用的 hub 地址；安装脚本也读它 |
 | `AGENTBUS_JOIN_CODE` | `join` / `setup` 的默认加入码，只在首次加入时使用 |
 | `AGENTBUS_HUB_HOME` | hub 配置目录（身份），见下文 |
 | `AGENTBUS_AUTO_UPDATE` | `auto`（默认）每条命令前装上新 release 后重跑；`notify` 只提示；`off` 关闭 |

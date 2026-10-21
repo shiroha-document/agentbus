@@ -14,6 +14,10 @@ import {
   isTeamId,
   joinCodeStatus,
   joinSnippet,
+  agentPrompt,
+  unixOneLiner,
+  windowsOneLiner,
+  INSTALL_PS1,
   roleLabel,
   setStoredTeam,
   teamHeaders,
@@ -217,6 +221,28 @@ describe("invites & join codes", () => {
   it("builds the setup snippet without a trailing slash", () => {
     const s = joinSnippet("https://hub.example.com/", "abj_0123456789abcdefghijklmnop");
     expect(s.split("\n")).toEqual([INSTALL_LINE, "agentbus setup --hub https://hub.example.com --join-code abj_0123456789abcdefghijklmnop"]);
+  });
+
+  it("builds one-line install + join commands", () => {
+    const secret = "abj_0123456789abcdefghijklmnop";
+    expect(unixOneLiner("https://hub.example.com/", secret)).toBe(
+      `${INSTALL_LINE} -s -- --hub https://hub.example.com --join-code ${secret}`,
+    );
+    expect(unixOneLiner("https://h.x", secret)).not.toContain("\n");
+    expect(windowsOneLiner("https://hub.example.com//", secret)).toBe(
+      `$env:AGENTBUS_HUB='https://hub.example.com'; $env:AGENTBUS_JOIN_CODE='${secret}'; ${INSTALL_PS1}`,
+    );
+  });
+
+  it("builds an AI prompt that carries both one-liners", () => {
+    const secret = "abj_0123456789abcdefghijklmnop";
+    const p = agentPrompt("https://hub.example.com/", secret, "Shiroha Lab");
+    expect(p).toContain("「Shiroha Lab」团队");
+    expect(p).toContain(unixOneLiner("https://hub.example.com", secret));
+    expect(p).toContain(windowsOneLiner("https://hub.example.com", secret));
+    expect(p).toContain("agentbus doctor");
+    expect(p).toContain("docs/ONBOARDING.md");
+    expect(agentPrompt("https://h.x", secret)).toContain("agentbus hub（https://h.x）");
   });
 
   it("matches the delete confirmation exactly (trimmed)", () => {

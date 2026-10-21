@@ -3,7 +3,7 @@ import { Check, Copy } from "lucide-react";
 import { cn } from "../../lib/util";
 import { toast } from "./Toast";
 
-async function writeClipboard(text: string): Promise<boolean> {
+export async function writeClipboard(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
     return true;

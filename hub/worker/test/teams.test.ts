@@ -193,6 +193,20 @@ describe("join codes", () => {
     expect((await api(env, "POST", "/join-codes", { expires_in_days: 9999 })).status).toBe(400);
   });
 
+  it("at most 50 active codes; expired and revoked ones do not count", async () => {
+    const env = makeEnv();
+    const live = env.d1.q("SELECT COUNT(*) AS n FROM join_codes WHERE revoked_at IS NULL")[0].n as number;
+    for (let i = live; i < 50; i++) expect((await api(env, "POST", "/join-codes", { label: `c${i}` })).status).toBe(200);
+    expect((await api(env, "POST", "/join-codes", {})).status).toBe(409);
+    // one expires, another is revoked: two slots free up
+    const codes = (await api(env, "GET", "/join-codes")).json.codes;
+    env.d1.x("UPDATE join_codes SET expires_at = ? WHERE id = ?", Date.now() - 1, codes[0].id);
+    expect((await api(env, "DELETE", `/join-codes/${codes[1].id}`)).status).toBe(200);
+    expect((await api(env, "POST", "/join-codes", { label: "again" })).status).toBe(200);
+    expect((await api(env, "POST", "/join-codes", { label: "again2" })).status).toBe(200);
+    expect((await api(env, "POST", "/join-codes", {})).status).toBe(409);
+  });
+
   it("join codes are admin-only and team-scoped", async () => {
     const env = makeEnv();
     const B = makeTeam(env);

@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { motion, useReducedMotion } from "motion/react";
-import { AlertCircle, ArrowRight, Coins, MailWarning, MessageSquareText, Send, UserPlus, Zap } from "lucide-react";
+import { AlertCircle, ArrowRight, Coins, MailWarning, MessageSquareText, Send, Sparkles, Terminal, UserPlus, Zap } from "lucide-react";
 import { api } from "../api";
-import { qk, useAction, useMe, useWorkspaces } from "../queries";
+import { qk, useAction, useMe, useRole, useWorkspaces } from "../queries";
+import { useAddAgent } from "../components/AddAgentDialog";
 import { buildHeatmap } from "../lib/heatmap";
 import { formatInt, formatRelative, formatTokens, formatUsd, greeting } from "../lib/format";
 import { enterVariants } from "../lib/motion";
@@ -374,6 +375,47 @@ function Feed() {
   );
 }
 
+/** First-run call to action: the team has no agent yet. */
+function FirstAgentCta() {
+  const addAgent = useAddAgent();
+  const { isAdmin } = useRole();
+  return (
+    <section className="glass-1 card relative overflow-hidden p-6" aria-labelledby="first-agent">
+      <div
+        className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full opacity-60 blur-3xl"
+        style={{ background: "radial-gradient(circle, var(--mint-300), transparent 70%)" }}
+        aria-hidden
+      />
+      <div className="relative flex flex-col gap-5 md:flex-row md:items-center">
+        <div className="min-w-0 flex-1">
+          <h2 id="first-agent" className="text-title-2">接入第一个 agent</h2>
+          <p className="mt-1 text-callout font-normal text-fg-2">
+            {isAdmin
+              ? "复制一行命令到任意一台装了 Claude Code / Codex / Cursor / Gemini 的机器上运行，或者把提示词丢给它，它会自己装好并加入。"
+              : "请团队管理员在「成员 → 添加 agent」里复制接入命令。"}
+          </p>
+          <ul className="mt-3 flex flex-wrap gap-2 text-caption text-fg-2">
+            <li className="chip chip-muted">
+              <Terminal size={12} aria-hidden /> 一行命令安装 + 加入
+            </li>
+            <li className="chip chip-muted">
+              <Sparkles size={12} aria-hidden /> 或交给 AI 来装
+            </li>
+            <li className="chip chip-muted">
+              <UserPlus size={12} aria-hidden /> 弹窗里直接批准
+            </li>
+          </ul>
+        </div>
+        {isAdmin ? (
+          <button className="btn btn-primary btn-lg flex-none" onClick={addAgent}>
+            <UserPlus size={18} aria-hidden /> 添加 agent
+          </button>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 export function HomePage() {
   const reduced = useReducedMotion() ?? false;
   const v = enterVariants(reduced);
@@ -404,6 +446,7 @@ export function HomePage() {
 
       {dash.isError ? <QueryError error={dash.error} onRetry={() => void dash.refetch()} /> : null}
       {d ? <Banners data={d} /> : null}
+      {d && d.stats.agents_total === 0 ? <FirstAgentCta /> : null}
 
       <motion.section variants={v} initial="hidden" animate="show" custom={2} aria-label="进行中的讨论串">
         <div className="mb-3 flex items-baseline justify-between">

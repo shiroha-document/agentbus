@@ -122,30 +122,36 @@ flowchart LR
 
 ## 快速开始
 
-**管理员**：登录 [hub](https://hub.shiroha.tech)，在 **设置 → Agent 加入码** 生成一个加入码（只显示一次，私下发给对方）。
+**管理员**：登录 [hub](https://hub.shiroha.tech)，在 **成员** 页点 **添加 agent**。对话框会自动生成一个 7 天有效、可多台机器复用的加入码，并给出一行接入命令（私下发给对方）；新 agent 申请到达后直接在对话框里批准。
 
-**agent 机器**：
+**agent 机器**：粘贴那一行命令，安装 CLI 并自动加入（会校验 SHA256SUMS，不需要管理员权限）：
 
 ```sh
-# macOS / Linux（会校验 SHA256SUMS）
-curl -fsSL https://raw.githubusercontent.com/shiroha-document/agentbus/main/install.sh | sh
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/shiroha-document/agentbus/main/install.sh | sh -s -- --hub https://hub.shiroha.tech --join-code abj_…
 ```
 
 ```powershell
-# Windows PowerShell（不需要管理员权限）
-irm https://raw.githubusercontent.com/shiroha-document/agentbus/main/install.ps1 | iex
+# Windows PowerShell
+$env:AGENTBUS_HUB='https://hub.shiroha.tech'; $env:AGENTBUS_JOIN_CODE='abj_…'; irm https://raw.githubusercontent.com/shiroha-document/agentbus/main/install.ps1 | iex
 ```
 
-```sh
-# 交互向导：申请加入、权限档位、仓库映射、定时任务、额度来源、自检
-agentbus setup --hub https://hub.shiroha.tech --join-code abj_… --name my-mac
+脚本装好后运行 `agentbus setup --yes`：用本机找到的第一个编程 CLI、`workspace` 权限档位、装好定时任务、跑 `doctor`。名字默认 `<主机名>-<cli>`（被占用时自动加 `-2`、`-3`）；`install.sh` 可以追加 `--name NAME`、`--interactive`、`--no-setup`，或任何 `agentbus setup` 参数。
 
-# 管理员在网页“成员”页批准之后
+```sh
+# 管理员批准之后
 agentbus state     # active
 agentbus doctor    # 全部 PASS
 ```
 
-也可以把 [docs/ONBOARDING.md](docs/ONBOARDING.md) 和加入码一起交给本机的 Claude Code / Codex，让它自己完成接入（[skills/agentbus](skills/agentbus) 就是做这个的）。完整步骤见 [图文接入教程](https://docs.hub.shiroha.tech/guide/onboarding)。
+想逐项选择（名字、权限档位、仓库映射、额度来源……）时，先只装 CLI，再跑交互向导：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/shiroha-document/agentbus/main/install.sh | sh   # Windows: irm …/install.ps1 | iex
+agentbus setup --hub https://hub.shiroha.tech --join-code abj_… --name my-mac
+```
+
+也可以用“添加 agent”里的“交给 AI 来装”提示词，或者把 [docs/ONBOARDING.md](docs/ONBOARDING.md) 和加入码一起交给本机的 Claude Code / Codex，让它自己完成接入（[skills/agentbus](skills/agentbus) 就是做这个的）。完整步骤见 [图文接入教程](https://docs.hub.shiroha.tech/guide/onboarding)。
 
 CLI 会自己保持最新：每条命令执行前检查新 release，装上后用新版本重跑。`AGENTBUS_AUTO_UPDATE=notify|off` 可以只提示或关闭。
 

@@ -440,7 +440,12 @@ teams.post("/join-codes", async (c) => {
     if (!Number.isFinite(d) || d <= 0 || d > 365) throw bad("expires_in_days 必须在 1..365 之间");
     expires = Date.now() + Math.round(d * 86400_000);
   }
-  const active = await db.first<{ n: number }>("SELECT COUNT(*) AS n FROM join_codes WHERE team_id = ? AND revoked_at IS NULL", db.team);
+  // expired codes are dead weight, not "active": one-click onboarding creates short-lived codes
+  const active = await db.first<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM join_codes WHERE team_id = ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)",
+    db.team,
+    Date.now(),
+  );
   if (Number(active?.n ?? 0) >= 50) throw conflict("有效的加入码太多了，请先作废一些");
   const secret = secretToken("abj_");
   const now = Date.now();

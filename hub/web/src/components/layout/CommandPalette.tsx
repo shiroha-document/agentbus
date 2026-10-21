@@ -4,9 +4,10 @@ import * as RDialog from "@radix-ui/react-dialog";
 import { motion, useReducedMotion } from "motion/react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { ArrowLeftRight, FileText, FolderKanban, Search, Users } from "lucide-react";
+import { ArrowLeftRight, FileText, FolderKanban, Search, UserPlus, Users } from "lucide-react";
 import { api } from "../../api";
-import { useMe, useMembers, useWorkspaces } from "../../queries";
+import { useMe, useMembers, useRole, useWorkspaces } from "../../queries";
+import { useAddAgent } from "../AddAgentDialog";
 import { sanitizeSnippet } from "../../lib/sanitize";
 import { formatRelative } from "../../lib/format";
 import { reducedFade, springSoft } from "../../lib/motion";
@@ -27,6 +28,8 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   const workspaces = useWorkspaces();
   const me = useMe();
   const switchTeam = useSwitchTeam();
+  const addAgent = useAddAgent();
+  const { isAdmin } = useRole();
   const enabled = open && dq.length >= 1;
 
   useEffect(() => {
@@ -48,6 +51,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   };
 
   const navMatches = NAV.filter((n) => !dq || n.label.includes(dq));
+  const showAdd = isAdmin && (!dq || "添加 agent 接入 加入码 add agent".toLowerCase().includes(dq.toLowerCase()));
   const wsMatches = (workspaces.data?.workspaces ?? []).filter((w) => dq && w.name.toLowerCase().includes(dq.toLowerCase())).slice(0, 4);
   const memberMatches = (members.data?.members ?? [])
     .filter((m) => dq && (m.name.includes(dq.toLowerCase()) || m.display_name.toLowerCase().includes(dq.toLowerCase())))
@@ -112,6 +116,15 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                 </select>
               </div>
               <Command.List className="max-h-[52vh] overflow-y-auto p-2">
+                {showAdd && (
+                  <Command.Group heading="操作">
+                    <Command.Item value="action-add-agent" onSelect={() => go(addAgent)} className={itemCls}>
+                      <UserPlus size={16} className="text-mint-700" aria-hidden />
+                      <span className="flex-1">添加 agent</span>
+                      <span className="text-caption text-fg-caption">一行命令接入新机器</span>
+                    </Command.Item>
+                  </Command.Group>
+                )}
                 {navMatches.length > 0 && (
                   <Command.Group heading="跳转">
                     {navMatches.map(({ to, label, icon: Icon }) => (

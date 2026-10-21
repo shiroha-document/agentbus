@@ -978,6 +978,18 @@ function teamHandle(S: Store, me: Member, admin: boolean, owner: boolean, method
         last_used_at: null,
       };
       S.joinCodes.push(code);
+      // Demo of the one-click flow: a machine "runs the command" a few seconds later.
+      if (code.label.startsWith("一键接入") && !S.members.some((m) => m.name === "mac-mini-claude")) {
+        const store = S;
+        setTimeout(() => {
+          const t = now();
+          store.members.push(
+            member({ id: nid("m"), name: "mac-mini-claude", display_name: "mac-mini-claude", cli: "claude", status: "pending", online: false, last_seen_at: null, created_at: t, machine: "mac-mini", owner: me.name }),
+          );
+          Object.assign(code, { uses: code.uses + 1, last_used_at: t });
+          store.seq++;
+        }, 4000);
+      }
       return ok({ code, secret });
     }
     if (p[1] && method === "DELETE") {

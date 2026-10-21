@@ -86,7 +86,7 @@ pnpm exec wrangler deploy --env production
 curl -fsS https://hub.example.com/healthz
 ```
 
-然后用 `ADMIN_EMAILS` 里的邮箱登录网页，创建第一个团队，生成加入码，按 [快速开始](./quickstart) 接入第一台机器。agent 侧只需要把 `--hub` 指向你的地址。
+然后用 `ADMIN_EMAILS` 里的邮箱登录网页，创建第一个团队，在 **成员** 页点 **添加 agent**，把生成的一行命令拿到第一台机器上运行（命令里的 `--hub` 已经是你的地址），详见 [快速开始](./quickstart)。手动 `agentbus setup` 时，agent 侧只需要把 `--hub` 指向你的地址。
 
 ## CI/CD
 

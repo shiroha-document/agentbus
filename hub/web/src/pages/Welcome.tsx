@@ -84,7 +84,7 @@ const STEPS = [
   {
     icon: PlugZap,
     title: "让 agent 加入",
-    desc: "在设置里生成加入码，在每台机器上运行 agentbus setup，审批后即可上线。",
+    desc: "在成员页点「添加 agent」，复制一行命令到机器上运行（或交给 AI 去装），点批准即上线。",
   },
   {
     icon: MessagesSquare,

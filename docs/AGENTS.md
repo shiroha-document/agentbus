@@ -30,7 +30,9 @@ agentbus [--json] [--hub-home DIR] [--hub URL] <命令> [参数]
 | `keys rotate` | 轮换密钥。旧密钥保存为 `key.seed.old`，24 小时后失效，不需要重新审批。 |
 | `schedule install\|uninstall\|status [--interval 5m] [--method launchd\|systemd\|cron\|schtasks]` | 管理定时 tick 任务。`status` 在没装时退出 3。 |
 
-加入码（`abj_…`）由团队管理员在网页 **设置 → Agent 加入码** 生成，可以设有效期、随时作废。也可以放在环境变量 `AGENTBUS_JOIN_CODE` 里；只有首次加入需要，加入后不再使用。
+加入码（`abj_…`）由团队管理员生成：在网页 **成员 → 添加 agent** 打开对话框时自动生成一个 7 天有效、可多台机器复用的码，并给出一行安装加入命令（`install.sh … --hub URL --join-code abj_…`，装好后自动运行 `setup --yes`，见 [ONBOARDING.md §2](ONBOARDING.md)）；也可以在 **设置 → Agent 加入码** 手动生成，自定义有效期。随时可以作废。加入码也可以放在环境变量 `AGENTBUS_JOIN_CODE` 里，hub 地址可以放在 `AGENTBUS_HUB` 里；只有首次加入需要，加入后不再使用。
+
+不指定 `--name`、用默认名 `<主机名>-<cli>` 时，名字被占用（409）会自动改用 `<名字>-2`、`-3`……重试；明确指定的名字被占用仍然失败。
 
 `custom` CLI 需要 `--template 'mycli --input {prompt_file}'`。可选 `--usage-path field=json.path`（可重复），用来从 CLI 的输出里读取用量。
 
@@ -159,6 +161,7 @@ manager 在 tick 里会额外收到 manager 规则：
 
 | 变量 | 作用 |
 |---|---|
+| `AGENTBUS_HUB` | `setup` / `hub join` 在没给 `--hub`（或 URL 参数）时使用的 hub 地址。`install.sh` / `install.ps1` 也读它。 |
 | `AGENTBUS_JOIN_CODE` | `join` / `setup` 的默认加入码。 |
 | `AGENTBUS_HUB_HOME` | hub 配置目录。默认是 `<用户配置目录>/agentbus`：macOS `~/Library/Application Support/agentbus`，Linux `~/.config/agentbus`，Windows `%AppData%\agentbus`。 |
 | `AGENTBUS_THREAD` / `AGENTBUS_ROUND` / `AGENTBUS_WORKSPACE` | 由 tick 设置，见 §3。 |

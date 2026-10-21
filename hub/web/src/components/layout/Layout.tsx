@@ -22,6 +22,7 @@ import { Avatar } from "../ui/Avatar";
 import { Switch } from "../ui/Switch";
 import { Tip } from "../ui/Tip";
 import { CommandPalette } from "./CommandPalette";
+import { AddAgentProvider } from "../AddAgentDialog";
 import { CreateTeamDialog, TeamSwitcher, TeamTile, useSwitchTeam } from "./TeamSwitcher";
 import { WelcomePage } from "../../pages/Welcome";
 import { roleLabel } from "../../lib/team";
@@ -389,6 +390,7 @@ function Shell({ path, teamId }: { path: string; teamId: string }) {
   const variants = enterVariants(reduced);
 
   return (
+    <AddAgentProvider>
     <div className="min-h-dvh">
       <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[80] focus:btn focus:btn-primary">
         跳到正文
@@ -424,6 +426,7 @@ function Shell({ path, teamId }: { path: string; teamId: string }) {
       <BottomTabs path={path} />
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
     </div>
+    </AddAgentProvider>
   );
 }
 

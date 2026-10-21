@@ -28,6 +28,9 @@ type joinOpts struct {
 	usagePaths                                map[string]string
 	wake, triggerURL, owner, machine          string
 	interval                                  time.Duration
+	// autoName: the name was suggested, not chosen; on a name clash the
+	// join retries with -2, -3, … instead of failing.
+	autoName bool
 }
 
 func cmdHubJoin(c *cli, args []string) error {
@@ -50,7 +53,7 @@ func cmdHubJoin(c *cli, args []string) error {
 	if err != nil {
 		return err
 	}
-	o.url = hubURLFlag
+	o.url = firstOr(hubURLFlag, envHubURL())
 	if len(pos) > 0 {
 		o.url = pos[0]
 	}
@@ -87,6 +90,19 @@ const (
 
 // envJoinCode is $AGENTBUS_JOIN_CODE, the default for --join-code.
 func envJoinCode() string { return strings.TrimSpace(os.Getenv("AGENTBUS_JOIN_CODE")) }
+
+// envHubURL is $AGENTBUS_HUB, the default hub URL for join and setup (the
+// one-line installer sets it so `agentbus setup` needs no arguments).
+func envHubURL() string { return strings.TrimSpace(os.Getenv("AGENTBUS_HUB")) }
+
+// nameVariant is base with a -n suffix, trimmed to the 32-character limit.
+func nameVariant(base string, n int) string {
+	suf := fmt.Sprintf("-%d", n)
+	if len(base)+len(suf) > 32 {
+		base = strings.TrimRight(base[:32-len(suf)], "-_")
+	}
+	return base + suf
+}
 
 // normalizeJoinCode trims whitespace (and stray quotes from copy-paste) and
 // lower-cases; join codes are lowercase base32.
@@ -224,11 +240,21 @@ func hubJoin(ctx context.Context, o joinOpts) (*hub.Config, string, error) {
 		cfg.CLIUsagePaths = o.usagePaths
 	}
 	cl := hub.NewClient(cfg, k, hubVersion())
-	res, err := cl.Join(ctx, hub.JoinReq{JoinCode: o.joinCode, Name: o.name, DisplayName: o.display, CLI: o.cli, WakeMode: o.wake,
-		WakeIntervalS: cfg.WakeIntervalS, Owner: o.owner, Machine: o.machine, PublicKey: hub.PublicKeyB64(k),
-		ClientVersion: hubVersion(), TriggerURL: o.triggerURL})
+	base := o.name
+	var res *hub.JoinResp
+	for n := 1; ; n++ {
+		if n > 1 {
+			cfg.Name = nameVariant(base, n)
+		}
+		res, err = cl.Join(ctx, hub.JoinReq{JoinCode: o.joinCode, Name: cfg.Name, DisplayName: o.display, CLI: o.cli, WakeMode: o.wake,
+			WakeIntervalS: cfg.WakeIntervalS, Owner: o.owner, Machine: o.machine, PublicKey: hub.PublicKeyB64(k),
+			ClientVersion: hubVersion(), TriggerURL: o.triggerURL})
+		if err == nil || !o.autoName || !hub.IsStatus(err, 409) || n >= 20 {
+			break
+		}
+	}
 	if err != nil {
-		return nil, "", joinError(err, o.name, cfg.HubURL)
+		return nil, "", joinError(err, cfg.Name, cfg.HubURL)
 	}
 	cfg.MemberID = res.MemberID
 	cfg.TeamID, cfg.TeamName = res.Team.ID, res.Team.Name

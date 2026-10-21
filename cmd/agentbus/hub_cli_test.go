@@ -31,6 +31,7 @@ type cliHub struct {
 	version string
 	code    string // join_code of the last join
 	team    hub.TeamRef
+	taken   map[string]bool // names the join answers 409 for
 }
 
 const testJoinCode = "abj_k3x9abcdefghijklmnopqrst"
@@ -69,7 +70,7 @@ func (h *cliHub) serve(w http.ResponseWriter, r *http.Request) {
 			reply(403, map[string]any{"error": map[string]any{"code": "bad_join_code", "message": "invalid, expired or revoked join code"}})
 			return
 		}
-		if jr.Name == "taken" {
+		if jr.Name == "taken" || h.taken[jr.Name] {
 			reply(409, map[string]any{"error": map[string]any{"code": "conflict", "message": "name taken"}})
 			return
 		}
@@ -111,6 +112,7 @@ func newCLIHub(t *testing.T) (*cliHub, string) {
 	t.Setenv("AGENTBUS_ROUND", "")
 	t.Setenv("AGENTBUS_THREAD", "")
 	t.Setenv("AGENTBUS_JOIN_CODE", "")
+	t.Setenv("AGENTBUS_HUB", "")
 	return h, srv.URL
 }
 
@@ -501,6 +503,50 @@ func TestSetupJoinCodeFromEnv(t *testing.T) {
 	}
 }
 
+func TestSetupHubFromEnvAndAutoName(t *testing.T) {
+	h, url := newCLIHub(t)
+	oldL := lookPath
+	lookPath = func(string) (string, error) { return "", errors.New("not found") }
+	defer func() { lookPath = oldL }()
+	t.Setenv("AGENTBUS_HUB", url)
+	t.Setenv("AGENTBUS_JOIN_CODE", testJoinCode)
+	// the suggested name is taken: setup retries with a suffix
+	h.taken = map[string]bool{suggestName(mustHost(t), "codex"): true}
+	code, out := run(t, "setup", "--yes", "--cli", "codex", "--no-schedule", "--no-doctor")
+	want := nameVariant(suggestName(mustHost(t), "codex"), 2)
+	if code != 0 || h.code != testJoinCode || !strings.Contains(out, "as "+want+" ") {
+		t.Fatalf("%d %s", code, out)
+	}
+	if cfg, err := hub.LoadConfig(hub.Dir()); err != nil || cfg.Name != want || cfg.HubURL != url {
+		t.Fatalf("%+v %v", cfg, err)
+	}
+}
+
+func TestJoinExplicitNameTakenFails(t *testing.T) {
+	_, url := newCLIHub(t)
+	t.Setenv("AGENTBUS_HUB", url)
+	code, out := run(t, "join", "--join-code", testJoinCode, "--name", "taken")
+	if code == 0 || !strings.Contains(out, `the name "taken" is taken`) {
+		t.Fatalf("%d %s", code, out)
+	}
+}
+
+func TestNameVariant(t *testing.T) {
+	if got := nameVariant("box-codex", 2); got != "box-codex-2" {
+		t.Fatal(got)
+	}
+	long := strings.Repeat("a", 31) + "b"
+	if got := nameVariant(long, 12); len(got) != 32 || !strings.HasSuffix(got, "-12") || !nameRE.MatchString(got) {
+		t.Fatal(got)
+	}
+}
+
+func mustHost(t *testing.T) string {
+	t.Helper()
+	h, _ := os.Hostname()
+	return h
+}
+
 func TestUsageText(t *testing.T) {
 	if code, _ := run(t); code != exitUsage {
 		t.Fatalf("bare agentbus exit %d", code)
@@ -510,7 +556,7 @@ func TestUsageText(t *testing.T) {
 		t.Fatalf("help exit %d", code)
 	}
 	for _, w := range []string{"Setup & identity", "Daily loop", "Threads", "Quota", "Manager", "Maintenance",
-		"join URL --join-code CODE --name N", "setup [URL] [--join-code CODE]", "AGENTBUS_JOIN_CODE", "Settings → Agent 加入码"} {
+		"join URL --join-code CODE --name N", "setup [URL] [--join-code CODE]", "AGENTBUS_JOIN_CODE", "AGENTBUS_HUB", "Settings → Agent 加入码"} {
 		if !strings.Contains(out, w) {
 			t.Errorf("usage lacks %q", w)
 		}

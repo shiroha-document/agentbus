@@ -3,11 +3,49 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/shiroha-document/agentbus/main/install.sh | sh
 #
+# One line install + join (what hub → 成员 → 添加 agent copies for you):
+#
+#   curl -fsSL …/install.sh | sh -s -- --hub https://hub.example.com --join-code abj_…
+#
+# With --hub and --join-code it runs `agentbus setup --yes` right after the
+# install: first coding CLI found, tier workspace, scheduler installed, then
+# the agent waits for a team admin to approve it on the hub.
+#
+# Options (after `sh -s --`):
+#   --hub URL          hub to join (or $AGENTBUS_HUB)
+#   --join-code CODE   team join code abj_… (or $AGENTBUS_JOIN_CODE)
+#   --name NAME        agent name (default: <host>-<cli>, suffixed if taken)
+#   --interactive      ask setup's questions on the terminal instead of --yes
+#   --no-setup         only install the binary
+#   anything else      passed to `agentbus setup` (e.g. --cli codex --tier readonly)
+#
 # Env:
 #   AGENTBUS_VERSION  tag to install (default: latest release), e.g. v0.3.0
 #   AGENTBUS_BIN      install directory (default: ~/.local/bin)
 #   AGENTBUS_UPDATE_BASE  release base URL (default: the public repo)
 set -eu
+
+hub=${AGENTBUS_HUB:-}
+code=${AGENTBUS_JOIN_CODE:-}
+name=
+interactive=
+nosetup=
+extra=
+quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+while [ $# -gt 0 ]; do
+	case $1 in
+	--hub) [ $# -ge 2 ] || { echo "install.sh: --hub needs a URL" >&2; exit 2; }; hub=$2; shift 2 ;;
+	--hub=*) hub=${1#--hub=}; shift ;;
+	--join-code) [ $# -ge 2 ] || { echo "install.sh: --join-code needs a code" >&2; exit 2; }; code=$2; shift 2 ;;
+	--join-code=*) code=${1#--join-code=}; shift ;;
+	--name) [ $# -ge 2 ] || { echo "install.sh: --name needs a value" >&2; exit 2; }; name=$2; shift 2 ;;
+	--name=*) name=${1#--name=}; shift ;;
+	--interactive) interactive=1; shift ;;
+	--no-setup) nosetup=1; shift ;;
+	--yes) shift ;;
+	*) extra="$extra $(quote "$1")"; shift ;;
+	esac
+done
 
 BASE=${AGENTBUS_UPDATE_BASE:-https://github.com/shiroha-document/agentbus}
 BIN=${AGENTBUS_BIN:-$HOME/.local/bin}
@@ -74,3 +112,24 @@ case ":$PATH:" in
 *":$BIN:"*) ;;
 *) say "note: $BIN is not on PATH; add it, e.g. echo 'export PATH=\"$BIN:\$PATH\"' >> ~/.profile" ;;
 esac
+
+# --- join the hub team (one-line onboarding) ---
+[ -z "$nosetup" ] || exit 0
+if [ -z "$hub" ] && [ -z "$code" ]; then
+	say "next: agentbus setup --hub https://<your hub> --join-code abj_…  (hub → 成员 → 添加 agent)"
+	exit 0
+fi
+[ -n "$hub" ] || die "--join-code given without --hub URL"
+[ -n "$code" ] || die "--hub given without --join-code abj_… (hub → 成员 → 添加 agent)"
+set -- setup --hub "$hub" --join-code "$code"
+[ -z "$name" ] || set -- "$@" --name "$name"
+if [ -n "$extra" ]; then
+	eval "set -- \"\$@\" $extra"
+fi
+say "joining $hub …"
+if [ -n "$interactive" ] && [ -r /dev/tty ]; then
+	"$BIN/$exe" "$@" </dev/tty || die "setup reported a problem above; fix it, then run: $BIN/$exe doctor"
+else
+	"$BIN/$exe" "$@" --yes </dev/null || die "setup reported a problem above; fix it, then run: $BIN/$exe doctor"
+fi
+say "done. A team admin approves this agent on the hub; check with: $BIN/$exe status"

@@ -380,7 +380,7 @@ func cmdSetup(c *cli, args []string) error {
 
 	// 2. join
 	o := joinOpts{cli: cn, binary: *binary, template: *template, owner: *owner, machine: *machine, wake: "poll"}
-	o.url = hubURLFlag
+	o.url = firstOr(hubURLFlag, envHubURL())
 	if len(pos) > 0 {
 		o.url = pos[0]
 	}
@@ -402,7 +402,9 @@ func cmdSetup(c *cli, args []string) error {
 		}
 		if o.name == "" {
 			h, _ := os.Hostname()
-			o.name = pr.ask("agent name", suggestName(h, cn))
+			sug := suggestName(h, cn)
+			o.name = pr.ask("agent name", sug)
+			o.autoName = o.name == sug // taken? the join picks sug-2, sug-3, …
 		}
 	}
 	if *interval != "" {

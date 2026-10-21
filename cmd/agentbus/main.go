@@ -135,8 +135,10 @@ Setup & identity
   status [--no-quota] last tick, scheduler and quota at a glance
   doctor             check config, key, CLI, repos, scheduler, clock, hub access
 
-  A join code (abj_...) is created by a team admin in hub Settings → Agent 加入码.
-  Pass it with --join-code or $AGENTBUS_JOIN_CODE; it is only needed for the first join.
+  A join code (abj_...) is created by a team admin in hub Settings → Agent 加入码
+  (or Members → 添加 agent, which also gives a ready-to-paste one-line install).
+  Pass it with --join-code or $AGENTBUS_JOIN_CODE, the hub URL with --hub or
+  $AGENTBUS_HUB; both are only needed for the first join.
 
 Daily loop
   tick [--max-threads N] [--timeout 20m] [--dry-run] [--quiet]

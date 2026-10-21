@@ -5,7 +5,7 @@ import { useState, type FormEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { AlertTriangle, Building2, KeyRound, LogOut, MailPlus, Plus, Trash2, UserCog } from "lucide-react";
+import { AlertTriangle, Building2, ChevronDown, KeyRound, LogOut, MailPlus, Plus, Trash2, UserCog, UserPlus } from "lucide-react";
 import { api } from "../../api";
 import { qk, selectTeam, useAction, useMe, useMembers, useRole } from "../../queries";
 import { formatDateTime, formatRelative } from "../../lib/format";
@@ -15,7 +15,7 @@ import {
   INVITE_STATUS_LABEL,
   inviteStatus,
   joinCodeStatus,
-  joinSnippet,
+  unixOneLiner,
   roleLabel,
   type InviteStatus,
   type JoinCodeStatus,
@@ -29,6 +29,7 @@ import { toast } from "../../components/ui/Toast";
 import { QueryError } from "../../components/layout/RouteStates";
 import { TeamTile } from "../../components/layout/TeamSwitcher";
 import { useMemberMap } from "../../components/threads";
+import { useAddAgent } from "../../components/AddAgentDialog";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -255,6 +256,8 @@ export function JoinCodesSection() {
   const [days, setDays] = useState("");
   const [created, setCreated] = useState<{ code: JoinCode; secret: string } | null>(null);
   const [revoking, setRevoking] = useState<JoinCode | null>(null);
+  const [manual, setManual] = useState(false);
+  const addAgent = useAddAgent();
   const create = useAction(
     (b: { label?: string; expires_in_days?: number }) => api.createJoinCode(b),
     { invalidate: [qk.joinCodes] },
@@ -283,9 +286,31 @@ export function JoinCodesSection() {
         Agent 加入码
       </SectionTitle>
       <p className="mb-4 mt-1 text-callout font-normal text-fg-2">
-        agent 用加入码申请加入这个团队，申请后仍需要你在成员页审批。加入码可以重复使用，泄露后请立即作废。
+        agent 用加入码申请加入这个团队，申请后仍需要你审批。加入码可以重复使用，泄露后请立即作废。
       </p>
-      <form onSubmit={submit} className="grid gap-2 sm:grid-cols-[1fr_160px_auto]">
+      <div className="flex flex-col gap-3 rounded-[18px] border border-mint-300 bg-mint-50 p-4 sm:flex-row sm:items-center">
+        <span className="flex h-10 w-10 flex-none items-center justify-center rounded-full bg-mint-100 text-mint-700">
+          <UserPlus size={20} aria-hidden />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="text-callout font-semibold text-fg">一键添加 agent</div>
+          <div className="text-caption text-fg-caption">自动生成 7 天有效的加入码，给你一行安装 + 加入的命令或 AI 提示词，并在弹窗里直接审批。</div>
+        </div>
+        <button type="button" className="btn btn-primary flex-none" onClick={addAgent}>
+          <UserPlus size={16} aria-hidden /> 添加 agent
+        </button>
+      </div>
+      <button
+        type="button"
+        className="mt-3 flex items-center gap-1 text-callout text-fg-2 hover:text-fg"
+        aria-expanded={manual || !!created}
+        onClick={() => setManual((m) => !m)}
+      >
+        <ChevronDown size={16} className={cn("transition-transform", (manual || created) && "rotate-180")} aria-hidden />
+        手动生成加入码（自定义备注和有效期）
+      </button>
+      <Reveal show={manual || !!created}>
+      <form onSubmit={submit} className="mt-3 grid gap-2 sm:grid-cols-[1fr_160px_auto]">
         <input
           className="field"
           placeholder="备注（可选），例如 “办公室 Mac mini”"
@@ -305,6 +330,7 @@ export function JoinCodesSection() {
           <Plus size={16} aria-hidden /> {create.isPending ? "生成中…" : "生成加入码"}
         </button>
       </form>
+      </Reveal>
       <Reveal show={!!created}>
         {created ? (
           <div className="mt-3 flex flex-col gap-2">
@@ -314,8 +340,8 @@ export function JoinCodesSection() {
             </p>
             <SecretBlock
               multiline
-              text={joinSnippet(origin, created.secret)}
-              hint="加入码只显示这一次，关闭后只能看到前 8 位。已经装过 agentbus 的机器只需要第二行。"
+              text={unixOneLiner(origin, created.secret)}
+              hint="一行命令安装并加入（macOS / Linux）。加入码只显示这一次，关闭后只能看到前 8 位；Windows 和 AI 提示词请用上面的「添加 agent」。"
             />
             <div className="flex flex-wrap items-center justify-end gap-2">
               <CopyButton text={created.secret} label="只复制加入码" className="btn-sm" />

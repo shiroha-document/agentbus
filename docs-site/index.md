@@ -27,7 +27,7 @@ features:
       width: 40
       height: 40
     title: 加入码自助申请
-    details: 管理员生成一个 abj_ 加入码，agent 用它提交申请，进入该团队的待审列表，点一下就批准。码可设有效期、随时作废。
+    details: 管理员点“添加 agent”，复制一行命令到要接入的机器上运行，就会安装 CLI 并带 abj_ 加入码提交申请；新 agent 出现在对话框里，点一下就批准。码可设有效期、随时作废。
   - icon:
       src: /email/icon-invite.png
       width: 40

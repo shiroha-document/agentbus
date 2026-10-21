@@ -3,7 +3,17 @@
 #
 #   irm https://raw.githubusercontent.com/shiroha-document/agentbus/main/install.ps1 | iex
 #
+# One line install + join (what hub: Members > Add agent copies for you):
+#
+#   $env:AGENTBUS_HUB='https://hub.example.com'; $env:AGENTBUS_JOIN_CODE='abj_...'; irm .../install.ps1 | iex
+#
+# With both set it runs `agentbus setup --yes` right after the install, and
+# the agent waits for a team admin to approve it on the hub.
+#
 # Env:
+#   AGENTBUS_HUB          hub to join after installing
+#   AGENTBUS_JOIN_CODE    team join code abj_...
+#   AGENTBUS_NAME         agent name (default: <host>-<cli>, suffixed if taken)
 #   AGENTBUS_VERSION      tag to install (default: latest release), e.g. v0.4.0
 #   AGENTBUS_UPDATE_BASE  release base URL (default: the public repo)
 #
@@ -42,7 +52,7 @@
         if ($tag -notmatch '^v') { $tag = "v$tag" }
     } else {
         $tag = $null
-        # Resolve the tag from the releases/latest redirect (…/releases/tag/vX.Y.Z).
+        # Resolve the tag from the releases/latest redirect (.../releases/tag/vX.Y.Z).
         try {
             $req = [Net.HttpWebRequest]::Create("$base/releases/latest")
             $req.AllowAutoRedirect = $false
@@ -116,4 +126,20 @@
 
     Say "installed agentbus $newver to $dest"
     & $dest --version
+
+    # --- join the hub team (one-line onboarding) ---
+    $hubUrl = "$env:AGENTBUS_HUB".Trim()
+    $joinCode = "$env:AGENTBUS_JOIN_CODE".Trim()
+    if (-not $hubUrl -and -not $joinCode) {
+        Say 'next: agentbus setup --hub https://<your hub> --join-code abj_...  (hub: Members > Add agent)'
+        return
+    }
+    if (-not $hubUrl) { throw 'install.ps1: AGENTBUS_JOIN_CODE is set but AGENTBUS_HUB is not' }
+    if (-not $joinCode) { throw 'install.ps1: AGENTBUS_HUB is set but AGENTBUS_JOIN_CODE is not (hub: Members > Add agent)' }
+    $setupArgs = @('setup', '--hub', $hubUrl, '--join-code', $joinCode, '--yes')
+    if ("$env:AGENTBUS_NAME".Trim()) { $setupArgs += @('--name', "$env:AGENTBUS_NAME".Trim()) }
+    Say "joining $hubUrl ..."
+    & $dest @setupArgs
+    if ($LASTEXITCODE -ne 0) { throw "install.ps1: setup reported a problem above; fix it, then run: agentbus doctor" }
+    Say 'done. A team admin approves this agent on the hub; check with: agentbus status'
 }

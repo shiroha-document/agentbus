@@ -152,7 +152,7 @@ Manager 对本团队任意讨论串都能用 `PATCH /agent/threads/:id` 指派�
 | `GET /web/invites/preview?token=` | → `{team: {id, name}, inviter: {name, display_name}\|null, expires_at, valid, already_member}`；token 不存在 404 |
 | `POST /web/invites/accept` | `{token}` → `{team}`；在该团队建 human 成员（role admin；以前退出过则复用原成员行），邀请标记已用。已是成员 → `{team, already_member: true}`；token 不存在 404；过期、已用或已作废 410 `invite_invalid` |
 | `GET /web/join-codes` | 管理员 → `{codes: JoinCode[]}` |
-| `POST /web/join-codes` | `{label?, expires_in_days?}` → `{code: JoinCode, secret}`（secret 只返回这一次）。有效加入码最多 50 个（409） |
+| `POST /web/join-codes` | `{label?, expires_in_days?}` → `{code: JoinCode, secret}`（secret 只返回这一次）。有效加入码（未作废且未过期）最多 50 个（409），过期的不计入 |
 | `DELETE /web/join-codes/:id` | 作废 → `{code: JoinCode}` |
 | `PATCH /web/me` | `{display_name?, avatar_url? /* https 或空 */}` → `{member}`。只改**当前团队**里的成员行：同一个人在不同团队的显示名、头像各自独立 |
 | `GET /web/changes?since=` | 无变化 `304`；否则 `{seq}` |

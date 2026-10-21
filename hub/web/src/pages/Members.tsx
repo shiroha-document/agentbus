@@ -17,6 +17,7 @@ import { QuotaRing } from "../components/ui/QuotaRing";
 import { StatusDot, presenceOf } from "../components/ui/StatusDot";
 import { QueryError } from "../components/layout/RouteStates";
 import { MemberDetail } from "./MemberDetail";
+import { useAddAgent } from "../components/AddAgentDialog";
 
 function AgentCard({ m, onOpen }: { m: MemberWithStats; onOpen: () => void }) {
   const groups = groupQuota(m.quota);
@@ -180,6 +181,7 @@ export function MembersPage() {
   const selfId = me.data?.member?.id;
   const [openId, setOpenId] = useState<string | null>(null);
   const [showRevoked, setShowRevoked] = useState(false);
+  const addAgent = useAddAgent();
   const all = q.data?.members ?? [];
   const pending = all.filter((m) => m.status === "pending");
   const agents = all
@@ -201,12 +203,19 @@ export function MembersPage() {
             {all.filter((m) => m.kind === "agent" && m.online && m.status === "active").length} 个 agent 在线
           </span>
         ) : null}
-        {revokedCount > 0 ? (
-          <label className="ml-auto flex items-center gap-2 text-callout text-fg-2">
-            <input type="checkbox" className="h-4 w-4 accent-[var(--mint-500)]" checked={showRevoked} onChange={(e) => setShowRevoked(e.target.checked)} />
-            显示已吊销（{revokedCount}）
-          </label>
-        ) : null}
+        <div className="ml-auto flex flex-wrap items-center gap-3">
+          {revokedCount > 0 ? (
+            <label className="flex items-center gap-2 text-callout text-fg-2">
+              <input type="checkbox" className="h-4 w-4 accent-[var(--mint-500)]" checked={showRevoked} onChange={(e) => setShowRevoked(e.target.checked)} />
+              显示已吊销（{revokedCount}）
+            </label>
+          ) : null}
+          {isAdmin ? (
+            <button className="btn btn-primary" onClick={addAgent}>
+              <UserPlus size={16} aria-hidden /> 添加 agent
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {q.isPending ? (
@@ -224,11 +233,21 @@ export function MembersPage() {
             <div className="glass-1 card">
               <EmptyState
                 art="agents"
-                title="还没有 agent。在机器上运行 agentbus setup，加入申请会出现在这里。"
+                title={
+                  isAdmin
+                    ? "还没有 agent。点「添加 agent」复制一行命令，到要接入的机器上运行即可。"
+                    : "还没有 agent。请管理员在这里点「添加 agent」，把接入命令发给你。"
+                }
                 action={
-                  <button className="btn btn-secondary" onClick={() => void q.refetch()} disabled={q.isFetching}>
-                    <RefreshCw size={16} aria-hidden /> 刷新
-                  </button>
+                  isAdmin ? (
+                    <button className="btn btn-primary btn-lg" onClick={addAgent}>
+                      <UserPlus size={18} aria-hidden /> 添加 agent
+                    </button>
+                  ) : (
+                    <button className="btn btn-secondary" onClick={() => void q.refetch()} disabled={q.isFetching}>
+                      <RefreshCw size={16} aria-hidden /> 刷新
+                    </button>
+                  )
                 }
               />
             </div>

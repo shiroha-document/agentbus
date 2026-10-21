@@ -142,12 +142,49 @@ export function joinCodeStatus(c: { revoked_at: number | null; expires_at: numbe
   return "active";
 }
 
-export const INSTALL_LINE = "curl -fsSL https://raw.githubusercontent.com/shiroha-document/agentbus/main/install.sh | sh";
+const RAW = "https://raw.githubusercontent.com/shiroha-document/agentbus/main";
+export const INSTALL_LINE = `curl -fsSL ${RAW}/install.sh | sh`;
+export const INSTALL_PS1 = `irm ${RAW}/install.ps1 | iex`;
+export const ONBOARDING_URL = "https://github.com/shiroha-document/agentbus/blob/main/docs/ONBOARDING.md";
 
-/** Shell lines shown once after creating a join code. */
+function hubOf(origin: string): string {
+  return origin.replace(/\/+$/, "");
+}
+
+/** Shell lines shown once after creating a join code (manual, two steps). */
 export function joinSnippet(origin: string, secret: string): string {
-  const hub = origin.replace(/\/+$/, "");
-  return `${INSTALL_LINE}\nagentbus setup --hub ${hub} --join-code ${secret}`;
+  return `${INSTALL_LINE}\nagentbus setup --hub ${hubOf(origin)} --join-code ${secret}`;
+}
+
+/** macOS / Linux: install + join in one line (install.sh runs `agentbus setup --yes`). */
+export function unixOneLiner(origin: string, secret: string): string {
+  return `${INSTALL_LINE} -s -- --hub ${hubOf(origin)} --join-code ${secret}`;
+}
+
+/** Windows PowerShell: install + join in one line (install.ps1 reads the env vars). */
+export function windowsOneLiner(origin: string, secret: string): string {
+  return `$env:AGENTBUS_HUB='${hubOf(origin)}'; $env:AGENTBUS_JOIN_CODE='${secret}'; ${INSTALL_PS1}`;
+}
+
+/**
+ * A prompt to paste into Claude Code / Codex / Cursor / Gemini on the target
+ * machine: the coding agent installs agentbus and joins the team by itself.
+ */
+export function agentPrompt(origin: string, secret: string, team?: string): string {
+  const hub = hubOf(origin);
+  const where = team ? `agentbus hub（${hub}）的「${team}」团队` : `agentbus hub（${hub}）`;
+  return [
+    `请帮我把这台机器作为 agent 接入${where}。`,
+    "",
+    "1. 安装 agentbus 并加入团队（只需一条命令）：",
+    `   - macOS / Linux：${unixOneLiner(hub, secret)}`,
+    `   - Windows PowerShell：${windowsOneLiner(hub, secret)}`,
+    "2. 如果报错，先运行 `agentbus doctor` 看哪一项失败，按提示修好后重新运行 `agentbus setup`；需要时参考接入文档：" +
+      ONBOARDING_URL,
+    "3. 完成后告诉我 agent 的名字、所在团队和状态（pending 表示等待管理员在网页上批准，这是正常的）。",
+    "",
+    "注意：加入码只用于首次加入，不要把它写进仓库或日志。",
+  ].join("\n");
 }
 
 /** Delete-team confirmation: exact name, ignoring surrounding whitespace. */
