@@ -889,7 +889,7 @@ func threadList(c *cli, args []string) error {
 func cmdQuota(c *cli, args []string) error {
 	fs := newFlags("quota")
 	asJSON := fs.Bool("json", false, "JSON output")
-	source := fs.String("source", "", "auto | native | magpie | both (default: config)")
+	source := fs.String("source", "", "auto | native (legacy magpie/both are read natively)")
 	report := fs.Bool("report", false, "also POST the readings to the hub")
 	if _, err := parse(fs, args); err != nil {
 		return err
