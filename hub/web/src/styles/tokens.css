@@ -29,12 +29,14 @@
 
   /* 1.2 neutrals */
   --bg: oklch(0.985 0.006 165);
-  --surface: oklch(1 0 0 / 0.62);
-  --surface-strong: oklch(1 0 0 / 0.82);
+  --surface: oklch(1 0 0 / 0.78);
+  --surface-strong: oklch(1 0 0 / 0.9);
   --surface-solid: oklch(0.995 0.004 165);
   /* floating layers (dialogs, menus, popovers, toasts): near-opaque so text stays readable over busy pages */
   --surface-float: oklch(0.995 0.004 165 / 0.96);
   --scrim: oklch(0.25 0.02 165 / 0.32);
+  /* pinned chrome (header, sidebar, mobile tab bar, sticky composer): content scrolls under it */
+  --surface-bar: oklch(0.99 0.005 165 / 0.94);
   --border: oklch(0.2 0.02 165 / 0.08);
   --border-strong: oklch(0.2 0.02 165 / 0.16);
   --text: oklch(0.22 0.015 165);
@@ -126,11 +128,12 @@
   --mint-950: oklch(0.22 0.05 165);
 
   --bg: oklch(0.17 0.012 165);
-  --surface: oklch(0.24 0.014 165 / 0.55);
-  --surface-strong: oklch(0.27 0.014 165 / 0.78);
+  --surface: oklch(0.24 0.014 165 / 0.74);
+  --surface-strong: oklch(0.27 0.014 165 / 0.88);
   --surface-solid: oklch(0.24 0.014 165);
   --surface-float: oklch(0.235 0.014 165 / 0.96);
   --scrim: oklch(0.08 0.01 165 / 0.6);
+  --surface-bar: oklch(0.2 0.013 165 / 0.94);
   --border: oklch(1 0 0 / 0.08);
   --border-strong: oklch(1 0 0 / 0.16);
   --text: oklch(0.95 0.008 165);
@@ -177,6 +180,7 @@
     --surface: var(--surface-solid);
     --surface-strong: var(--surface-solid);
     --surface-float: var(--surface-solid);
+    --surface-bar: var(--surface-solid);
     --border: var(--border-strong);
     --text-2: var(--text);
     --text-3: var(--text-cap);

@@ -91,7 +91,7 @@
   gap: 2px;
   padding: 6px 10px;
   border-radius: 16px;
-  background: var(--surface-strong);
+  background: var(--surface-float);
   border: 1px solid var(--border);
   box-shadow: var(--elev-1);
 }

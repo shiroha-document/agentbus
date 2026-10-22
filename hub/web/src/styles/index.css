@@ -66,6 +66,13 @@
   border: 1px solid var(--border);
   box-shadow: var(--glass-highlight);
 }
+/* Pinned chrome that content scrolls underneath: header, sidebar, mobile tab bar. */
+@utility glass-bar {
+  background: var(--surface-bar);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid var(--border);
+}
 /* Floating layers: dialogs, drawers, menus, popovers, toasts, tooltips. */
 @utility glass-3 {
   background: var(--surface-float);
@@ -78,7 +85,8 @@
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .glass-1,
   .glass-2,
-  .glass-3 {
+  .glass-3,
+  .glass-bar {
     background: var(--surface-solid);
   }
 }

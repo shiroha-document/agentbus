@@ -59,7 +59,7 @@ export function Composer({ threadId, members, replyTo, replyAuthor, onClearReply
   };
 
   return (
-    <div className="glass-2 relative rounded-[24px] p-3" {...drop.handlers}>
+    <div className="glass-3 relative rounded-[24px] p-3" {...drop.handlers}>
       <DropHint show={drop.dragging} />
       {replyTo ? (
         <div className="mb-2 flex items-center gap-2 rounded-[12px] bg-mint-50 px-3 py-1.5 text-caption text-fg-2">

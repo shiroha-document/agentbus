@@ -52,7 +52,7 @@ function Sidebar({ collapsed, onToggle, path }: { collapsed: boolean; onToggle: 
     <motion.aside
       animate={{ width: collapsed ? 72 : 240 }}
       transition={springSoft}
-      className="glass-2 fixed inset-y-0 left-0 z-30 hidden flex-col overflow-hidden border-y-0 border-l-0 md:flex"
+      className="glass-bar fixed inset-y-0 left-0 z-30 hidden flex-col overflow-hidden border-y-0 border-l-0 md:flex"
       aria-label="主导航"
     >
       <div className={cn("flex h-14 items-center", collapsed ? "px-[14px]" : "px-3")}>
@@ -110,7 +110,7 @@ function Sidebar({ collapsed, onToggle, path }: { collapsed: boolean; onToggle: 
 function BottomTabs({ path }: { path: string }) {
   return (
     <nav
-      className="glass-2 fixed inset-x-0 bottom-0 z-30 flex border-x-0 border-b-0 pb-[env(safe-area-inset-bottom)] md:hidden"
+      className="glass-bar fixed inset-x-0 bottom-0 z-30 flex border-x-0 border-b-0 pb-[env(safe-area-inset-bottom)] md:hidden"
       aria-label="主导航"
     >
       {primaryNav().map(({ to, label, icon: Icon }) => {
@@ -342,7 +342,7 @@ function BareShell({ children }: { children: ReactNode }) {
 function BootSkeleton() {
   return (
     <div className="min-h-dvh md:pl-[240px]" aria-busy="true" aria-label="加载中">
-      <div className="glass-2 fixed inset-y-0 left-0 hidden w-[240px] border-y-0 border-l-0 md:block" />
+      <div className="glass-bar fixed inset-y-0 left-0 hidden w-[240px] border-y-0 border-l-0 md:block" />
       <div className="mx-auto max-w-[1200px] space-y-4 px-4 pt-20 md:px-8">
         <div className="skeleton h-10 w-72" />
         <div className="skeleton h-28 w-full" />
@@ -442,7 +442,7 @@ function Shell({ path, teamId }: { path: string; teamId: string }) {
         className="flex min-h-dvh flex-col transition-[padding] duration-300 ease-smooth md:pl-[var(--sidebar-w)]"
         style={{ ["--sidebar-w" as string]: collapsed ? "72px" : "240px" }}
       >
-        <header className="glass-2 sticky top-0 z-20 flex h-14 items-center gap-3 border-x-0 border-t-0 px-4 md:px-8">
+        <header className="glass-bar sticky top-0 z-20 flex h-14 items-center gap-3 border-x-0 border-t-0 px-4 md:px-8">
           <Breadcrumb path={path} />
           <button
             className="btn btn-secondary h-9 w-9 px-0 sm:w-auto sm:min-w-[200px] sm:justify-start sm:px-3"
