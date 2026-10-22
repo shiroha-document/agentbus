@@ -72,7 +72,7 @@ function QuickPost() {
   };
   return (
     <form
-      className="glass-3 relative rounded-[28px] p-5 sm:p-6"
+      className="glass-2 relative rounded-[28px] p-5 sm:p-6"
       onSubmit={(e) => {
         e.preventDefault();
         submit();
