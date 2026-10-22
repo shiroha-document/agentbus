@@ -187,7 +187,9 @@ func runDoctor(ctx context.Context) []check {
 		add("key", "ok", "%s", p.Key())
 	}
 
-	if ad, err := adapter.Get(cfg.CLI); err != nil {
+	if cfg.CLI == adapter.Manual {
+		add("cli", "ok", "manual (self-driven: the agent runs `agentbus inbox` from its own scheduled task)")
+	} else if ad, err := adapter.Get(cfg.CLI); err != nil {
 		add("cli", "fail", "%v", err)
 	} else if bin, err := adapter.Resolve(ad, adapter.Options{Binary: cfg.CLIBinary, Template: cfg.CLITemplate, LookPath: lookPath}); err != nil {
 		if cfg.CLI == "custom" {
@@ -221,6 +223,12 @@ func runDoctor(ctx context.Context) []check {
 
 	if cfg.Wake == "trigger" {
 		add("scheduler", "skip", "wake mode trigger")
+	} else if cfg.CLI == adapter.Manual {
+		if st := querySchedule(cfg.Name); st.Installed {
+			add("scheduler", "warn", "%s: %s — not needed in manual mode (tick does nothing); remove it with `agentbus schedule uninstall`", st.Method, st.Detail)
+		} else {
+			add("scheduler", "skip", "manual mode: the agent's own scheduled task runs `agentbus inbox`")
+		}
 	} else if st := querySchedule(cfg.Name); st.Installed {
 		add("scheduler", "ok", "%s: %s", st.Method, st.Detail)
 	} else {
@@ -319,12 +327,13 @@ func (s *setupUI) choose(title string, opts []tui.Option, def string) (string, e
 	return opts[i].Value, nil
 }
 
-// detectCLIs returns the supported CLIs found on PATH (name -> path).
+// detectCLIs returns the supported CLIs found on PATH (name -> path), in
+// display order. manual and custom have no binary and are never "found".
 func detectCLIs() (map[string]string, []string) {
 	found := map[string]string{}
 	var order []string
 	for _, n := range adapter.Known {
-		if n == "custom" {
+		if n == "custom" || n == adapter.Manual {
 			continue
 		}
 		ad, _ := adapter.Get(n)
@@ -336,23 +345,42 @@ func detectCLIs() (map[string]string, []string) {
 	return found, order
 }
 
-// cliOptions is the CLI menu: every adapter with its label and where it was
-// found (or that it is missing).
+// cliOptions is the CLI menu: the CLIs found on this machine first (with
+// their path), then manual (self-driven harnesses) and custom, then the
+// supported CLIs that are not installed.
 func cliOptions(found map[string]string) []tui.Option {
-	var opts []tui.Option
+	var have, missing []tui.Option
 	for _, n := range adapter.Known {
-		o := tui.Option{Value: n, Label: adapter.Label(n) + " (" + n + ")"}
-		switch {
-		case n == "custom":
-			o.Hint = i18n.Pick("your own command line with {prompt_file}", "自定义命令行，用 {prompt_file} 传入提示词")
-		case found[n] != "":
-			o.Hint = found[n]
-		default:
-			o.Hint = i18n.Pick("not found on PATH", "PATH 中未找到")
+		if n == "custom" || n == adapter.Manual {
+			continue
 		}
-		opts = append(opts, o)
+		o := tui.Option{Value: n, Label: adapter.Label(n)}
+		if found[n] != "" {
+			o.Hint = found[n]
+			have = append(have, o)
+		} else {
+			o.Hint = i18n.Pick("not installed", "未安装")
+			missing = append(missing, o)
+		}
 	}
-	return opts
+	opts := append(have,
+		tui.Option{Value: adapter.Manual, Label: i18n.Pick("Manual / self-driven", "手动 / 自驱"),
+			Hint: i18n.Pick("OpenAI dot and other agents that wake themselves on a schedule and run `agentbus inbox`",
+				"OpenAI dot 等靠自己的定时任务唤醒、自己运行 `agentbus inbox` 的 agent")},
+		tui.Option{Value: "custom", Label: i18n.Pick("Custom command", "自定义命令"),
+			Hint: i18n.Pick("your own command line with {prompt_file}", "自定义命令行，用 {prompt_file} 传入提示词")})
+	return append(opts, missing...)
+}
+
+// manualHowTo tells a self-driven agent how to wire its own scheduler.
+func manualHowTo(every string) string {
+	return fmt.Sprintf(i18n.Pick(
+		"manual mode: no scheduler job is installed. In the agent's own harness create a recurring task (every %s) that runs `agentbus inbox`; "+
+			"when it prints a thread, follow the prompt, reply with `agentbus post --thread T …` and finish with `agentbus ack --thread T`. "+
+			"Exit code 3 / \"nothing to do\" means stop until the next wake-up.",
+		"自驱模式：不安装定时任务。请在 agent 自己的 harness 里建一个每 %s 运行一次的定时任务，执行 `agentbus inbox`；"+
+			"输出了讨论串就按里面的提示词处理，用 `agentbus post --thread T …` 回复，最后 `agentbus ack --thread T`。"+
+			"退出码 3 /「没有新消息」就结束，等下一次唤醒。"), every)
 }
 
 func tierOptions() []tui.Option {
@@ -442,7 +470,12 @@ func cmdSetup(c *cli, args []string) error {
 	} else if len(order) > 0 {
 		def = order[0]
 	}
-	cn := strings.ToLower(strings.TrimSpace(*cliName))
+	cn := strings.ToLower(strings.TrimSpace(firstOr(*cliName, os.Getenv("AGENTBUS_CLI"))))
+	if cn == "" && existing == nil && len(order) == 1 {
+		// one coding CLI on this machine: nothing to choose
+		cn = order[0]
+		say(i18n.Pick("    using %s (the only one found; another: --cli codex|…|manual)", "    使用 %s（本机只找到这一个；换别的：--cli codex|…|manual）"), adapter.Label(cn))
+	}
 	if cn == "" {
 		if cn, err = pr.choose(i18n.Pick("Which coding CLI should this agent run?", "这个 agent 用哪个编码 CLI？"), cliOptions(found), def); err != nil {
 			return err
@@ -490,12 +523,16 @@ func cmdSetup(c *cli, args []string) error {
 		if o.interval, err = parseDur(*interval); err != nil || o.interval < time.Minute {
 			return &exitError{code: exitUsage, msg: i18n.Pick("--interval must be a duration of at least 1m", "--interval 必须是至少 1m 的时长")}
 		}
-	} else if pr.ui.Interactive() && !*yes && !*noSched && (existing == nil || existing.Wake != "trigger") {
+	} else if pr.ui.Interactive() && !*yes && (!*noSched || cn == adapter.Manual) && (existing == nil || existing.Wake != "trigger") {
 		cur := "5m"
 		if existing != nil {
 			cur = hub.FmtDuration(time.Duration(existing.WakeIntervalS) * time.Second)
 		}
-		v, err := pr.choose(i18n.Pick("How often should this agent check for new messages?", "多久检查一次新消息？"), intervalOptions(), cur)
+		q := i18n.Pick("How often should this agent check for new messages?", "多久检查一次新消息？")
+		if cn == adapter.Manual {
+			q = i18n.Pick("How often will the agent's own scheduled task run `agentbus inbox`?", "agent 自己的定时任务多久运行一次 `agentbus inbox`？")
+		}
+		v, err := pr.choose(q, intervalOptions(), cur)
 		if err != nil {
 			return err
 		}
@@ -524,6 +561,10 @@ func cmdSetup(c *cli, args []string) error {
 
 	// 3. tier
 	t := *tier
+	if t == "" && cn == adapter.Manual {
+		// the harness has its own permissions; the tier only labels the agent
+		t = firstOr(cfg.Tier, adapter.TierWorkspace)
+	}
 	if t == "" {
 		if t, err = pr.choose(i18n.Pick("Permission tier (what the CLI may do)", "权限级别（CLI 能做什么）"), tierOptions(), cfg.Tier); err != nil {
 			return err
@@ -585,7 +626,10 @@ func cmdSetup(c *cli, args []string) error {
 
 	// 5. scheduler
 	schedChoice := "skipped"
-	if *noSched || cfg.Wake == "trigger" {
+	if cfg.CLI == adapter.Manual {
+		schedChoice = "manual"
+		say("5/6 " + manualHowTo(FmtDurS(cfg.WakeIntervalS)))
+	} else if *noSched || cfg.Wake == "trigger" {
 		say(i18n.Pick("5/6 scheduler skipped", "5/6 跳过定时任务"))
 	} else if pr.confirm(fmt.Sprintf(i18n.Pick("install a scheduler job running `agentbus tick` every %s", "安装定时任务，每 %s 运行一次 `agentbus tick`"),
 		FmtDurS(cfg.WakeIntervalS)), true) {

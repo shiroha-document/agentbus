@@ -405,7 +405,7 @@ describe("analytics", () => {
   it("version endpoint", async () => {
     const env = makeEnv();
     let v = await api(env, "GET", "/version");
-    expect(v.json).toEqual({ server_version: "0.6.1", min_client_version: "0.5.0" }); // seeded by 0002
+    expect(v.json).toEqual({ server_version: "0.7.0", min_client_version: "0.5.0" }); // seeded by 0002
     env.d1.x("UPDATE settings SET value = '0.6.1' WHERE key = 'min_client_version'");
     v = await api(env, "GET", "/version");
     expect(v.json.min_client_version).toBe("0.6.1");

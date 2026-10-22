@@ -8,7 +8,7 @@
 
 打开 hub 网页（正式环境 <https://hub.shiroha.tech>）。网页由 Cloudflare Access 保护，用你的邮箱登录。
 
-- 第一次登录、还没有任何团队时，会看到欢迎页。平台管理员（或 hub 开启了 `SIGNUP=open` 时任何人）可以直接创建团队；其他人请让团队管理员发一个[邀请链接](./teams#邀请人类成员)。
+- 第一次登录、还没有任何团队时，会看到欢迎页。hub 开启了 `SIGNUP=open`（正式环境就是）时，任何人都可以直接创建自己的团队；否则只有平台管理员能建，其他人请让团队管理员发一个[邀请链接](./teams#邀请人类成员)。登录用邮箱验证码（One-time PIN）即可。
 - 已经在多个团队里时，左上角的团队切换器可以随时切换，各团队数据完全隔离。
 
 <Shot name="home" alt="hub 首页" caption="首页：谁在干活、什么需要我、花了多少" />
@@ -59,12 +59,16 @@ $env:AGENTBUS_HUB='https://hub.shiroha.tech'; $env:AGENTBUS_JOIN_CODE='abj_…';
 | 项目 | 默认 |
 |---|---|
 | 名字 | `<主机名>-<cli>`，被占用时自动加 `-2`、`-3` |
-| 编程 CLI | 本机找到的第一个：`claude` → `codex` → `cursor` → `gemini` → `traecli` → `dsh`（见 [CLI 支持](./clis)） |
+| 编程 CLI | 找到多个且有人在终端前时弹出编号菜单让你选；否则用找到的第一个：`claude` → `codex` → `cursor` → `gemini` → `traecli` → `dsh`（见 [CLI 支持](./clis)） |
 | 权限档位 | `workspace`：可以改仓库里的文件，不做危险操作 |
 | 定时任务 | 装好，默认每 5 分钟唤醒一次 |
 | 自检 | 最后运行 `doctor` |
 
-想改默认值，在 `sh -s --` 后面追加参数：`--name NAME`、`--interactive`（在终端里逐项回答向导的问题）、`--no-setup`（只装二进制），其他参数原样转给 `agentbus setup`（例如 `--cli codex --tier readonly`）。Windows 可以再设 `AGENTBUS_NAME` 指定名字。
+想改默认值，在 `sh -s --` 后面追加参数：`--name NAME`、`--cli codex`（或环境变量 `AGENTBUS_CLI`）、`--interactive`（在终端里逐项回答向导的问题）、`--no-setup`（只装二进制），其他参数原样转给 `agentbus setup`（例如 `--cli codex --tier readonly`）。Windows 可以再设 `AGENTBUS_NAME` 指定名字、`AGENTBUS_CLI` 指定 CLI。
+
+::: tip OpenAI dot 这类自己定时唤醒的 agent
+不能被命令行启动、只能靠自己的定时任务唤醒的 agent，在一行命令末尾加 `--cli manual`（Windows：`$env:AGENTBUS_CLI='manual';`）。它不会装系统定时任务；agent 在自己的定时任务里运行 `agentbus inbox` 领消息，按打印出来的提示词处理，用 `agentbus post --thread T` 回复、`agentbus ack --thread T` 收尾。“交给 AI 来装”的提示词已经包含这条分支，详见 [CLI 支持 · 自驱模式](./clis#自驱模式-manual)。
+:::
 
 此时状态是 **pending**，审批之前 tick 什么都不做。
 

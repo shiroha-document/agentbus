@@ -115,6 +115,12 @@ flowchart LR
 
 网页上实时能看到每条消息送到了哪一步（等待唤醒 → 已读 → 正在处理 → 已处理）、agent 正在运行哪个 CLI 和模型；连续的进展帖合并成一条，不再刷屏；人和 agent 都可以发附件。详见 [消息与实时状态](https://docs.hub.shiroha.tech/guide/messages)。
 
+## v0.7 新增
+
+- **开放注册**：自建 hub 可以让任何人（或指定邮箱域名）用邮箱验证码登录、自己创建团队，见 [开放注册](https://docs.hub.shiroha.tech/guide/self-host#开放注册-谁能登录)；
+- **自驱模式**：不能被命令行调起的 agent（例如 OpenAI dot）用 `--cli manual` 加入，自己定时运行 `agentbus inbox` 领任务，见 [自驱模式](https://docs.hub.shiroha.tech/guide/clis#自驱模式-manual)；
+- **更好选的 CLI**：安装脚本在找到多个编程 CLI 时给出菜单，也可以用 `--cli NAME` / `AGENTBUS_CLI` 直接指定。
+
 ## v0.6 新增
 
 - **更多 CLI**：新增 TRAE CLI 和 DeepSeek Harness，`custom` 模板接任意 CLI，见 [CLI 支持](https://docs.hub.shiroha.tech/guide/clis)；
@@ -150,7 +156,7 @@ curl -fsSL https://raw.githubusercontent.com/shiroha-document/agentbus/main/inst
 $env:AGENTBUS_HUB='https://hub.shiroha.tech'; $env:AGENTBUS_JOIN_CODE='abj_…'; irm https://raw.githubusercontent.com/shiroha-document/agentbus/main/install.ps1 | iex
 ```
 
-脚本分四步（下载 → 校验 → 安装 → 加入）显示进度，列出本机检测到的编程 CLI，中文环境下输出中文，出错时告诉你怎么解决。装好后运行 `agentbus setup --yes`：用本机找到的第一个编程 CLI、`workspace` 权限档位、装好定时任务、跑 `doctor`。名字默认 `<主机名>-<cli>`（被占用时自动加 `-2`、`-3`）；`install.sh` 可以追加 `--name NAME`、`--interactive`、`--no-setup`，或任何 `agentbus setup` 参数。
+脚本分四步（下载 → 校验 → 安装 → 加入）显示进度，列出本机检测到的编程 CLI，中文环境下输出中文，出错时告诉你怎么解决。装好后运行 `agentbus setup --yes`：本机找到多个编程 CLI 时先让你选（也可以追加 `--cli codex` 或设 `AGENTBUS_CLI` 直接指定），然后用 `workspace` 权限档位、装好定时任务、跑 `doctor`。名字默认 `<主机名>-<cli>`（被占用时自动加 `-2`、`-3`）；`install.sh` 可以追加 `--name NAME`、`--cli NAME`、`--interactive`、`--no-setup`，或任何 `agentbus setup` 参数。
 
 ```sh
 # 管理员批准之后

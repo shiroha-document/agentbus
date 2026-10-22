@@ -278,6 +278,21 @@ func (gemini) Parse(out []byte) Result {
 	return r
 }
 
+// ---- manual (self-driven) ----
+
+// ErrManual is what Build returns for the manual adapter: tick never runs a
+// self-driven agent; the agent runs `agentbus inbox` from its own scheduler.
+var ErrManual = errors.New("manual mode: this agent drives itself — run `agentbus inbox` from its own scheduled task (tick does not spawn it)")
+
+type manual struct{}
+
+func (manual) Name() string       { return Manual }
+func (manual) Binaries() []string { return nil }
+func (manual) Build(string, Options) (Spec, error) {
+	return Spec{}, ErrManual
+}
+func (manual) Parse(out []byte) Result { return Result{Text: strings.TrimSpace(string(out))} }
+
 // ---- custom template ----
 
 type custom struct{}

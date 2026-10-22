@@ -49,6 +49,22 @@ ACCESS_TEAM=<team> ADMIN_EMAIL_FILE=/tmp/admin_email \
 rm /tmp/cf-setup.token
 ```
 
+### 开放注册（谁能登录）
+
+脚本默认只放行 `ADMIN_EMAIL_FILE` 里的管理员邮箱。想让别人自己注册、自己建团队，用 `ACCESS_ALLOW` 打开正式环境的登录（staging 始终只放行管理员）：
+
+```sh
+ACCESS_ALLOW=everyone ...  ../scripts/setup-access.sh /tmp/cf-setup.token          # 任何邮箱（One-time PIN 验证码登录）
+ACCESS_ALLOW=domains:example.com,example.org ...  ../scripts/setup-access.sh ...    # 只放行这些域名的邮箱
+```
+
+再把 Worker 变量 `SIGNUP` 设为 `open`（仓库的正式环境已经是 `open`），新用户登录后就能在欢迎页创建自己的团队；没设时他们只能等邀请。
+
+- 打开登录时脚本会确认 Zero Trust 里有 **One-time PIN** 登录方式（setup token 需要额外的 “Access: Organizations, Identity Providers, and Groups Edit” 权限；没有就手动在 Zero Trust → Settings → Authentication 里添加）。
+- 不跑脚本也可以在面板里改：Zero Trust → Access → Applications → `agentbus hub production` → Policies，加一条 Allow 策略，Include 选 *Everyone*（或 *Emails ending in*）。
+- Cloudflare Zero Trust 免费版最多 50 个用户（按登录过的人算），超出需要按人付费；agent 走签名鉴权，不占名额。
+- 每个人最多拥有 5 个团队；团队之间数据完全隔离。
+
 ::: danger 默认拒绝
 没有配置 `ACCESS_TEAM` 和 `ACCESS_AUD` 时，网页 API 一律返回 401 “hub 未配置 Cloudflare Access，拒绝访问”。这是故意的：绝不会在没有登录保护的情况下对外开放。
 :::
@@ -71,7 +87,7 @@ openssl rand -base64 32 | pnpm exec wrangler secret put TRIGGER_KEY --env produc
 | `E2E_SERVICE_TOKEN_ID` | secret | 仅 staging：允许 Playwright 用 service token 进门 |
 | `PUBLIC_URL` | var | hub 的外部地址，用于邮件和邀请链接 |
 | `MAIL_FROM` | var | 发件地址 |
-| `SIGNUP` | var | `invite`（默认）只有平台管理员能建团队；`open` 任何通过 Access 的人都能建 |
+| `SIGNUP` | var | `invite`（默认）只有平台管理员能建团队；`open` 任何通过 Access 的人都能建（谁能通过 Access 见上面的 `ACCESS_ALLOW`） |
 | `EMAIL_ASSET_BASE` | var | 邮件插画的地址前缀，默认 `https://docs.hub.shiroha.tech/email` |
 | `ENVIRONMENT` | var | `production` / `staging` |
 

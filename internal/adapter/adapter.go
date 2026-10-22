@@ -110,6 +110,7 @@ var registry = map[string]Adapter{
 	"gemini":  gemini{},
 	"traecli": traecli{},
 	"dsh":     dsh{},
+	"manual":  manual{},
 	"custom":  custom{},
 }
 
@@ -117,13 +118,18 @@ var registry = map[string]Adapter{
 func Get(name string) (Adapter, error) {
 	a, ok := registry[strings.ToLower(strings.TrimSpace(name))]
 	if !ok {
-		return nil, fmt.Errorf("unknown cli %q (want claude, codex, cursor, gemini, traecli, dsh or custom)", name)
+		return nil, fmt.Errorf("unknown cli %q (want claude, codex, cursor, gemini, traecli, dsh, manual or custom)", name)
 	}
 	return a, nil
 }
 
-// Known lists the built-in CLIs in display order (custom last).
-var Known = []string{"claude", "codex", "cursor", "gemini", "traecli", "dsh", "custom"}
+// Known lists the built-in CLIs in display order (manual and custom last).
+var Known = []string{"claude", "codex", "cursor", "gemini", "traecli", "dsh", "manual", "custom"}
+
+// Manual is the CLI name of a self-driven agent: a harness (OpenAI dot, a
+// hosted agent, …) that tick cannot spawn. It wakes itself on its own
+// schedule and runs `agentbus inbox` / post / ack by hand.
+const Manual = "manual"
 
 // Label is the human name of a CLI (contract §7); unknown names pass through.
 func Label(name string) string {
@@ -140,6 +146,8 @@ func Label(name string) string {
 		return "TRAE CLI"
 	case "dsh":
 		return "DeepSeek Harness"
+	case "manual":
+		return "Manual"
 	case "custom":
 		return "Custom"
 	}

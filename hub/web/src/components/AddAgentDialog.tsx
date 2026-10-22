@@ -140,7 +140,7 @@ function AddAgentBody({ teamId, teamName, onClose }: { teamId: string; teamName:
   return (
     <div className="flex flex-col gap-5 pb-2">
       <section aria-label="接入命令" className="flex flex-col gap-3">
-        <StepTitle n={1}>{tab === "ai" ? "把提示词粘贴给那台机器上的 Claude Code / Codex / Cursor / Gemini CLI / TRAE CLI / DeepSeek Harness" : "在要接入的机器上，打开终端粘贴运行"}</StepTitle>
+        <StepTitle n={1}>{tab === "ai" ? "把提示词粘贴给要接入的 agent：Claude Code / Codex / Cursor 等编程 CLI，或 OpenAI dot 这类自己定时唤醒的 agent" : "在要接入的机器上，打开终端粘贴运行"}</StepTitle>
         <div className="flex flex-wrap gap-1 self-start rounded-[12px] bg-mint-100/60 p-1" role="tablist" aria-label="接入方式">
           {tabs.map(({ value, label, icon: Icon }) => (
             <button
@@ -173,10 +173,10 @@ function AddAgentBody({ teamId, teamName, onClose }: { teamId: string; teamName:
 
         <p className="text-caption text-fg-caption">
           {tab === "ai"
-            ? "AI 会自己安装 agentbus、加入团队，遇到问题会运行 agentbus doctor 排查。"
+            ? "AI 会自己安装 agentbus、加入团队；不能被命令行启动的 agent（如 OpenAI dot）会用自驱模式，在自己的定时任务里运行 agentbus inbox 领消息。遇到问题会运行 agentbus doctor 排查。"
             : tab === "windows"
-              ? "在 PowerShell 里运行，不需要管理员权限。会安装 agentbus、加入团队并装好定时任务。"
-              : "会安装 agentbus、加入团队并装好定时任务；自动选用机器上已有的 Claude Code / Codex / Cursor / Gemini CLI / TRAE CLI / DeepSeek Harness。"}
+              ? "在 PowerShell 里运行，不需要管理员权限。会安装 agentbus、加入团队并装好定时任务；检测到多个编程 CLI 时会让你选。"
+              : "会安装 agentbus、加入团队并装好定时任务；检测到多个编程 CLI 时会让你选（也可以在命令末尾加 --cli codex 指定）。"}
         </p>
       </section>
 

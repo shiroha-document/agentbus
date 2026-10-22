@@ -166,26 +166,50 @@ export function windowsOneLiner(origin: string, secret: string): string {
   return `$env:AGENTBUS_HUB='${hubOf(origin)}'; $env:AGENTBUS_JOIN_CODE='${secret}'; ${INSTALL_PS1}`;
 }
 
+/** CLI names `--cli` accepts for coding agents tick can start. */
+export const SPAWNABLE_CLIS = ["claude", "codex", "cursor", "gemini", "traecli", "dsh"] as const;
+
+/** macOS / Linux one-liner pinned to one CLI (e.g. "manual" for a self-driven agent). */
+export function unixOneLinerFor(origin: string, secret: string, cli: string): string {
+  return `${unixOneLiner(origin, secret)} --cli ${cli}`;
+}
+
+/** Windows one-liner pinned to one CLI. */
+export function windowsOneLinerFor(origin: string, secret: string, cli: string): string {
+  return `$env:AGENTBUS_CLI='${cli}'; ${windowsOneLiner(origin, secret)}`;
+}
+
 /**
- * A prompt to paste into Claude Code / Codex / Cursor / Gemini CLI / TRAE CLI /
- * DeepSeek Harness on the target machine: the coding agent installs agentbus and
- * joins the team by itself.
+ * A prompt to paste into the coding agent on the target machine (Claude Code,
+ * Codex, Cursor, Gemini CLI, TRAE CLI, DeepSeek Harness — or a self-driven
+ * agent such as OpenAI dot that can only wake itself with a scheduled task):
+ * the agent installs agentbus and joins the team by itself.
  */
 export function agentPrompt(origin: string, secret: string, team?: string): string {
   const hub = hubOf(origin);
   const where = team ? `agentbus hub（${hub}）的「${team}」团队` : `agentbus hub（${hub}）`;
   return [
-    `请帮我把这台机器作为 agent 接入${where}。`,
+    `请帮我把这台机器（或者你自己）作为 agent 接入${where}。先判断你属于哪一种：`,
     "",
-    "1. 安装 agentbus 并加入团队（只需一条命令）：",
-    `   - macOS / Linux：${unixOneLiner(hub, secret)}`,
-    `   - Windows PowerShell：${windowsOneLiner(hub, secret)}`,
-    "2. 如果报错，先运行 `agentbus doctor` 看哪一项失败，按提示修好后重新运行 `agentbus setup`；需要时参考接入文档：" +
-      ONBOARDING_URL,
-    "3. setup 会自动选用这台机器上已安装的编程 CLI（Claude Code、Codex、Cursor、Gemini CLI、TRAE CLI、DeepSeek Harness）；有多个时选你正在使用的那个。",
-    "4. 完成后告诉我 agent 的名字、所在团队和状态（pending 表示等待管理员在网页上批准，这是正常的）。",
+    "A. 你是能被命令行启动的编程 CLI（Claude Code、Codex、Cursor、Gemini CLI、TRAE CLI、DeepSeek Harness）：",
+    "   1. 运行一条命令安装 agentbus 并加入团队，末尾的 `--cli` 换成你自己（" + SPAWNABLE_CLIS.join(" / ") + "）：",
+    `      - macOS / Linux：${unixOneLinerFor(hub, secret, "claude")}`,
+    `      - Windows PowerShell：${windowsOneLinerFor(hub, secret, "claude")}`,
+    "   2. 之后 agentbus 会用定时任务自动唤醒你处理消息，不用你再做什么。",
     "",
-    "注意：加入码只用于首次加入，不要把它写进仓库或日志。",
+    "B. 你不能被命令行启动，只能靠自己的定时任务唤醒自己、手动执行命令（例如 OpenAI dot、托管型 agent）：",
+    "   1. 用自驱模式安装并加入团队：",
+    `      - macOS / Linux：${unixOneLinerFor(hub, secret, "manual")}`,
+    `      - Windows PowerShell：${windowsOneLinerFor(hub, secret, "manual")}`,
+    "   2. 在你自己的 harness 里建一个定时任务（建议每 5–15 分钟一次），每次唤醒时运行 `agentbus inbox`：",
+    "      - 输出「没有新消息」/ 退出码 3：本次结束，等下一次唤醒；",
+    "      - 输出了讨论串：按里面的提示词处理，用 `agentbus post --thread <讨论串> --body …` 回复，最后运行 `agentbus ack --thread <讨论串>`；",
+    "      - 处理超过 10 分钟先运行 `agentbus heartbeat --thread <讨论串>` 续租；做不了就 `agentbus release --thread <讨论串> --reason …` 退回。",
+    "",
+    "两种方式都适用：",
+    "- 如果报错，先运行 `agentbus doctor` 看哪一项失败，按提示修好后重新运行 `agentbus setup`；需要时参考接入文档：" + ONBOARDING_URL,
+    "- 完成后告诉我 agent 的名字、所在团队和状态（pending 表示等待管理员在网页上批准，这是正常的）。",
+    "- 加入码只用于首次加入，不要把它写进仓库或日志。",
   ].join("\n");
 }
 

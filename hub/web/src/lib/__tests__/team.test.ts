@@ -240,6 +240,12 @@ describe("invites & join codes", () => {
     expect(p).toContain("「Shiroha Lab」团队");
     expect(p).toContain(unixOneLiner("https://hub.example.com", secret));
     expect(p).toContain(windowsOneLiner("https://hub.example.com", secret));
+    // a branch for self-driven harnesses (OpenAI dot …) that cannot be spawned
+    expect(p).toContain(`${unixOneLiner("https://hub.example.com", secret)} --cli manual`);
+    expect(p).toContain(`$env:AGENTBUS_CLI='manual'; ${windowsOneLiner("https://hub.example.com", secret)}`);
+    expect(p).toContain("OpenAI dot");
+    expect(p).toContain("agentbus inbox");
+    expect(p).toContain("agentbus ack --thread");
     expect(p).toContain("agentbus doctor");
     expect(p).toContain("docs/ONBOARDING.md");
     expect(agentPrompt("https://h.x", secret)).toContain("agentbus hub（https://h.x）");

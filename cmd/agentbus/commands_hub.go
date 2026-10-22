@@ -501,11 +501,17 @@ func firstLine(s string) string {
 
 // postKey is the idempotency key: AGENTBUS_ROUND + body hash inside a round
 // (so a retried command never double-posts), else random per invocation.
-func postKey(explicit, kind, body string) string {
+// A self-driven agent has no AGENTBUS_ROUND; the round `agentbus inbox`
+// recorded for the thread stands in for it.
+func postKey(explicit, thread, kind, body string) string {
 	if explicit != "" {
 		return explicit
 	}
-	if r := strings.TrimSpace(os.Getenv("AGENTBUS_ROUND")); r != "" {
+	r := strings.TrimSpace(os.Getenv("AGENTBUS_ROUND"))
+	if r == "" && thread != "" {
+		r = hub.InboxRound(hub.Dir(), thread)
+	}
+	if r != "" {
 		h := sha256.Sum256([]byte(kind + "\n" + body))
 		return r + ":" + hex.EncodeToString(h[:])[:16]
 	}
@@ -565,7 +571,7 @@ func cmdPost(c *cli, args []string) error {
 	if err != nil {
 		return err
 	}
-	np.IdempotencyKey = postKey(*key, np.Kind+np.Title, b+attachKey(files))
+	np.IdempotencyKey = postKey(*key, np.ThreadID, np.Kind+np.Title, b+attachKey(files))
 	return doPostFiles(c, np, files)
 }
 
@@ -646,7 +652,7 @@ func cmdConfirm(c *cli, args []string) error {
 	if err != nil {
 		return err
 	}
-	return doPost(c, hub.NewPost{ThreadID: t, Kind: "confirm", Body: b, IdempotencyKey: postKey(*key, "confirm", b)})
+	return doPost(c, hub.NewPost{ThreadID: t, Kind: "confirm", Body: b, IdempotencyKey: postKey(*key, t, "confirm", b)})
 }
 
 func cmdHubAck(c *cli, args []string) error {
@@ -668,6 +674,9 @@ func cmdHubAck(c *cli, args []string) error {
 	defer cancel()
 	if err := e.cl.Ack(ctx, t, pos); err != nil {
 		return err
+	}
+	if len(pos) == 0 {
+		hub.ForgetInboxRound(e.dir, t)
 	}
 	c.emit(map[string]any{"thread": t, "acked": true}, func() { fmt.Fprintf(c.out, "acked %s\n", t) })
 	return nil

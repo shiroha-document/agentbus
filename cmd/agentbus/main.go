@@ -37,6 +37,7 @@ var commands = map[string]func(*cli, []string) error{
 	"pause": cmdPause, "resume": cmdResume, "manage": cmdManage, "doctor": cmdDoctor,
 	"setup": cmdSetup, "schedule": cmdSchedule, "self-update": cmdSelfUpdate,
 	"telemetry": cmdTelemetry, "file": cmdFile,
+	"inbox": cmdInbox, "heartbeat": cmdHeartbeat, "release": cmdRelease,
 }
 
 func init() {
@@ -174,7 +175,7 @@ Setup & identity
         [--repo OWNER/REPO=PATH]... [--interval 5m] [--yes]
         [--no-schedule] [--method M] [--no-doctor]
                      guided setup (arrow-key menus): pick CLI, join, tier, repos, scheduler, doctor
-  join URL --join-code CODE --name N [--cli claude|codex|cursor|gemini|traecli|dsh|custom]
+  join URL --join-code CODE --name N [--cli claude|codex|cursor|gemini|traecli|dsh|manual|custom]
         [--binary PATH] [--template CMD] [--wake-interval 5m] [--wake poll|trigger]
         [--trigger-url U] [--owner O] [--machine M] [--display-name D]
                      register this machine as an agent in a hub team
@@ -187,7 +188,9 @@ Setup & identity
   Pass it with --join-code or $AGENTBUS_JOIN_CODE, the hub URL with --hub or
   $AGENTBUS_HUB; both are only needed for the first join.
   Coding CLIs: claude (Claude Code), codex, cursor, gemini, traecli (TRAE CLI),
-  dsh (DeepSeek Harness), custom (--template).
+  dsh (DeepSeek Harness), custom (--template), manual (self-driven agents
+  such as OpenAI dot that wake themselves on their own schedule: no scheduler,
+  they run ` + "`agentbus inbox`" + ` themselves).
 
 Daily loop
   tick [--max-threads N] [--timeout 20m] [--dry-run] [--quiet]
@@ -200,6 +203,12 @@ Daily loop
   file get ID [-o PATH|-] [--force]  download an attachment (default: its name in .)
   confirm [--thread T] "question"   ask a human to approve (shows on the hub dashboard)
   ack [--thread T] [DELIVERY_ID...] mark messages handled and release the thread
+
+Self-driven agents (--cli manual: OpenAI dot and other harnesses tick can't start)
+  inbox [--max-threads 1] [--peek]  claim new messages and print each thread's
+                     prompt with the exact post/ack commands; exit 3 = nothing new
+  heartbeat [--thread T]            extend the 15-minute lease on long work
+  release [--thread T] [--reason R] give the messages back to retry later
 
 Threads
   thread show [T] [--before P] [--limit N]
@@ -236,7 +245,7 @@ Maintenance
 Language: --lang zh|en or AGENTBUS_LANG (default: from LANG / the system).
 Config lives in $AGENTBUS_HUB_HOME (default <user config dir>/agentbus).
 Exit codes: 0 ok, 1 error, 2 usage, 3 nothing to do;
-            tick also 4 paused / pending approval, 5 quota exhausted.
+            tick / inbox also 4 paused / pending approval, 5 quota exhausted.
 `
 
 const usageZH = `agentbus — 让多个编码 agent 协作的 hub 客户端
@@ -248,7 +257,7 @@ const usageZH = `agentbus — 让多个编码 agent 协作的 hub 客户端
         [--repo OWNER/REPO=PATH]... [--interval 5m] [--yes]
         [--no-schedule] [--method M] [--no-doctor]
                      引导式安装（方向键选择）：选 CLI、加入、权限、仓库、定时任务、体检
-  join URL --join-code CODE --name N [--cli claude|codex|cursor|gemini|traecli|dsh|custom]
+  join URL --join-code CODE --name N [--cli claude|codex|cursor|gemini|traecli|dsh|manual|custom]
         [--binary PATH] [--template CMD] [--wake-interval 5m] [--wake poll|trigger]
         [--trigger-url U] [--owner O] [--machine M] [--display-name D]
                      把本机注册为 hub 团队里的一个 agent
@@ -261,7 +270,8 @@ const usageZH = `agentbus — 让多个编码 agent 协作的 hub 客户端
   用 --join-code 或 $AGENTBUS_JOIN_CODE 传入加入码，用 --hub 或 $AGENTBUS_HUB
   传入 hub 地址；两者只在第一次加入时需要。
   支持的编码 CLI：claude (Claude Code)、codex、cursor、gemini、traecli (TRAE CLI)、
-  dsh (DeepSeek Harness)、custom（--template 自定义）。
+  dsh (DeepSeek Harness)、custom（--template 自定义）、manual（自驱模式：OpenAI dot
+  这类靠自己定时任务唤醒的 agent，不装定时任务，由它自己运行 ` + "`agentbus inbox`" + `）。
 
 日常循环 (Daily loop)
   tick [--max-threads N] [--timeout 20m] [--dry-run] [--quiet]
@@ -273,6 +283,12 @@ const usageZH = `agentbus — 让多个编码 agent 协作的 hub 客户端
   file get ID [-o PATH|-] [--force]  下载附件（默认以原文件名保存到当前目录）
   confirm [--thread T] "问题"        请人类确认（显示在 hub 面板上）
   ack [--thread T] [DELIVERY_ID...] 标记消息已处理并释放话题
+
+自驱 agent (--cli manual：OpenAI dot 等 tick 无法启动的 harness)
+  inbox [--max-threads 1] [--peek]  领取新消息，打印每个话题的提示词和要执行的
+                     post / ack 命令；退出码 3 = 没有新消息
+  heartbeat [--thread T]            活干得久时续租（租约 15 分钟）
+  release [--thread T] [--reason R] 把消息退回收件箱，稍后重试
 
 话题 (Threads)
   thread show [T] [--before P] [--limit N]
@@ -309,7 +325,7 @@ const usageZH = `agentbus — 让多个编码 agent 协作的 hub 客户端
 语言：--lang zh|en 或 AGENTBUS_LANG（默认跟随 LANG / 系统语言）。
 配置目录 $AGENTBUS_HUB_HOME（默认 <用户配置目录>/agentbus）。
 退出码：0 成功，1 出错，2 用法错误，3 无事可做；
-        tick 另有 4 已暂停 / 待审批，5 额度耗尽。
+        tick / inbox 另有 4 已暂停 / 待审批，5 额度耗尽。
 `
 
 func (c *cli) emit(v any, human func()) {

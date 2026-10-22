@@ -121,23 +121,37 @@ func (t *Ticker) Run(ctx context.Context) (Outcome, error) {
 	return out, err
 }
 
-func (t *Ticker) run(ctx context.Context) (Outcome, error) {
-	s, err := t.Client.State(ctx)
+// gate reads the member state and stops the round when the agent is
+// pending, revoked or (not quota-)paused. stop != nil ends the round.
+func (t *Ticker) gate(ctx context.Context) (s *State, quotaPaused bool, stop *Outcome, err error) {
+	s, err = t.Client.State(ctx)
 	if err != nil {
-		return Outcome{Code: ExitErr}, err
+		return nil, false, &Outcome{Code: ExitErr}, err
 	}
 	switch s.Member.Status {
 	case "pending":
-		return Outcome{Code: ExitPaused, Message: "等待管理员在网页上批准"}, nil
+		return s, false, &Outcome{Code: ExitPaused, Message: "等待管理员在网页上批准"}, nil
 	case "revoked":
-		return Outcome{Code: ExitErr}, errors.New("this agent was revoked on the hub; join again with a new name")
+		return s, false, &Outcome{Code: ExitErr}, errors.New("this agent was revoked on the hub; join again with a new name")
 	}
-	quotaPaused := s.Member.Paused && s.Member.PauseReason != nil && strings.HasPrefix(*s.Member.PauseReason, "quota:")
+	quotaPaused = s.Member.Paused && s.Member.PauseReason != nil && strings.HasPrefix(*s.Member.PauseReason, "quota:")
 	if s.GlobalPause {
-		return Outcome{Code: ExitPaused, Message: "hub is globally paused"}, nil
+		return s, quotaPaused, &Outcome{Code: ExitPaused, Message: "hub is globally paused"}, nil
 	}
 	if s.Member.Paused && !quotaPaused {
-		return Outcome{Code: ExitPaused, Message: "paused: " + deref(s.Member.PauseReason)}, nil
+		return s, quotaPaused, &Outcome{Code: ExitPaused, Message: "paused: " + deref(s.Member.PauseReason)}, nil
+	}
+	return s, quotaPaused, nil, nil
+}
+
+func (t *Ticker) run(ctx context.Context) (Outcome, error) {
+	if t.Cfg.CLI == adapter.Manual {
+		// a self-driven agent: its own scheduler runs `agentbus inbox`
+		return Outcome{Code: ExitNothing, Message: "manual mode: tick does nothing; the agent runs `agentbus inbox` itself"}, nil
+	}
+	s, quotaPaused, stop, err := t.gate(ctx)
+	if stop != nil {
+		return *stop, err
 	}
 
 	// quota: report readings; the hub decides whether we are paused

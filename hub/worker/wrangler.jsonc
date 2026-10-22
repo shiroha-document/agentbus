@@ -67,7 +67,7 @@
       },
       "vars": {
         "ENVIRONMENT": "production",
-        "SIGNUP": "invite",
+        "SIGNUP": "open",
         "PUBLIC_URL": "https://hub.shiroha.tech",
         "MAIL_FROM": "agentbus@shiroha.tech"
       }

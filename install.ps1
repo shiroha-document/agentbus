@@ -14,6 +14,11 @@
 #   AGENTBUS_HUB          hub to join after installing
 #   AGENTBUS_JOIN_CODE    team join code abj_...
 #   AGENTBUS_NAME         agent name (default: <host>-<cli>, suffixed if taken)
+#   AGENTBUS_CLI          claude | codex | cursor | gemini | traecli | dsh | manual | custom
+#                         (default: asked when several CLIs are found and a person
+#                         is at the console, else the first one found). manual =
+#                         a self-driven agent (OpenAI dot, ...) that runs
+#                         `agentbus inbox` from its own scheduled task
 #   AGENTBUS_VERSION      tag to install (default: latest release), e.g. v0.6.0
 #   AGENTBUS_UPDATE_BASE  release base URL (default: the public repo)
 #   NO_COLOR              set to disable colors
@@ -192,13 +197,15 @@
     Write-Host ''
     Write-Host '  Coding CLIs on this machine'
     $found = $null
+    $foundIds = @()
+    $foundLabels = @()
     $clis = @(
-        @('Claude Code', @('claude')),
-        @('Codex', @('codex')),
-        @('Cursor', @('cursor-agent', 'agent')),
-        @('Gemini CLI', @('gemini')),
-        @('TRAE CLI', @('traecli', 'trae-cli')),
-        @('DeepSeek Harness', @('dsh'))
+        @('Claude Code', @('claude'), 'claude'),
+        @('Codex', @('codex'), 'codex'),
+        @('Cursor', @('cursor-agent', 'agent'), 'cursor'),
+        @('Gemini CLI', @('gemini'), 'gemini'),
+        @('TRAE CLI', @('traecli', 'trae-cli'), 'traecli'),
+        @('DeepSeek Harness', @('dsh'), 'dsh')
     )
     foreach ($c in $clis) {
         $hit = $null
@@ -208,12 +215,15 @@
         if ($hit) {
             W "    [ok] $($c[0]) ($hit)" 'Green'
             if (-not $found) { $found = $hit }
+            $foundIds += $c[2]
+            $foundLabels += $c[0]
         } else {
             W "    [--] $($c[0])" 'DarkGray'
         }
     }
-    if (-not $found) {
-        Warn 'no supported coding CLI found; install one first (or use: agentbus setup --cli custom --template ...)'
+    $cli = "$env:AGENTBUS_CLI".Trim()
+    if (-not $found -and $cli -ne 'manual' -and $cli -ne 'custom') {
+        Warn 'no supported coding CLI found; install one first, use --cli custom --template ..., or set $env:AGENTBUS_CLI=''manual'' for a self-driven agent (OpenAI dot, ...)'
         Info 'https://docs.hub.shiroha.tech/guide/clis'
     }
 
@@ -237,13 +247,34 @@
     if (-not $joinCode) {
         Fail 'AGENTBUS_HUB is set but AGENTBUS_JOIN_CODE is not' @('hub: Members > Add agent gives you a join code')
     }
+    # several CLIs and none chosen: ask, but only when a person is at the console
+    # (an AI agent running this script never gets a question)
+    $canAsk = [Environment]::UserInteractive -and -not [Console]::IsInputRedirected -and -not [Console]::IsOutputRedirected
+    if (-not $cli -and $foundIds.Count -gt 1 -and $canAsk) {
+        Write-Host ''
+        Write-Host '  Which coding CLI should this agent use?'
+        $opts = @($foundIds) + @('manual')
+        for ($i = 0; $i -lt $opts.Count; $i++) {
+            if ($opts[$i] -eq 'manual') {
+                Write-Host "    $($i + 1)) Manual / self-driven (the agent wakes itself and runs agentbus inbox, e.g. OpenAI dot)"
+            } else {
+                Write-Host "    $($i + 1)) $($foundLabels[$i])"
+            }
+        }
+        $ans = Read-Host '  number [1]'
+        $n = 0
+        if (-not [int]::TryParse("$ans".Trim(), [ref]$n) -or $n -lt 1 -or $n -gt $opts.Count) { $n = 1 }
+        $cli = $opts[$n - 1]
+    }
     $setupArgs = @('setup', '--hub', $hubUrl, '--join-code', $joinCode, '--yes')
     if ("$env:AGENTBUS_NAME".Trim()) { $setupArgs += @('--name', "$env:AGENTBUS_NAME".Trim()) }
+    if ($cli) { $setupArgs += @('--cli', $cli) }
     Info "hub  $hubUrl"
     $codeShown = $joinCode
     if ($codeShown.Length -gt 8) { $codeShown = $codeShown.Substring(0, 8) }
     Info "code $codeShown..."
     if ("$env:AGENTBUS_NAME".Trim()) { Info "name $("$env:AGENTBUS_NAME".Trim())" }
+    if ($cli) { Info "cli  $cli" }
     Say "joining $hubUrl ..."
     & $dest @setupArgs
     if ($LASTEXITCODE -ne 0) {

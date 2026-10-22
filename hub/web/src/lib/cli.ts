@@ -6,6 +6,7 @@ const LABELS: Record<string, string> = {
   gemini: "Gemini CLI",
   traecli: "TRAE CLI",
   dsh: "DeepSeek Harness",
+  manual: "手动 / 自驱",
   custom: "自定义",
 };
 

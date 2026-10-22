@@ -43,6 +43,12 @@ type cliHub struct {
 	activities []hub.ActivityReq
 	events     []hub.Event
 	collapsed  bool // POST /agent/posts answers collapsed
+
+	// self-driven (inbox) endpoints
+	claims     []hub.ClaimedThread
+	acks       []string
+	nacks      []string
+	heartbeats int
 }
 
 const testJoinCode = "abj_k3x9abcdefghijklmnopqrst"
@@ -136,6 +142,28 @@ func (h *cliHub) serve(w http.ResponseWriter, r *http.Request) {
 		_ = json.Unmarshal(b, &p)
 		h.patches = append(h.patches, p)
 		reply(200, map[string]any{"thread": hub.Thread{ID: strings.TrimPrefix(path, "/agent/threads/")}})
+	case path == "/agent/claim":
+		cs := h.claims
+		h.claims = nil
+		if cs == nil {
+			cs = []hub.ClaimedThread{}
+		}
+		reply(200, hub.ClaimResp{Threads: cs})
+	case path == "/agent/context":
+		id := r.URL.Query().Get("thread")
+		reply(200, hub.Context{Workspace: hub.Workspace{ID: "w_1", Name: "app"},
+			Thread: hub.Thread{ID: id, WorkspaceID: "w_1", Title: "flaky test", Status: "open"},
+			Posts:  []hub.Post{{ID: "p_1", ThreadID: id, AuthorID: "m_bob", Body: "@alice fix it", Kind: "msg"}},
+			Me:     hub.Member{ID: "m_1", Name: "alice", Role: "agent"}})
+	case path == "/agent/ack":
+		h.acks = append(h.acks, string(b))
+		reply(200, map[string]int{"acked": 1})
+	case path == "/agent/nack":
+		h.nacks = append(h.nacks, string(b))
+		reply(200, map[string]int{"released": 1})
+	case path == "/agent/heartbeat":
+		h.heartbeats++
+		reply(200, map[string]int64{"lease_until": 1893456000000})
 	default:
 		reply(404, map[string]any{"error": map[string]any{"code": "not_found", "message": path}})
 	}
@@ -178,7 +206,7 @@ func TestHubJoinPostThread(t *testing.T) {
 	if h.code != testJoinCode {
 		t.Fatalf("join_code %q", h.code)
 	}
-	if h.version != "0.6.1" {
+	if h.version != "0.7.0" {
 		t.Fatalf("version header %q", h.version)
 	}
 	// re-running join is idempotent and needs no join code
@@ -392,7 +420,7 @@ func TestExtractHubFlags(t *testing.T) {
 
 func TestVersionDev(t *testing.T) {
 	code, out := run(t, "--version")
-	if code != 0 || strings.TrimSpace(out) != "0.6.1-dev" || hubVersion() != "0.6.1" {
+	if code != 0 || strings.TrimSpace(out) != "0.7.0-dev" || hubVersion() != "0.7.0" {
 		t.Fatalf("%d %q", code, out)
 	}
 }
@@ -609,12 +637,13 @@ func TestUsageText(t *testing.T) {
 		t.Fatalf("help exit %d", code)
 	}
 	for _, w := range []string{"Setup & identity", "Daily loop", "Threads", "Quota", "Manager", "Maintenance",
-		"join URL --join-code CODE --name N", "setup [URL] [--join-code CODE]", "AGENTBUS_JOIN_CODE", "AGENTBUS_HUB", "Settings → Agent 加入码"} {
+		"join URL --join-code CODE --name N", "setup [URL] [--join-code CODE]", "AGENTBUS_JOIN_CODE", "AGENTBUS_HUB", "Settings → Agent 加入码",
+		"Self-driven agents", "inbox [--max-threads 1]", "heartbeat [--thread T]", "release [--thread T]", "manual"} {
 		if !strings.Contains(out, w) {
 			t.Errorf("usage lacks %q", w)
 		}
 	}
-	for _, w := range []string{"--tenant", "--home ", " inbox", " board", " digest", "AGENTBUS_GITHUB_TOKEN"} {
+	for _, w := range []string{"--tenant", "--home ", " board", " digest", "AGENTBUS_GITHUB_TOKEN"} {
 		if strings.Contains(out, w) {
 			t.Errorf("usage still mentions %q", w)
 		}

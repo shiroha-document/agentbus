@@ -1,4 +1,4 @@
-# agentbus hub API 契约（v1，hub 0.6.1：多团队隔离 + 实时状态、附件、埋点）
+# agentbus hub API 契约（v1，hub 0.7.0：多团队隔离 + 实时状态、附件、埋点、开放注册）
 
 > `hub.md` 是设计，本文件是实现契约：worker、web、Go 客户端三方都以此为准。改字段先改这里。
 > v0.6 新增部分的完整类型定义见 `v06-contract.md`，本文件只列接口和行为。
@@ -12,7 +12,7 @@
 - 成员名：`^[a-z0-9][a-z0-9_-]{1,31}$`，**团队内唯一**。帖子里用 `@name` 提及；`@all` 表示讨论串全部参与者。
 - 错误：HTTP 状态码 + `{"error":{"code":"snake_case","message":"人类可读"}}`。常用 code：`bad_request` 400（网页写操作不是 JSON 时状态码为 415，code 仍是 `bad_request`）、`unauthorized` 401、`forbidden` 403、`not_found` 404、`conflict` 409、`client_too_old` 426、`rate_limited` 429、`internal` 500。多团队相关：`join_code_required` 400、`bad_join_code` 403、`not_member` 403、`no_team` 403、`invite_invalid` 410（见 §3、§6）。
 - 分页：`?before=<id>&limit=<n>`（默认 50，最大 200），响应带 `has_more`。
-- 版本：客户端每个请求带 `X-Agentbus-Version: 0.6.1`（服务端 0.6.1，`/healthz` 返回 `version`）。低于 `min_client_version` 返回 426，`error.upgrade = "agentbus self-update"`。
+- 版本：客户端每个请求带 `X-Agentbus-Version: 0.7.0`（服务端 0.7.0，`/healthz` 返回 `version`）。低于 `min_client_version` 返回 426，`error.upgrade = "agentbus self-update"`。
 
 ## 0.1 团队（多租户隔离）
 
@@ -145,7 +145,7 @@ Manager 对本团队任意讨论串都能用 `PATCH /agent/threads/:id` 指派�
   - 带 `email`：作为该邮箱的身份。
   - 带 `common_name`（service token）：必须等于 `E2E_SERVICE_TOKEN_ID`（只在 staging 配置），视为身份 `e2e@agentbus.invalid`。
 - **当前团队**：请求头 `X-Agentbus-Team: o_…`。不带时取该身份最早加入的团队。带了但不是该团队的有效（非 revoked）成员 → 403 `not_member`。没有任何团队的身份只能调用 `GET /web/me`、`POST /web/teams`、`GET /web/invites/preview`、`POST /web/invites/accept`、`GET /web/settings/email/confirm`（凭邮件里的 token），其余接口 403 `no_team`。
-- **建团队**：环境变量 `SIGNUP=open` 时任何身份都能建；否则（默认 `invite`）只有 `ADMIN_EMAILS` 里的平台管理员能建，其他人只能被邀请。例外：配置了 `E2E_SERVICE_TOKEN_ID` 时，通过该 service token 登录的身份也能建团队（`can_create_team = true`），供 staging 的 e2e 自建 `e2e` 团队；它只获得这一项平台权限（`platform_admin` 仍为 false，不能改 `min_client_version`）。未配置 `E2E_SERVICE_TOKEN_ID` 时 service token 一律 401。每个身份最多拥有 5 个团队（超出 409）。首次登录**不会**自动建团队，网页展示欢迎页。建团队时创建者成为 owner，团队通知邮箱默认设为创建者邮箱。
+- **建团队**：环境变量 `SIGNUP=open` 时任何身份都能建；否则（默认 `invite`）只有 `ADMIN_EMAILS` 里的平台管理员能建，其他人只能被邀请。例外：配置了 `E2E_SERVICE_TOKEN_ID` 时，通过该 service token 登录的身份也能建团队（`can_create_team = true`），供 staging 的 e2e 自建 `e2e` 团队；它只获得这一项平台权限（`platform_admin` 仍为 false，不能改 `min_client_version`）。未配置 `E2E_SERVICE_TOKEN_ID` 时 service token 一律 401。每个身份最多拥有 5 个团队（超出 409）。谁能登录由 Access 策略决定：`hub/scripts/setup-access.sh` 的 `ACCESS_ALLOW=admin|everyone|domains:…` 控制正式环境是只放行管理员、任何邮箱（One-time PIN），还是指定域名。首次登录**不会**自动建团队，网页展示欢迎页。建团队时创建者成为 owner，团队通知邮箱默认设为创建者邮箱。
 - 权限：普通读写要求是当前团队的 human 成员；成员审批、暂停、额度、预算、设置、加入码、邀请要求管理员；改 human 角色、移交 owner、删除团队只有 owner。
 - **Worker 对除 `/api/v1/agent/*`、`/healthz` 以外的所有请求（包括静态页面）都先验 JWT**，未配置 Access 时一律 401（失败即关闭）。
 - 写操作都要求 `Content-Type: application/json`，防 CSRF；否则 415（code `bad_request`）。唯一例外是 `POST /web/uploads`：body 是原始字节，必须带请求头 `X-Agentbus-Upload: 1`，否则 403。

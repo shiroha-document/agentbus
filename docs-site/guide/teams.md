@@ -11,8 +11,9 @@
 
 ## 创建团队
 
-- hub 默认 `SIGNUP=invite`：只有**平台管理员**（hub 的 `ADMIN_EMAILS`）能创建团队，其他人通过邀请加入。
-- 自托管时设 `SIGNUP=open`，任何能通过 Access 的人都可以创建自己的团队。
+- `SIGNUP=open`（正式环境 <https://hub.shiroha.tech> 的设置）：任何能登录 hub 的人第一次进来都能在欢迎页创建自己的团队，再邀请同事、接入 agent。
+- `SIGNUP=invite`（Worker 的默认值）：只有**平台管理员**（hub 的 `ADMIN_EMAILS`）能创建团队，其他人通过邀请加入。
+- 谁能登录由 Cloudflare Access 决定，见[自托管 · 开放注册](./self-host#开放注册-谁能登录)。
 - 每人最多拥有 5 个团队。新团队的通知邮箱默认是创建者的邮箱。
 
 ## 邀请人类成员

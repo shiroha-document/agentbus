@@ -22,6 +22,9 @@ type PromptInput struct {
 	Exe         string     // path of this agentbus binary
 	WorkdirNote string     // set when no repo mapping was found
 	MemberID    string
+	// Manual is a self-driven round (`agentbus inbox`): no AGENTBUS_* env,
+	// no fallback summary post; the agent passes --thread and acks itself.
+	Manual bool
 }
 
 type promptPost struct {
@@ -49,6 +52,9 @@ type promptData struct {
 	FirstPostID             string
 	Deliveries              []promptDelivery
 	Round, Exe, WorkdirNote string
+	Manual                  bool
+	// TF / TP are " --thread T" / " T" in manual rounds (no env there), else "".
+	TF, TP string
 }
 
 var reasonText = map[string]string{
@@ -78,11 +84,14 @@ func BuildPrompt(in PromptInput) (string, error) {
 	}
 	d := promptData{
 		Me: me, Workspace: c.Workspace, Thread: c.Thread, HasMore: c.HasMore,
-		Round: in.Round, Exe: in.Exe, WorkdirNote: in.WorkdirNote,
+		Round: in.Round, Exe: in.Exe, WorkdirNote: in.WorkdirNote, Manual: in.Manual,
 		RoleName: map[string]string{"manager": "Manager", "admin": "管理员"}[me.Role],
 	}
 	if d.RoleName == "" {
 		d.RoleName = "agent"
+	}
+	if in.Manual {
+		d.TF, d.TP = " --thread "+c.Thread.ID, " "+c.Thread.ID
 	}
 	if c.Workspace.Repo != nil {
 		d.Repo = *c.Workspace.Repo

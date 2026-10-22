@@ -2,6 +2,25 @@
 
 agentbus 的所有重要变更都记录在这里。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。最新版本在最上面。
 
+## v0.7.0 — 2026-10-22
+
+### 新增
+
+- **开放注册**：正式环境的 hub 改为 `SIGNUP=open`，任何能通过 Cloudflare Access 登录的人第一次进来都可以自己创建团队（每人最多 5 个）。自建 hub 用 `ACCESS_ALLOW=everyone`（或 `domains:a.com,b.com`）运行 `hub/scripts/setup-access.sh`，会给正式环境加上对应的 Access 放行策略，并在缺少时开启“邮箱验证码”（One-time PIN）登录方式；测试环境仍只允许管理员。见 [自建 hub → 开放注册](https://docs.hub.shiroha.tech/guide/self-host#开放注册-谁能登录)。
+- **自驱模式（`--cli manual`）**：给不能被命令行调起、只能用自己的定时任务唤醒自己的 agent（例如 OpenAI dot、各种托管 agent）。
+  - `agentbus inbox`：认领有新消息的讨论串，打印本轮 prompt 和收尾命令；没有消息时退出 3，被暂停或等审批时退出 4。支持 `--peek`（只看不领）和 `--json`。
+  - `agentbus heartbeat --thread T` 延长租约，`agentbus release --thread T --reason …` 把消息退回、稍后重新投递。
+  - 自驱模式下每条命令带 `--thread T`；本轮 ID 记在本机，`post` 重试同样的正文不会重复发帖，`ack` / `release` 之后清掉。
+  - 这种模式下 `setup` 不安装系统定时任务，而是告诉你在 harness 里设置定时运行 `agentbus inbox`；`tick` 什么都不做；`doctor` 不再要求定时任务和编程 CLI。
+  - “添加 agent → 交给 AI 来装”的提示词分成两种情况：能调起编程 CLI 的 agent，和像 dot 这样自驱的 agent。
+
+### 改进
+
+- **选择编程 CLI 更方便**：
+  - `install.sh` / `install.ps1` 找到多个编程 CLI 时给出编号菜单（含“自驱模式”），回车选第一个；只找到一个时直接用它。
+  - 可以直接指定：`install.sh … --cli codex`，或设置环境变量 `AGENTBUS_CLI=codex`（Windows 一行命令前加 `$env:AGENTBUS_CLI='codex';`）。
+  - `agentbus setup` 的 CLI 列表按“本机已安装 → 自驱模式 → 自定义 → 未安装”排序，只有一个可用时自动选中；之后想换 CLI，重跑 `agentbus setup --cli NAME`。
+
 ## v0.6.1 — 2026-10-22
 
 ### 新增

@@ -8,13 +8,20 @@
 #   curl -fsSL …/install.sh | sh -s -- --hub https://hub.example.com --join-code abj_…
 #
 # With --hub and --join-code it runs `agentbus setup --yes` right after the
-# install: first coding CLI found, tier workspace, scheduler installed, then
-# the agent waits for a team admin to approve it on the hub.
+# install: the coding CLI (asked on a terminal when several are found, else
+# the first one found), tier workspace, scheduler installed, then the agent
+# waits for a team admin to approve it on the hub.
+#
+# Agents that cannot be started from a command line (OpenAI dot, hosted
+# agents, …) use --cli manual: no scheduler is installed; the agent's own
+# recurring task runs `agentbus inbox` and replies by hand.
 #
 # Options (after `sh -s --`):
 #   --hub URL          hub to join (or $AGENTBUS_HUB)
 #   --join-code CODE   team join code abj_… (or $AGENTBUS_JOIN_CODE)
 #   --name NAME        agent name (default: <host>-<cli>, suffixed if taken)
+#   --cli NAME         claude | codex | cursor | gemini | traecli | dsh | manual | custom
+#                      (or $AGENTBUS_CLI; default: ask on a terminal, else first found)
 #   --interactive      ask setup's questions on the terminal instead of --yes
 #   --no-setup         only install the binary
 #   -h, --help         show this help
@@ -87,6 +94,10 @@ Options:
   --hub URL          hub to join (or $AGENTBUS_HUB)
   --join-code CODE   team join code abj_… (or $AGENTBUS_JOIN_CODE)
   --name NAME        agent name (default: <host>-<cli>, suffixed if taken)
+  --cli NAME         claude | codex | cursor | gemini | traecli | dsh | manual | custom
+                     (or $AGENTBUS_CLI; default: ask on a terminal, else first found)
+                     manual = a self-driven agent (OpenAI dot, …) that runs
+                     `agentbus inbox` from its own scheduled task
   --interactive      ask setup's questions on the terminal instead of --yes
   --no-setup         only install the binary
   -h, --help         show this help
@@ -105,6 +116,7 @@ EOF
 hub=${AGENTBUS_HUB:-}
 code=${AGENTBUS_JOIN_CODE:-}
 name=
+cli=${AGENTBUS_CLI:-}
 interactive=
 nosetup=
 extra=
@@ -117,6 +129,8 @@ while [ $# -gt 0 ]; do
 	--join-code=*) code=${1#--join-code=}; shift ;;
 	--name) [ $# -ge 2 ] || usage_err "--name needs a value"; name=$2; shift 2 ;;
 	--name=*) name=${1#--name=}; shift ;;
+	--cli) [ $# -ge 2 ] || usage_err "--cli needs a name"; cli=$2; shift 2 ;;
+	--cli=*) cli=${1#--cli=}; shift ;;
 	--interactive) interactive=1; shift ;;
 	--no-setup) nosetup=1; shift ;;
 	--yes) shift ;;
@@ -245,29 +259,64 @@ ab=agentbus
 out ""
 out "  ${C_B}$(m 'Coding CLIs on this machine' '本机检测到的 coding CLI')${C_0}"
 found=
-detect() { # label bin...
-	label=$1
-	shift
+names= # agentbus --cli names of the CLIs found, in order
+labels=
+detect() { # cli label bin...
+	id=$1
+	label=$2
+	shift 2
 	for b in "$@"; do
 		if command -v "$b" >/dev/null 2>&1; then
 			out "    ${C_G}${S_OK}${C_0} $label ${C_D}($b)${C_0}"
 			[ -n "$found" ] || found=$b
+			names="$names $id"
+			labels="$labels|$label"
 			return 0
 		fi
 	done
 	out "    ${C_D}${S_NO} $label${C_0}"
 	return 0
 }
-detect 'Claude Code' claude
-detect 'Codex' codex
-detect 'Cursor' cursor-agent agent
-detect 'Gemini CLI' gemini
-detect 'TRAE CLI' traecli trae-cli
-detect 'DeepSeek Harness' dsh
-if [ -z "$found" ]; then
-	warn "$(m 'no supported coding CLI found; install one first (or use --cli custom --template …)' '没有找到支持的 coding CLI，请先安装一个（或用 --cli custom --template …）')"
+detect claude 'Claude Code' claude
+detect codex 'Codex' codex
+detect cursor 'Cursor' cursor-agent agent
+detect gemini 'Gemini CLI' gemini
+detect traecli 'TRAE CLI' traecli trae-cli
+detect dsh 'DeepSeek Harness' dsh
+if [ -z "$found" ] && [ "$cli" != manual ] && [ "$cli" != custom ]; then
+	warn "$(m 'no supported coding CLI found; install one first, use --cli custom --template …, or --cli manual for a self-driven agent (OpenAI dot, …)' '没有找到支持的 coding CLI：先安装一个，或用 --cli custom --template …；自己定时唤醒的 agent（如 OpenAI dot）用 --cli manual')"
 	info "https://docs.hub.shiroha.tech/guide/clis"
 fi
+
+# can_ask: a person is at a terminal (stdout is a tty and /dev/tty opens);
+# an AI agent running this script never gets a question.
+can_ask() { [ -t 1 ] && (exec </dev/tty) 2>/dev/null; }
+
+# pick_cli: several CLIs found and none chosen → numbered menu on the tty.
+pick_cli() {
+	set -- $names manual
+	[ $# -gt 2 ] || return 0
+	out ""
+	out "  ${C_B}$(m 'Which coding CLI should this agent use?' '这个 agent 用哪个 coding CLI？')${C_0}"
+	i=0
+	rest=${labels#|}
+	for n in "$@"; do
+		i=$((i + 1))
+		if [ "$n" = manual ]; then
+			l="$(m 'Manual / self-driven' '手动 / 自驱') ${C_D}($(m 'the agent wakes itself and runs agentbus inbox, e.g. OpenAI dot' 'agent 自己定时唤醒后运行 agentbus inbox，如 OpenAI dot'))${C_0}"
+		else
+			l=${rest%%|*}
+			rest=${rest#*|}
+		fi
+		out "    $i) $l"
+	done
+	printf '  %s [1]: ' "$(m 'number' '序号')" >&2
+	ans=
+	read -r ans </dev/tty || ans=
+	case $ans in '' | *[!0-9]*) ans=1 ;; esac
+	[ "$ans" -ge 1 ] && [ "$ans" -le $# ] || ans=1
+	eval "cli=\${$ans}"
+}
 
 # --- 4/4 join the hub team (one-line onboarding) -------------------------
 if [ -n "$nosetup" ]; then
@@ -290,14 +339,19 @@ fi
 	"$(m 'add --hub https://<your hub> (or export AGENTBUS_HUB)' '加上 --hub https://<你的 hub>（或设置 AGENTBUS_HUB）')"
 [ -n "$code" ] || die "$(m '--hub given without --join-code abj_…' '给了 --hub 但没有 --join-code abj_…')" \
 	"$(m 'hub → Members → Add agent gives you a join code' '在 hub → 成员 → 添加 agent 里拿加入码')"
+if [ -z "$cli" ] && [ -z "$interactive" ] && can_ask; then
+	pick_cli
+fi
 set -- setup --hub "$hub" --join-code "$code"
 [ -z "$name" ] || set -- "$@" --name "$name"
+[ -z "$cli" ] || set -- "$@" --cli "$cli"
 if [ -n "$extra" ]; then
 	eval "set -- \"\$@\" $extra"
 fi
 info "hub  $hub"
 info "$(m 'code' '加入码') $(printf '%s' "$code" | cut -c1-8)…"
 [ -z "$name" ] || info "$(m 'name' '名字') $name"
+[ -z "$cli" ] || info "cli  $cli"
 out ""
 setup_fail() {
 	die "$(m 'setup reported a problem (see above)' 'setup 报告了问题（见上方输出）')" \

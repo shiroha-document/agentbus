@@ -13,6 +13,17 @@
 #   2. staging only: a service token "agentbus-e2e" allowed on the staging app (for Playwright)
 #   3. Worker secrets ACCESS_TEAM / ACCESS_AUD (and E2E_SERVICE_TOKEN_ID on staging) via wrangler
 #   4. optional: GitHub secrets CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET (if GH_PAT_FILE is set)
+#
+# Who may log in to the production web UI (staging always stays admin-only):
+#   ACCESS_ALLOW=admin                 only ADMIN_EMAIL (default)
+#   ACCESS_ALLOW=everyone              anyone with an email address (One-time PIN login)
+#   ACCESS_ALLOW=domains:a.com,b.com   anyone with an email at these domains
+# The admin email is always allowed. Pair ACCESS_ALLOW=everyone / domains with
+# the Worker var SIGNUP=open so new users can create their own teams.
+# Zero Trust Free covers 50 users; more need a paid seat per user.
+# Opening the hub also makes sure the One-time PIN login method exists (needs
+# "Access: Organizations, Identity Providers, and Groups Edit"; skipped with a
+# warning if the token lacks it).
 set -euo pipefail
 
 TOKEN_FILE=${1:?usage: setup-access.sh TOKEN_FILE}
@@ -24,6 +35,12 @@ API="https://api.cloudflare.com/client/v4/accounts/$ACCOUNT/access"
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 WORKER="$HERE/worker"
 ADMIN_EMAIL=$(tr -d '\n\r ' <"$ADMIN_EMAIL_FILE")
+ACCESS_ALLOW=${ACCESS_ALLOW:-admin}
+case $ACCESS_ALLOW in
+  admin | everyone) ;;
+  domains:?*) ;;
+  *) echo "ACCESS_ALLOW must be admin, everyone or domains:a.com,b.com (got $ACCESS_ALLOW)" >&2; exit 2 ;;
+esac
 umask 077
 OUT=$(mktemp -d)
 trap 'rm -rf "$OUT"' EXIT
@@ -54,6 +71,38 @@ put_secret() { # env name value
   echo "  secret $2 set on $1"
 }
 
+# include rules for the production app's "users" policy ("" = admin only)
+users_include() {
+  case $ACCESS_ALLOW in
+    everyone) jq -nc '[{everyone: {}}]' ;;
+    domains:*)
+      tr ',' '\n' <<<"${ACCESS_ALLOW#domains:}" | tr -d ' ' | grep -v '^$' |
+        jq -Rnc '[inputs | {email_domain: {domain: .}}]' ;;
+    *) echo "" ;;
+  esac
+}
+
+# ensure_otp: an open hub needs a login method that works for any email
+ensure_otp() {
+  local r
+  r=$(curl -sS -H "Authorization: Bearer $(cat "$TOKEN_FILE")" "$API/identity_providers?per_page=100")
+  if [ "$(jq -r '.success' <<<"$r")" != "true" ]; then
+    echo "  warning: cannot read login methods ($(jq -c '.errors' <<<"$r")); make sure One-time PIN is enabled in Zero Trust → Settings → Authentication" >&2
+    return 0
+  fi
+  if jq -e '.result[] | select(.type == "onetimepin")' <<<"$r" >/dev/null; then
+    echo "  login method One-time PIN ok"
+    return 0
+  fi
+  r=$(curl -sS -X POST -H "Authorization: Bearer $(cat "$TOKEN_FILE")" -H "Content-Type: application/json" \
+    --data '{"name":"One-time PIN","type":"onetimepin","config":{}}' "$API/identity_providers")
+  if [ "$(jq -r '.success' <<<"$r")" = "true" ]; then
+    echo "  login method One-time PIN created"
+  else
+    echo "  warning: could not add One-time PIN ($(jq -c '.errors' <<<"$r")); enable it in Zero Trust → Settings → Authentication" >&2
+  fi
+}
+
 # verify the team domain exists
 curl -fsS "https://$ACCESS_TEAM.cloudflareaccess.com/cdn-cgi/access/certs" >/dev/null ||
   { echo "team $ACCESS_TEAM.cloudflareaccess.com not reachable; enable Zero Trust and pick the team name first" >&2; exit 1; }
@@ -77,6 +126,12 @@ for env in staging production; do
 
   include=$(jq -nc --arg e "$ADMIN_EMAIL" '[{email: {email: $e}}]')
   policies=$(jq -nc --argjson inc "$include" '[{name: "admin", decision: "allow", include: $inc, precedence: 1}]')
+  if [ "$env" = production ] && [ "$ACCESS_ALLOW" != admin ]; then
+    users=$(users_include)
+    policies=$(jq -c --argjson inc "$users" '. + [{name: "users", decision: "allow", include: $inc, precedence: 2}]' <<<"$policies")
+    echo "  login open to: $ACCESS_ALLOW"
+    ensure_otp
+  fi
   if [ "$env" = staging ]; then
     policies=$(jq -c --arg t "$st_id" '. + [{name: "e2e service token", decision: "non_identity", include: [{service_token: {token_id: $t}}], precedence: 2}]' <<<"$policies")
   fi
