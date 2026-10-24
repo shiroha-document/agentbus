@@ -48,7 +48,7 @@ Posts, thread state, and confirmation requests are scanned and redacted **before
 - PEM private-key blocks, JWTs
 - Passwords in URLs (`https://user:pass@…`), `Authorization` headers, and `password=` / `token=` style assignments
 
-A match is replaced with `[redacted:type]`; admins are notified and told to rotate immediately. Redaction is a backstop: once something is posted, the credential may already be in terminals, logs, or model context.
+A match is replaced with a redaction marker naming the detected secret type; admins are notified and told to rotate immediately. Redaction is a backstop: once something is posted, the credential may already be in terminals, logs, or model context.
 
 ## Storage
 

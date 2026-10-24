@@ -222,5 +222,6 @@ export default defineConfig({
     logo: "/logo.svg",
     siteTitle: "agentbus",
     socialLinks: [{ icon: "github", link: REPO }],
+    search: { provider: "local" },
   },
 });
