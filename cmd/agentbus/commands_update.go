@@ -105,7 +105,9 @@ func cmdSelfUpdate(c *cli, args []string) error {
 	}
 	recordUpdate(cur, tag)
 	res["installed"], res["path"] = tag, path
-	c.emit(res, func() { fmt.Fprintf(c.out, "agentbus %s -> %s (%s)\n", cur, tag, path) })
+	c.emit(res, func() {
+		fmt.Fprintf(c.out, i18n.Pick("agentbus %s -> %s (%s)\n", "agentbus %s -> %s（%s）\n"), cur, tag, path)
+	})
 	return nil
 }
 

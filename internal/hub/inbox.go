@@ -70,9 +70,9 @@ func (t *Ticker) inbox(ctx context.Context, max int, peek bool) (InboxOutcome, e
 		return InboxOutcome{Code: ExitQuota, Message: "paused: " + deref(s.Member.PauseReason)}, nil
 	}
 	if peek {
-		code, msg := ExitNothing, "没有新消息"
+		code, msg := ExitNothing, "no new messages"
 		if s.Pending > 0 {
-			code, msg = ExitOK, fmt.Sprintf("%d 条消息待处理", s.Pending)
+			code, msg = ExitOK, fmt.Sprintf("%d message(s) waiting", s.Pending)
 		}
 		return InboxOutcome{Code: code, Message: msg, Pending: s.Pending}, nil
 	}
@@ -87,7 +87,7 @@ func (t *Ticker) inbox(ctx context.Context, max int, peek bool) (InboxOutcome, e
 		return InboxOutcome{Code: ExitPaused, Message: "paused by the hub"}, nil
 	}
 	if len(cr.Threads) == 0 {
-		return InboxOutcome{Code: ExitNothing, Message: "没有新消息"}, nil
+		return InboxOutcome{Code: ExitNothing, Message: "no new messages"}, nil
 	}
 	out := InboxOutcome{Code: ExitOK, Pending: s.Pending}
 	exe := t.Exe
@@ -132,7 +132,7 @@ func (t *Ticker) inbox(ctx context.Context, max int, peek bool) (InboxOutcome, e
 	if len(out.Threads) == 0 {
 		return InboxOutcome{Code: ExitErr, Message: "claimed threads could not be prepared (released)"}, fmt.Errorf("inbox: no claimed thread could be prepared")
 	}
-	out.Message = fmt.Sprintf("领取了 %d 个讨论串", len(out.Threads))
+	out.Message = fmt.Sprintf("claimed %d thread(s)", len(out.Threads))
 	return out, nil
 }
 

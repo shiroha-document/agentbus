@@ -44,6 +44,12 @@ func schedHost() sched.Host {
 func querySchedule(name string) sched.Status { return sched.Query(schedHost(), "", name) }
 
 func schedText(st sched.Status) string {
+	if i18n.IsZh() {
+		if st.Installed {
+			return "已安装（" + st.Detail + "）"
+		}
+		return "未安装（" + st.Detail + "；运行 `agentbus schedule install`）"
+	}
 	if st.Installed {
 		return "installed (" + st.Detail + ")"
 	}
@@ -168,6 +174,9 @@ func runDoctor(ctx context.Context) []check {
 	p := hub.Paths{Dir: dir}
 	cfg, err := hub.LoadConfig(dir)
 	if err != nil {
+		if errors.Is(err, hub.ErrNoConfig) {
+			err = errors.New(i18n.Pick(err.Error(), "尚未加入 hub：请运行 `agentbus join URL --join-code CODE --name NAME`（或 `agentbus setup`）"))
+		}
 		add("config", "fail", "%v", err)
 		return cs
 	}
@@ -409,7 +418,7 @@ func intervalOptions() []tui.Option {
 func cmdSetup(c *cli, args []string) error {
 	fs := newFlags("setup")
 	yes := fs.Bool("yes", false, "non-interactive: take flags and defaults, ask nothing")
-	joinCode := fs.String("join-code", "", "team join code abj_… from a team admin (hub Settings → Agent 加入码); default $AGENTBUS_JOIN_CODE")
+	joinCode := fs.String("join-code", "", "team join code abj_… from a team admin (hub: Settings → Agent join code); default $AGENTBUS_JOIN_CODE")
 	name := fs.String("name", "", "agent name")
 	cliName := fs.String("cli", "", strings.Join(adapter.Known, " | ")+" (default: first found)")
 	binary := fs.String("binary", "", "CLI executable path")

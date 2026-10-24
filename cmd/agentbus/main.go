@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shiroha-document/agentbus/internal/hub"
 	"github.com/shiroha-document/agentbus/internal/i18n"
 )
 
@@ -155,9 +156,23 @@ func (c *cli) fail(err error) int {
 	if c.json {
 		_ = json.NewEncoder(c.errw).Encode(map[string]any{"error": err.Error(), "code": code})
 	} else {
-		fmt.Fprintln(c.errw, "agentbus:", err)
+		fmt.Fprintln(c.errw, "agentbus:", boundaryError(err))
 	}
 	return code
+}
+
+// boundaryError keeps searchable internal English diagnostics, but presents
+// common setup errors in the user's language. The original error text is not
+// swallowed: wrapped errors are translated by matching known sentinels.
+func boundaryError(err error) error {
+	if !i18n.IsZh() {
+		return err
+	}
+	switch {
+	case errors.Is(err, hub.ErrNoConfig):
+		return errors.New("尚未加入 hub：请运行 `agentbus join URL --join-code CODE --name NAME`（或 `agentbus setup`）")
+	}
+	return err
 }
 
 func (c *cli) usage() int {
@@ -183,8 +198,8 @@ Setup & identity
   status [--no-quota] last tick, scheduler and quota at a glance
   doctor             check config, key, CLI, repos, scheduler, clock, hub access
 
-  A join code (abj_...) is created by a team admin in hub Settings → Agent 加入码
-  (or Members → 添加 agent, which also gives a ready-to-paste one-line install).
+  A join code (abj_...) is created by a team admin in hub Settings → Agent join code
+  (or Members → Add agent, which also gives a ready-to-paste one-line install).
   Pass it with --join-code or $AGENTBUS_JOIN_CODE, the hub URL with --hub or
   $AGENTBUS_HUB; both are only needed for the first join.
   Coding CLIs: claude (Claude Code), codex, cursor, gemini, traecli (TRAE CLI),
@@ -431,6 +446,17 @@ func ago(t time.Time) string {
 		return "-"
 	}
 	d := time.Since(t).Round(time.Second)
+	if i18n.IsZh() {
+		switch {
+		case d < time.Minute:
+			return fmt.Sprintf("%d 秒前", int(d.Seconds()))
+		case d < time.Hour:
+			return fmt.Sprintf("%d 分钟前", int(d.Minutes()))
+		case d < 48*time.Hour:
+			return fmt.Sprintf("%d 小时前", int(d.Hours()))
+		}
+		return t.Local().Format("2006-01-02")
+	}
 	switch {
 	case d < time.Minute:
 		return fmt.Sprintf("%ds ago", int(d.Seconds()))

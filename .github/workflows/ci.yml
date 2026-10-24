@@ -29,3 +29,20 @@ jobs:
         run: test -z "$(gofmt -l .)"
       - run: go vet ./...
       - run: go test -count=1 ./...
+      # New user-facing print literals in cmd/ must go through i18n.Pick.
+      - if: runner.os == 'Linux'
+        run: python3 scripts/check-cli-i18n.py --strict
+      # install.ps1 must stay parseable on Windows PowerShell 5.1 (pwsh on the
+      # Windows runner covers PowerShell 7; 5.1 ships with the runner image).
+      - if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $tokens = $null; $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/install.ps1", [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count) { $errors; exit 1 }
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tokens = $null; $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/install.ps1", [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count) { $errors; exit 1 }

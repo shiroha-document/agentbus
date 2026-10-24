@@ -37,7 +37,7 @@ type joinOpts struct {
 func cmdHubJoin(c *cli, args []string) error {
 	fs := newFlags("join")
 	var o joinOpts
-	fs.StringVar(&o.joinCode, "join-code", "", "team join code abj_… from a team admin (hub Settings → Agent 加入码); default $AGENTBUS_JOIN_CODE")
+	fs.StringVar(&o.joinCode, "join-code", "", "team join code abj_… from a team admin (hub: Settings → Agent join code); default $AGENTBUS_JOIN_CODE")
 	fs.StringVar(&o.name, "name", "", "agent name (^[a-z0-9][a-z0-9_-]{1,31}$)")
 	fs.StringVar(&o.display, "display-name", "", "display name shown on the hub")
 	fs.StringVar(&o.cli, "cli", "claude", "coding CLI: "+strings.Join(adapter.Known, "|"))
@@ -83,7 +83,7 @@ func cmdHubJoin(c *cli, args []string) error {
 // admin in the hub web UI. The hub only stores their hash.
 const (
 	joinCodePrefix  = "abj_"
-	askAdminForCode = "ask a team admin for a join code (hub Settings → Agent 加入码)"
+	askAdminForCode = "ask a team admin for a join code (hub: Settings → Agent join code)"
 	joinCodeMissing = "a join code is required to join a hub team: " + askAdminForCode +
 		", then pass --join-code abj_… or set AGENTBUS_JOIN_CODE"
 	joinCodeBad = "the hub rejected this join code (wrong, expired or revoked): " + askAdminForCode + " and try again"
@@ -299,8 +299,8 @@ func cmdHubState(c *cli, args []string) error {
 	}
 	c.emit(s, func() {
 		m := s.Member
-		fmt.Fprintf(c.out, "%s (%s) on %s\n", m.Name, m.ID, e.cfg.HubURL)
-		fmt.Fprintf(c.out, "team %s\n", teamText(e.cfg))
+		fmt.Fprintf(c.out, i18n.Pick("%s (%s) on %s\n", "%s（%s），hub %s\n"), m.Name, m.ID, e.cfg.HubURL)
+		fmt.Fprintf(c.out, i18n.Pick("team %s\n", "团队 %s\n"), teamText(e.cfg))
 		fmt.Fprintf(c.out, i18n.Pick("role %s, status %s%s\n", "角色 %s，状态 %s%s\n"), m.Role, m.Status, pauseText(s))
 		fmt.Fprintf(c.out, i18n.Pick("pending deliveries %d; cli %s, tier %s, wake %s every %s\n", "待处理投递 %d；cli %s，权限 %s，唤醒 %s 每 %s\n"), s.Pending, e.cfg.CLI, e.cfg.Tier,
 			e.cfg.Wake, FmtDurS(e.cfg.WakeIntervalS))
@@ -315,17 +315,17 @@ func FmtDurS(s int64) string { return hub.FmtDuration(time.Duration(s) * time.Se
 func pauseText(s *hub.State) string {
 	var parts []string
 	if s.Member.Paused {
-		p := "paused"
+		p := i18n.Pick("paused", "已暂停")
 		if s.Member.PauseReason != nil && *s.Member.PauseReason != "" {
-			p += ": " + *s.Member.PauseReason
+			p += i18n.Pick(": ", "：") + *s.Member.PauseReason
 		}
 		if s.Member.PausedUntil != nil && *s.Member.PausedUntil > 0 {
-			p += " until " + fmtMS(*s.Member.PausedUntil)
+			p += i18n.Pick(" until ", " 至 ") + fmtMS(*s.Member.PausedUntil)
 		}
 		parts = append(parts, p)
 	}
 	if s.GlobalPause {
-		parts = append(parts, "hub globally paused")
+		parts = append(parts, i18n.Pick("hub globally paused", "hub 全局暂停"))
 	}
 	if len(parts) == 0 {
 		return ""
@@ -342,12 +342,101 @@ func fmtMS(ms int64) string {
 
 func agoMS(ms int64) string {
 	if ms <= 0 {
-		return "never"
+		return i18n.Pick("never", "从未")
 	}
 	return ago(time.UnixMilli(ms))
 }
 
+var tickExitTextZH = map[int]string{0: "已处理讨论串", 1: "出错", 2: "用法错误", 3: "没有要处理的消息", 4: "已暂停 / 待批准", 5: "额度用尽"}
 var tickExitText = map[int]string{0: "processed threads", 1: "error", 2: "usage error", 3: "nothing to do", 4: "paused / pending", 5: "quota exhausted"}
+
+func tickExitLabel(code int) string {
+	if i18n.IsZh() {
+		if t, ok := tickExitTextZH[code]; ok {
+			return t
+		}
+	}
+	return tickExitText[code]
+}
+
+// tickOutcomeText localizes the stable English Outcome.Message strings from
+// internal/hub (kept English so --json and logs stay machine-stable). Unknown
+// messages — including pause reasons or server text — are shown as-is.
+func tickOutcomeText(msg string) string {
+	if !i18n.IsZh() {
+		return msg
+	}
+	switch {
+	case msg == "no new messages":
+		return "没有新消息"
+	case msg == "another tick is still running":
+		return "另一个 tick 仍在运行"
+	case msg == "waiting for a team admin to approve on the hub":
+		return "等待管理员在网页上批准"
+	case msg == "hub is globally paused":
+		return "hub 已全局暂停"
+	case strings.HasPrefix(msg, "claimed threads could not be prepared"):
+		return "领取的讨论串无法准备（已退回）"
+	case strings.HasPrefix(msg, "paused: "):
+		return "已暂停：" + strings.TrimPrefix(msg, "paused: ")
+	case strings.HasPrefix(msg, "paused by the hub"):
+		return "被 hub 暂停"
+	case strings.HasPrefix(msg, "quota exhausted: "):
+		return "额度用尽：" + strings.TrimPrefix(msg, "quota exhausted: ")
+	case msg == "nothing to do":
+		return "没有要处理的消息"
+	case strings.HasPrefix(msg, "manual mode:"):
+		return "手动模式：tick 不做任何事；agent 自己运行 `agentbus inbox`"
+	}
+	// Numbered outcomes from inbox/tick ("%d message(s) waiting",
+	// "claimed %d thread(s)", "processed %d thread(s)"): translate the
+	// template but keep the member/server-authored middle part as-is.
+	for _, tpl := range []struct{ en, zh string }{
+		{"%d message(s) waiting", "%d 条消息待处理"},
+		{"claimed %d thread(s)", "领取了 %d 个讨论串"},
+		{"processed %d thread(s)", "已处理 %d 个讨论串"},
+	} {
+		prefixEn, suffixEn, ok := strings.Cut(tpl.en, "%d")
+		if !ok {
+			continue
+		}
+		if rest, ok := strings.CutPrefix(msg, prefixEn); ok && strings.HasSuffix(rest, suffixEn) {
+			mid := strings.TrimSuffix(rest, suffixEn)
+			prefixZh, suffixZh, _ := strings.Cut(tpl.zh, "%d")
+			return prefixZh + mid + suffixZh
+		}
+	}
+	return msg
+}
+
+// inboxOutcomeText localizes the stable English InboxOutcome.Message strings
+// for text rendering only (JSON keeps the canonical English).
+func inboxOutcomeText(msg string) string {
+	if !i18n.IsZh() {
+		return msg
+	}
+	switch {
+	case msg == "no new messages":
+		return "没有新消息"
+	case strings.HasSuffix(msg, " message(s) waiting"):
+		if n, ok := strings.CutSuffix(msg, " message(s) waiting"); ok {
+			return n + " 条消息待处理"
+		}
+		return msg
+	case strings.HasPrefix(msg, "claimed "):
+		if n, ok := strings.CutSuffix(strings.TrimPrefix(msg, "claimed "), " thread(s)"); ok {
+			return "领取了 " + n + " 个讨论串"
+		}
+		return msg
+	case msg == "claimed threads could not be prepared (released)":
+		return "领取的讨论串无法准备（已退回）"
+	case strings.HasPrefix(msg, "paused: "):
+		return "已暂停：" + strings.TrimPrefix(msg, "paused: ")
+	case msg == "paused by the hub":
+		return "被 hub 暂停"
+	}
+	return msg
+}
 
 func cmdHubStatus(c *cli, args []string) error {
 	fs := newFlags("status")
@@ -379,16 +468,16 @@ func cmdHubStatus(c *cli, args []string) error {
 		out["error"] = serr.Error()
 	}
 	c.emit(out, func() {
-		fmt.Fprintf(c.out, "%s (%s) on %s\n", e.cfg.Name, e.cfg.MemberID, e.cfg.HubURL)
-		fmt.Fprintf(c.out, "team %s\n", teamText(e.cfg))
+		fmt.Fprintf(c.out, i18n.Pick("%s (%s) on %s\n", "%s（%s），hub %s\n"), e.cfg.Name, e.cfg.MemberID, e.cfg.HubURL)
+		fmt.Fprintf(c.out, i18n.Pick("team %s\n", "团队 %s\n"), teamText(e.cfg))
 		if serr != nil {
-			fmt.Fprintf(c.out, "hub: %v\n", serr)
+			fmt.Fprintf(c.out, i18n.Pick("hub: %v\n", "hub：%v\n"), serr)
 		} else {
 			fmt.Fprintf(c.out, i18n.Pick("status %s, role %s%s; pending deliveries %d\n", "状态 %s，角色 %s%s；待处理投递 %d\n"), s.Member.Status, s.Member.Role, pauseText(s), s.Pending)
 		}
-		lt := "never"
+		lt := i18n.Pick("never", "从未")
 		if ls.LastTickAt > 0 {
-			lt = fmt.Sprintf("%s (exit %d, %s)", agoMS(ls.LastTickAt), ls.LastExit, tickExitText[ls.LastExit])
+			lt = fmt.Sprintf(i18n.Pick("%s (exit %d, %s)", "%s（退出码 %d，%s）"), agoMS(ls.LastTickAt), ls.LastExit, tickExitLabel(ls.LastExit))
 		}
 		fmt.Fprintf(c.out, i18n.Pick("last tick %s\n", "上次 tick %s\n"), lt)
 		if ls.LastError != "" {
@@ -410,7 +499,7 @@ func cmdHubStatus(c *cli, args []string) error {
 
 func quotaSummary(rs []quota.Reading) string {
 	if len(rs) == 0 {
-		return "no readings"
+		return i18n.Pick("no readings", "没有读数")
 	}
 	var parts []string
 	for _, r := range rs {
@@ -466,19 +555,19 @@ func cmdTick(c *cli, args []string) error {
 		recordTick(out, e.cfg.CLI)
 	}
 	c.emit(out, func() {
-		fmt.Fprintf(c.errw, "agentbus tick: %s\n", out.Message)
+		fmt.Fprintf(c.errw, i18n.Pick("agentbus tick: %s\n", "agentbus tick：%s\n"), tickOutcomeText(out.Message))
 		for _, t := range out.Threads {
-			s := "acked"
+			s := i18n.Pick("acked", "已确认")
 			switch {
 			case t.TimedOut:
-				s = "timed out (released)"
+				s = i18n.Pick("timed out (released)", "超时（已退回）")
 			case t.Nacked:
-				s = "released"
+				s = i18n.Pick("released", "已退回")
 			case !t.Acked:
-				s = "not acked"
+				s = i18n.Pick("not acked", "未确认")
 			}
 			if t.ErrorSummary != "" {
-				s += ": " + firstLine(t.ErrorSummary)
+				s += i18n.Pick(": ", "：") + firstLine(t.ErrorSummary)
 			}
 			fmt.Fprintf(c.out, "%s %s\n", t.ThreadID, s)
 		}
@@ -608,13 +697,13 @@ func doPostFiles(c *cli, np hub.NewPost, files []attachFile) error {
 		return err
 	}
 	c.emit(r, func() {
-		what := "posted"
+		what := i18n.Pick("posted", "已发帖")
 		if r.Duplicate {
-			what = "already posted"
+			what = i18n.Pick("already posted", "已发过帖")
 		}
-		fmt.Fprintf(c.out, "%s %s in %s", what, r.Post.ID, firstOr(r.Post.ThreadID, r.Thread.ID))
+		fmt.Fprintf(c.out, i18n.Pick("%s %s in %s", "%s %s，讨论串 %s"), what, r.Post.ID, firstOr(r.Post.ThreadID, r.Thread.ID))
 		if np.Title != "" {
-			fmt.Fprintf(c.out, " (new thread %q)", r.Thread.Title)
+			fmt.Fprintf(c.out, i18n.Pick(" (new thread %q)", "（新讨论串 %q）"), r.Thread.Title)
 		}
 		if n := len(np.Attachments); n > 0 {
 			fmt.Fprintf(c.out, i18n.Pick(" with %d attachment(s)", "，附件 %d 个"), n)
@@ -678,7 +767,7 @@ func cmdHubAck(c *cli, args []string) error {
 	if len(pos) == 0 {
 		hub.ForgetInboxRound(e.dir, t)
 	}
-	c.emit(map[string]any{"thread": t, "acked": true}, func() { fmt.Fprintf(c.out, "acked %s\n", t) })
+	c.emit(map[string]any{"thread": t, "acked": true}, func() { fmt.Fprintf(c.out, i18n.Pick("acked %s\n", "已确认 %s\n"), t) })
 	return nil
 }
 
@@ -747,13 +836,13 @@ func threadShow(c *cli, args []string) error {
 	c.emit(out, func() {
 		if cerr == nil {
 			th := hc.Thread
-			fmt.Fprintf(c.out, "%s  %s  [%s] in %s", th.ID, th.Title, th.Status, hc.Workspace.Name)
+			fmt.Fprintf(c.out, i18n.Pick("%s  %s  [%s] in %s", "%s  %s  [%s]，工作区 %s"), th.ID, th.Title, th.Status, hc.Workspace.Name)
 			if th.AssigneeID != nil {
-				fmt.Fprintf(c.out, ", assignee %s", firstOr(names[*th.AssigneeID], *th.AssigneeID))
+				fmt.Fprintf(c.out, i18n.Pick(", assignee %s", "，负责人 %s"), firstOr(names[*th.AssigneeID], *th.AssigneeID))
 			}
 			fmt.Fprintln(c.out)
 			if s := strings.TrimSpace(th.State); s != "" && *before == "" {
-				fmt.Fprintf(c.out, "\n当前状态:\n%s\n", indent(s))
+				fmt.Fprintf(c.out, i18n.Pick("\nCurrent state:\n%s\n", "\n当前状态:\n%s\n"), indent(s))
 			}
 			fmt.Fprintln(c.out)
 		}
@@ -797,7 +886,7 @@ func patchThread(c *cli, t string, p hub.ThreadPatch, what string) error {
 	if err != nil {
 		return err
 	}
-	c.emit(map[string]any{"thread": th}, func() { fmt.Fprintf(c.out, "%s %s\n", what, firstOr(th.ID, t)) })
+	c.emit(map[string]any{"thread": th}, func() { fmt.Fprintf(c.out, i18n.Pick("%s %s\n", "%s %s\n"), what, firstOr(th.ID, t)) })
 	return nil
 }
 
@@ -821,7 +910,7 @@ func threadState(c *cli, args []string) error {
 	if err != nil {
 		return err
 	}
-	return patchThread(c, t, hub.ThreadPatch{State: &b}, "updated state of")
+	return patchThread(c, t, hub.ThreadPatch{State: &b}, i18n.Pick("updated state of", "已更新状态"))
 }
 
 func threadAssign(c *cli, args []string) error {
@@ -843,7 +932,7 @@ func threadAssign(c *cli, args []string) error {
 		return err
 	}
 	who = strings.TrimPrefix(who, "@")
-	return patchThread(c, t, hub.ThreadPatch{Assignee: &who}, "assigned "+who+" to")
+	return patchThread(c, t, hub.ThreadPatch{Assignee: &who}, i18n.Pick("assigned "+who+" to", "已把 "+who+" 指派给"))
 }
 
 func threadClose(c *cli, args []string) error {
@@ -858,10 +947,12 @@ func threadClose(c *cli, args []string) error {
 		return err
 	}
 	st := "closed"
+	stLabel := i18n.Pick("marked closed:", "已标记为关闭：")
 	if *done {
 		st = "done"
+		stLabel = i18n.Pick("marked done:", "已标记为完成：")
 	}
-	return patchThread(c, t, hub.ThreadPatch{Status: &st}, "marked "+st+":")
+	return patchThread(c, t, hub.ThreadPatch{Status: &st}, stLabel)
 }
 
 func threadList(c *cli, args []string) error {
@@ -884,7 +975,7 @@ func threadList(c *cli, args []string) error {
 	}
 	c.emit(map[string]any{"threads": ts}, func() {
 		tw := tabwriter.NewWriter(c.out, 0, 2, 2, ' ', 0)
-		fmt.Fprintln(tw, "THREAD\tSTATUS\tWORKSPACE\tLAST POST\tTITLE")
+		fmt.Fprintln(tw, i18n.Pick("THREAD\tSTATUS\tWORKSPACE\tLAST POST\tTITLE", "讨论串\t状态\t工作区\t最近发帖\t标题"))
 		for _, t := range ts {
 			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", t.ID, t.Status, t.WorkspaceID, fmtMS(t.LastPostAt), t.Title)
 		}
@@ -940,7 +1031,7 @@ func cmdQuota(c *cli, args []string) error {
 			fmt.Fprintln(c.out, i18n.Pick("no quota readings on this machine", "本机没有额度读数"))
 		} else {
 			tw := tabwriter.NewWriter(c.out, 0, 2, 2, ' ', 0)
-			fmt.Fprintln(tw, "PROVIDER\tWINDOW\tUSED\tRESETS\tPLAN\tSOURCE\tNOTE")
+			fmt.Fprintln(tw, i18n.Pick("PROVIDER\tWINDOW\tUSED\tRESETS\tPLAN\tSOURCE\tNOTE", "服务商\t窗口\t已用\t重置时间\t套餐\t来源\t备注"))
 			for _, r := range rs {
 				used := "-"
 				if r.UsedPct != nil {
@@ -1067,7 +1158,7 @@ func cmdUsage(c *cli, args []string) error {
 			return
 		}
 		tw := tabwriter.NewWriter(c.out, 0, 2, 2, ' ', 0)
-		fmt.Fprintln(tw, "DAY\tRUNS\tFAILED\tINPUT\tCACHED\tOUTPUT\tCOST")
+		fmt.Fprintln(tw, i18n.Pick("DAY\tRUNS\tFAILED\tINPUT\tCACHED\tOUTPUT\tCOST", "日期\t运行\t失败\t输入\t缓存\t输出\t费用"))
 		for _, a := range append(days_, total) {
 			fmt.Fprintf(tw, "%s\t%d\t%d\t%s\t%s\t%s\t%s\n", a.Day, a.Runs, a.Failed, hub.FmtTokens(a.Input), hub.FmtTokens(a.Cached),
 				hub.FmtTokens(a.Output), hub.FmtUSD(a.CostUSD))
@@ -1075,7 +1166,7 @@ func cmdUsage(c *cli, args []string) error {
 		tw.Flush()
 		fmt.Fprintln(c.out)
 		tw = tabwriter.NewWriter(c.out, 0, 2, 2, ' ', 0)
-		fmt.Fprintln(tw, "THREAD\tRUNS\tINPUT\tOUTPUT\tCOST")
+		fmt.Fprintln(tw, i18n.Pick("THREAD\tRUNS\tINPUT\tOUTPUT\tCOST", "讨论串\t运行\t输入\t输出\t费用"))
 		for _, a := range threads {
 			fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\n", a.Day, a.Runs, hub.FmtTokens(a.Input), hub.FmtTokens(a.Output), hub.FmtUSD(a.CostUSD))
 		}
@@ -1141,7 +1232,7 @@ func usageBaseline(c *cli, args []string) error {
 		if r.CostUSD != nil {
 			cost = " · 约 " + hub.FmtUSD(*r.CostUSD)
 		}
-		fmt.Fprintf(c.out, "baseline: %s input (cached %s) / %s output per wake-up%s\n",
+		fmt.Fprintf(c.out, i18n.Pick("baseline: %s input (cached %s) / %s output per wake-up%s\n", "唤醒基线：每次唤醒输入 %s（缓存 %s）/ 输出 %s%s\n"),
 			hub.FmtTokens(total), hub.FmtTokens(r.CacheRead), hub.FmtTokens(r.Output+r.Reasoning), cost)
 	})
 	return nil
@@ -1206,6 +1297,23 @@ func resolveMember(ctx context.Context, cl *hub.Client, who string) (*hub.Member
 	return nil, fmt.Errorf(i18n.Pick("no member named %q (see `agentbus manage members`)", "没有名为 %q 的成员（见 `agentbus manage members`）"), who)
 }
 
+// manageActionText localizes the short action echoed after member actions.
+func manageActionText(action string) string {
+	if i18n.IsZh() {
+		switch action {
+		case "pause":
+			return "已暂停"
+		case "resume":
+			return "已恢复"
+		case "approve":
+			return "已批准"
+		case "reject":
+			return "已拒绝"
+		}
+	}
+	return action
+}
+
 func memberAction(c *cli, who, action string, body any) error {
 	e, err := loadHub()
 	if err != nil {
@@ -1221,7 +1329,7 @@ func memberAction(c *cli, who, action string, body any) error {
 		return err
 	}
 	c.emit(map[string]any{"member": m.ID, "name": m.Name, "action": action}, func() {
-		fmt.Fprintf(c.out, "%s: %s (%s)\n", action, m.Name, m.ID)
+		fmt.Fprintf(c.out, i18n.Pick("%s: %s (%s)\n", "%s：%s（%s）\n"), manageActionText(action), m.Name, m.ID)
 	})
 	return nil
 }
@@ -1290,7 +1398,7 @@ func cmdManage(c *cli, args []string) error {
 		}
 		c.emit(map[string]any{"members": ms}, func() {
 			tw := tabwriter.NewWriter(c.out, 0, 2, 2, ' ', 0)
-			fmt.Fprintln(tw, "NAME\tID\tROLE\tSTATUS\tCLI\tLAST SEEN\tPAUSE")
+			fmt.Fprintln(tw, i18n.Pick("NAME\tID\tROLE\tSTATUS\tCLI\tLAST SEEN\tPAUSE", "名称\tID\t角色\t状态\tCLI\t最近出现\t暂停"))
 			for _, m := range ms {
 				ls := "-"
 				if m.LastSeenAt != nil {
@@ -1362,7 +1470,7 @@ func manageWorkspace(c *cli, args []string) error {
 		}
 		c.emit(map[string]any{"workspaces": ws}, func() {
 			tw := tabwriter.NewWriter(c.out, 0, 2, 2, ' ', 0)
-			fmt.Fprintln(tw, "ID\tNAME\tSTATUS\tREPO\tOPEN\tGOAL")
+			fmt.Fprintln(tw, i18n.Pick("ID\tNAME\tSTATUS\tREPO\tOPEN\tGOAL", "ID\t名称\t状态\t仓库\t未完成\t目标"))
 			for _, w := range ws {
 				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%s\n", w.ID, w.Name, w.Status, dash(derefS(w.Repo)), w.ThreadCounts.Open, w.Goal)
 			}
