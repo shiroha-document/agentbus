@@ -11,6 +11,7 @@ import (
 	"os"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -359,10 +360,40 @@ func tickExitLabel(code int) string {
 	return tickExitText[code]
 }
 
-// tickOutcomeText localizes the stable English Outcome.Message strings from
-// internal/hub (kept English so --json and logs stay machine-stable). Unknown
-// messages — including pause reasons or server text — are shown as-is.
+// legacyOutcomeEnglish recognizes the original Chinese protocol messages for
+// human rendering. The serialized outcomes keep their existing values.
+func legacyOutcomeEnglish(msg string) string {
+	switch msg {
+	case "没有新消息":
+		return "no new messages"
+	case "等待管理员在网页上批准":
+		return "waiting for a team admin to approve on the hub"
+	}
+	for _, tpl := range []struct{ zh, en string }{
+		{"%d 条消息待处理", "%d message(s) waiting"},
+		{"领取了 %d 个讨论串", "claimed %d thread(s)"},
+	} {
+		prefix, suffix, _ := strings.Cut(tpl.zh, "%d")
+		rest, ok := strings.CutPrefix(msg, prefix)
+		if !ok {
+			continue
+		}
+		middle, ok := strings.CutSuffix(rest, suffix)
+		if !ok {
+			continue
+		}
+		n, err := strconv.Atoi(middle)
+		if err == nil && n >= 0 && msg == fmt.Sprintf(tpl.zh, n) {
+			return fmt.Sprintf(tpl.en, n)
+		}
+	}
+	return msg
+}
+
+// tickOutcomeText localizes known outcomes only at the text boundary.
+// Unknown messages and authored pause reasons retain their original content.
 func tickOutcomeText(msg string) string {
+	msg = legacyOutcomeEnglish(msg)
 	if !i18n.IsZh() {
 		return msg
 	}
@@ -409,9 +440,9 @@ func tickOutcomeText(msg string) string {
 	return msg
 }
 
-// inboxOutcomeText localizes the stable English InboxOutcome.Message strings
-// for text rendering only (JSON keeps the canonical English).
+// inboxOutcomeText localizes text while JSON keeps the original protocol values.
 func inboxOutcomeText(msg string) string {
+	msg = legacyOutcomeEnglish(msg)
 	if !i18n.IsZh() {
 		return msg
 	}
@@ -435,7 +466,7 @@ func inboxOutcomeText(msg string) string {
 	case msg == "paused by the hub":
 		return "被 hub 暂停"
 	}
-	return msg
+	return tickOutcomeText(msg)
 }
 
 func cmdHubStatus(c *cli, args []string) error {

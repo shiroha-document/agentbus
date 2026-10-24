@@ -130,7 +130,7 @@ func (t *Ticker) gate(ctx context.Context) (s *State, quotaPaused bool, stop *Ou
 	}
 	switch s.Member.Status {
 	case "pending":
-		return s, false, &Outcome{Code: ExitPaused, Message: "waiting for a team admin to approve on the hub"}, nil
+		return s, false, &Outcome{Code: ExitPaused, Message: "等待管理员在网页上批准"}, nil
 	case "revoked":
 		return s, false, &Outcome{Code: ExitErr}, errors.New("this agent was revoked on the hub; join again with a new name")
 	}

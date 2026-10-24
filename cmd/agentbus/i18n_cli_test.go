@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/shiroha-document/agentbus/internal/hub"
 	"github.com/shiroha-document/agentbus/internal/i18n"
+	"github.com/shiroha-document/agentbus/internal/quota"
 )
 
 // hasCJK reports whether s contains any Han character.
@@ -64,17 +66,13 @@ func TestI18nInboxEmpty(t *testing.T) {
 	}
 }
 
-// TestI18nInboxJSONStaysEnglish: the canonical Outcome.Message is English even
-// in Chinese mode, so JSON consumers and logs keep a stable protocol string.
-func TestI18nInboxJSONStaysEnglish(t *testing.T) {
+// JSON preserves the pre-existing protocol strings independently of UI language.
+func TestI18nInboxJSONPreservesProtocol(t *testing.T) {
 	joinActive(t, "json")
 	withLang("zh", func() {
 		code, out := run(t, "--json", "inbox", "--peek")
-		if code != hub.ExitNothing || !strings.Contains(out, `"message": "no new messages"`) {
-			t.Fatalf("zh --json peek must carry English message: %d %s", code, out)
-		}
-		if hasCJK(out) {
-			t.Fatalf("JSON must not be localized: %s", out)
+		if code != hub.ExitNothing || !strings.Contains(out, `"message": "没有新消息"`) {
+			t.Fatalf("zh --json peek must preserve baseline message: %d %s", code, out)
 		}
 	})
 }
@@ -128,7 +126,23 @@ func TestI18nStatusLines(t *testing.T) {
 }
 
 // TestI18nManageAndQuotaHeaders checks the remaining tabwriter table headers.
+type quotaFixtureProvider struct {
+	id       string
+	readings []quota.Reading
+}
+
+func (p quotaFixtureProvider) ID() string   { return p.id }
+func (p quotaFixtureProvider) Detect() bool { return len(p.readings) > 0 }
+func (p quotaFixtureProvider) Read(context.Context) ([]quota.Reading, error) {
+	return append([]quota.Reading(nil), p.readings...), nil
+}
+
 func TestI18nManageAndQuotaHeaders(t *testing.T) {
+	// Keep the fixture independent of credentials, installed CLIs and keychains.
+	for _, provider := range quota.Registered() {
+		quota.Register(quotaFixtureProvider{id: provider.ID()})
+		t.Cleanup(func() { quota.Register(provider) })
+	}
 	// "manage members" needs an admin identity; the fake hub answers regardless.
 	h, _ := joinActive(t, "guan")
 	h.mu.Lock()
@@ -184,8 +198,7 @@ func TestI18nPostAndAck(t *testing.T) {
 	}
 }
 
-// TestI18nOutcomeMappers pins the internal/hub outcome strings (kept English for
-// JSON/log stability) to their CLI-boundary translations and passthrough rules.
+// TestI18nOutcomeMappers pins CLI-boundary translations and passthrough rules.
 func TestI18nOutcomeMappers(t *testing.T) {
 	zhCases := map[string]string{
 		"no new messages":                                "没有新消息",

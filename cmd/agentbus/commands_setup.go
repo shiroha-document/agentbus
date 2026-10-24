@@ -153,7 +153,11 @@ func cmdDoctor(c *cli, args []string) error {
 	}
 	c.emit(map[string]any{"checks": cs, "ok": failed == 0}, func() {
 		for _, ch := range cs {
-			fmt.Fprintf(c.out, "%-5s %-10s %s\n", strings.ToUpper(ch.Status), ch.Name, ch.Detail)
+			detail := ch.Detail
+			if ch.Name == "config" && ch.Status == "fail" && detail == hub.ErrNoConfig.Error() {
+				detail = boundaryError(hub.ErrNoConfig).Error()
+			}
+			fmt.Fprintf(c.out, "%-5s %-10s %s\n", strings.ToUpper(ch.Status), ch.Name, detail)
 		}
 		if failed == 0 {
 			fmt.Fprintln(c.out, i18n.Pick("all checks passed", "全部检查通过"))
@@ -174,9 +178,6 @@ func runDoctor(ctx context.Context) []check {
 	p := hub.Paths{Dir: dir}
 	cfg, err := hub.LoadConfig(dir)
 	if err != nil {
-		if errors.Is(err, hub.ErrNoConfig) {
-			err = errors.New(i18n.Pick(err.Error(), "尚未加入 hub：请运行 `agentbus join URL --join-code CODE --name NAME`（或 `agentbus setup`）"))
-		}
 		add("config", "fail", "%v", err)
 		return cs
 	}

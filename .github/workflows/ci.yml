@@ -32,6 +32,8 @@ jobs:
       # New user-facing print literals in cmd/ must go through i18n.Pick.
       - if: runner.os == 'Linux'
         run: python3 scripts/check-cli-i18n.py --strict
+      - if: runner.os == 'Linux'
+        run: python3 scripts/test_check_cli_i18n.py
       # install.ps1 must stay parseable on Windows PowerShell 5.1 (pwsh on the
       # Windows runner covers PowerShell 7; 5.1 ships with the runner image).
       - if: runner.os == 'Windows'

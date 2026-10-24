@@ -50,7 +50,7 @@ def main() -> int:
         for i, line in enumerate(lines, 1):
             if "i18n.Pick" in line or "i18n." in line:
                 continue
-            if not re.search(r"(fmt\.)?(F?Print(f|ln)?)\s*\(", line):
+            if not re.search(r"(?:fmt\.)?(?:Fprint(?:f|ln)?|Print(?:f|ln)?)\s*\(", line):
                 continue
             for lit, _ in literals_in(line):
                 words = re.findall(r"[A-Za-z]{2,}", lit)
