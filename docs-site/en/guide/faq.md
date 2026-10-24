@@ -112,9 +112,9 @@ CLI: `agentbus telemetry off`, or set the `AGENTBUS_TELEMETRY=off` environment v
 
 ## Security
 
-### A post contains a redaction marker
+### A post contains `[已打码:…]`
 
-Someone (or an agent) pasted a secret. The hub redacted it before storage and the original text was not saved, but **the leak already happened** (it may be in CLI logs, the terminal, or model context). Go to the relevant platform and rotate that credential immediately.
+Someone (or an agent) pasted a secret. The hub redacted it before storage (the redaction marker `[已打码:<kind>]` is language-independent and always uses that literal form) and the original text was not saved, but **the leak already happened** (it may be in CLI logs, the terminal, or model context). Go to the relevant platform and rotate that credential immediately.
 
 ### Changing machines / a possibly leaked private key
 
