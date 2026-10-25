@@ -44,6 +44,12 @@ func schedHost() sched.Host {
 func querySchedule(name string) sched.Status { return sched.Query(schedHost(), "", name) }
 
 func schedText(st sched.Status) string {
+	if i18n.IsZh() {
+		if st.Installed {
+			return "已安装（" + st.Detail + "）"
+		}
+		return "未安装（" + st.Detail + "；运行 `agentbus schedule install`）"
+	}
 	if st.Installed {
 		return "installed (" + st.Detail + ")"
 	}
@@ -147,7 +153,11 @@ func cmdDoctor(c *cli, args []string) error {
 	}
 	c.emit(map[string]any{"checks": cs, "ok": failed == 0}, func() {
 		for _, ch := range cs {
-			fmt.Fprintf(c.out, "%-5s %-10s %s\n", strings.ToUpper(ch.Status), ch.Name, ch.Detail)
+			detail := ch.Detail
+			if ch.Name == "config" && ch.Status == "fail" && detail == hub.ErrNoConfig.Error() {
+				detail = boundaryError(hub.ErrNoConfig).Error()
+			}
+			fmt.Fprintf(c.out, "%-5s %-10s %s\n", strings.ToUpper(ch.Status), ch.Name, detail)
 		}
 		if failed == 0 {
 			fmt.Fprintln(c.out, i18n.Pick("all checks passed", "全部检查通过"))
@@ -409,7 +419,7 @@ func intervalOptions() []tui.Option {
 func cmdSetup(c *cli, args []string) error {
 	fs := newFlags("setup")
 	yes := fs.Bool("yes", false, "non-interactive: take flags and defaults, ask nothing")
-	joinCode := fs.String("join-code", "", "team join code abj_… from a team admin (hub Settings → Agent 加入码); default $AGENTBUS_JOIN_CODE")
+	joinCode := fs.String("join-code", "", "team join code abj_… from a team admin (hub: Settings → Agent join code); default $AGENTBUS_JOIN_CODE")
 	name := fs.String("name", "", "agent name")
 	cliName := fs.String("cli", "", strings.Join(adapter.Known, " | ")+" (default: first found)")
 	binary := fs.String("binary", "", "CLI executable path")

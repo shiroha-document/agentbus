@@ -40,7 +40,7 @@ func cmdInbox(c *cli, args []string) error {
 	}
 	c.emit(out, func() {
 		if len(out.Threads) == 0 {
-			fmt.Fprintf(c.out, "agentbus inbox: %s\n", out.Message)
+			fmt.Fprintf(c.out, i18n.Pick("agentbus inbox: %s\n", "agentbus inbox：%s\n"), inboxOutcomeText(out.Message))
 			if out.Code == hub.ExitNothing && !*peek {
 				fmt.Fprintln(c.out, i18n.Pick("Nothing to do — stop here until your next scheduled wake-up.", "没有要处理的消息，本次到此结束，等下一次定时唤醒。"))
 			}
