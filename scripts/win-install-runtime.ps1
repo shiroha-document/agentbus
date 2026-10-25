@@ -84,19 +84,42 @@ $savedUserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 Remove-Item Env:AGENTBUS_HUB -ErrorAction SilentlyContinue
 Remove-Item Env:AGENTBUS_JOIN_CODE -ErrorAction SilentlyContinue
 
-# Per-case launcher: force console CP 65001 so a redirected Windows PowerShell
-# 5.1 child emits UTF-8, then invoke the engine under test through the required
-# real entry point. Pure ASCII; Chinese only ever comes from base64 at runtime.
+# Per-case launcher. It is pure ASCII; the installer's Chinese always comes
+# from the script's own base64(UTF-8) at runtime.
+#
+# -Mode file: downloads install.ps1 over HTTP from the loopback fixture into
+#   this case's temp directory, proves the bytes are identical (SHA-256) to
+#   the script in the checkout, and only then invokes the downloaded file
+#   through the engine under test with -File.
+# -Mode iex: the real one-liner, irm http://127.0.0.1:<port>/install.ps1 | iex.
+#
+# [Console]::OutputEncoding is set before the install call in both modes so
+# Windows PowerShell 5.1 encodes its redirected output as UTF-8.
 $launcher = Join-Path $launcherDir 'case.ps1'
 [IO.File]::WriteAllText($launcher, @'
-param([string]$Engine, [string]$Mode, [string]$Repo, [int]$Port)
+param(
+    [string]$Engine,
+    [ValidateSet('file', 'iex')][string]$Mode,
+    [string]$Home2,
+    [string]$InstallHash,
+    [int]$Port
+)
 chcp 65001 > $null
 $ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+
 if ($Mode -eq 'file') {
-    & $Engine -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Repo 'install.ps1')
+    $downloaded = Join-Path $Home2 'downloaded-install.ps1'
+    Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$Port/install.ps1" -OutFile $downloaded
+    $dlHash = (Get-FileHash -LiteralPath $downloaded -Algorithm SHA256).Hash
+    if ($dlHash -ne $InstallHash) {
+        throw "downloaded install.ps1 hash $dlHash != checkout hash $InstallHash"
+    }
+    & $Engine -NoProfile -ExecutionPolicy Bypass -File $downloaded
     exit $LASTEXITCODE
 }
-$cmd = "[Console]::OutputEncoding=[Text.UTF8Encoding]::new(`$false); `$ErrorActionPreference='Stop'; irm -UseBasicParsing 'http://127.0.0.1:$Port/install.ps1' | iex"
+
+$cmd = "`$ErrorActionPreference='Stop'; irm -UseBasicParsing 'http://127.0.0.1:$Port/install.ps1' | iex"
 & $Engine -NoProfile -ExecutionPolicy Bypass -Command $cmd
 exit $LASTEXITCODE
 '@, [System.Text.ASCIIEncoding]::new())
@@ -135,7 +158,8 @@ function Invoke-InstallCase {
     Write-Host "== case $Name ($Engine, $Lang, $Mode, port $Port) =="
     $proc = Start-Process -FilePath $pwshRunner -ArgumentList @(
         '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$launcher`"",
-        '-Engine', "`"$Engine`"", '-Mode', $Mode, '-Repo', "`"$repo`"", '-Port', "$Port"
+        '-Engine', "`"$Engine`"", '-Mode', $Mode,
+        '-Home2', "`"$home2`"", '-InstallHash', "$repoHash", '-Port', "$Port"
     ) -WorkingDirectory $work -PassThru -Wait -WindowStyle Hidden `
         -RedirectStandardOutput $outLog -RedirectStandardError $errLog
     $code = $proc.ExitCode
@@ -144,7 +168,7 @@ function Invoke-InstallCase {
     if (Test-Path $errLog) { $text += [IO.File]::ReadAllText($errLog, [System.Text.UTF8Encoding]::new($false)) }
     Write-Host $text
     Write-Host "-- exit code: $code (expect $ExpectExit)"
-    if ($code -ne $ExpectExit) { throw "case $Name: exit $code, expected $ExpectExit (logs in $logDir)" }
+    if ($code -ne $ExpectExit) { throw "case ${Name}: exit $code, expected $ExpectExit (logs in $logDir)" }
     return [pscustomobject]@{ Name = $Name; Lang = $Lang; Mode = $Mode; Text = $text; Home = $home2 }
 }
 
@@ -161,11 +185,11 @@ try {
 
     foreach ($shell in @('powershell', 'pwsh')) {
         $engine = $engines[$shell]
+        # Full matrix on both engines: zh/en times both real entry points = 8 cases.
         foreach ($lang in @('zh', 'en')) {
             $results += Invoke-InstallCase -Name "$shell-$lang-file" -Engine $engine -Lang $lang -Mode 'file' -Port $goodPort
+            $results += Invoke-InstallCase -Name "$shell-$lang-iex" -Engine $engine -Lang $lang -Mode 'iex' -Port $goodPort
         }
-        # irm|iex is language-independent: cover it once per engine, in English.
-        $results += Invoke-InstallCase -Name "$shell-en-iex" -Engine $engine -Lang 'en' -Mode 'iex' -Port $goodPort
     }
     # Tampered download must fail non-zero with the mismatch diagnostic, on both engines.
     $results += Invoke-InstallCase -Name 'powershell-en-badsum' -Engine $engines['powershell'] -Lang 'en' -Mode 'file' -Port $badPort -ExpectExit 1
