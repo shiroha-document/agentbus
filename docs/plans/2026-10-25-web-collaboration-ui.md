@@ -5,7 +5,7 @@
 **目标：** 按已确认设计交付网页中英、类别头像、紧凑状态、投递回执与成员模型。
 **架构：** 复用 React/Radix/Lucide 和现有 UI tokens。语言在浏览器持久化；历史帖子、投递、模型数据保持现有协议，worker 只增加按页查询与有来源时间的成员模型字段。
 **技术栈：** React、TypeScript、Vite、Hono、D1、Vitest，Node 22、pnpm 10.34.7。
-**GAT Flow：** 使用当前 GAT CLI 支持的 goals 与 Harness Session；先查询命令版本，若已无 flows 则以当前 gat:test 的 goal 索引和报告承接。
+**GAT Flow：** GAT-20261025-AGENTBUS；当前 CLI 4.2.0 使用 goals 索引与 Harness Session。七个全需求目标已记录。
 **GAT 测试授权：** 前置任务完成后立即测试（用户已要求弄好发布，方案原有验证要求）。
 **自动修复授权：** 是，限定本次 code owner 变更，发现问题后修复并重跑受影响范围。
 
@@ -14,10 +14,10 @@
 ### D1 [开发]：头像类别与状态 banner
 **depends_on：** []
 **文件：** hub/web/src/components/ui/Avatar.tsx、components/post/Cards.tsx、components/PostItem.tsx、pages/Thread.tsx；必要时新增 components/thread/StatePanel.tsx、lib/state.ts；测试 lib/__tests__/collaboration-ui.test.tsx。
-- [ ] 写并运行失败测试：头像 human/agent/unknown 类型、有图/无图；state 默认折叠且不在常规聊天头像内、顶部只有一个当前状态，正文保留旧 post.body。
-- [ ] 实现人类圆形、agent 圆角方形且有机器人标识、图片失败回退与 URL 改变恢复。16px 保留形状可辨。未知类别保持中性。所有 Avatar 调用继续类型兼容。
-- [ ] state 独立紧凑 banner，保留 post-id、时间和 revisions；点击/键盘展开该条保留正文。顶部当前状态在桌面与移动消息前仅一份，摘要折叠、编辑沿用 API；不冒用 thread.updated_at。
-- [ ] 运行 npx -y pnpm@10.34.7 --filter web test、--filter web typecheck 和 --filter web build；审查规格和质量后提交独立 PR。
+- [x] 写并运行失败测试：头像 human/agent/unknown 类型、有图/无图；state 默认折叠且不在常规聊天头像内、顶部只有一个当前状态，正文保留旧 post.body。
+- [x] 实现人类圆形、agent 圆角方形且有机器人标识、图片失败回退与 URL 改变恢复。16px 保留形状可辨。未知类别保持中性。所有 Avatar 调用继续类型兼容。
+- [x] state 独立紧凑 banner，保留 post-id、时间和 revisions；点击/键盘展开该条保留正文。顶部当前状态在桌面与移动消息前仅一份，摘要折叠、编辑沿用 API；不冒用 thread.updated_at。
+- [x] 运行 npx -y pnpm@10.34.7 --filter web test、--filter web typecheck 和 --filter web build；审查规格和质量后提交独立 PR。
 
 ### D2 [开发]：统一中英语言
 **depends_on：** [D1]
@@ -55,3 +55,5 @@
 - [ ] agentbus confirm 批准后的下一轮再合并/发布；发布后核对 /en/ 与中文章节、healthz/版本和相关 CI 最终态。
 
 依赖：D1→D2→D3→D4→T5；D6 独立，CLI Windows 补验不阻塞教程准备。网页发布依赖 T5 与对应 confirm，教程发布依赖其现有验证和 confirm；CLI release 依赖 Windows 实测与 confirm。当前轮次不得把尚未实现的 D2-D4 写成完成。
+
+2026-10-25 执行记录：D1 已提交89f70a0，规格审查与质量审查通过；123项web测试、typecheck和production build通过。GAT Browser BROWSER-1792921951570仅用于D1本地实现验证：桌面/手机、深浅色、Enter展开、保存最新状态与旧记录分离、上传图片失败/换URL恢复。D2-D4及T5整体验收仍未完成。D6教程发布准备已完成，Windows运行时CI补验交回pioneer原子串，尚未取得执行结果；教程合并/部署需具体hub confirm批准后的下一轮执行。
