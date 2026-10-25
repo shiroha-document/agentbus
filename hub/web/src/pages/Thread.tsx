@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useRouterState } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { ArrowDownToLine, ArrowUpToLine, History, Hourglass, Lock, Pencil, Pin, PauseOctagon, Plus, Tag, X } from "lucide-react";
+import { ArrowDownToLine, ArrowUpToLine, History, Hourglass, Lock, PauseOctagon, Plus, Tag, X } from "lucide-react";
 import { api, type ThreadPatch } from "../api";
 import { qk, useAction, useMe, useThreadLive } from "../queries";
 import { formatRelative } from "../lib/format";
@@ -12,7 +12,7 @@ import { track } from "../lib/telemetry";
 import type { Member, Post, ThreadStatus } from "../types";
 import { EmptyState } from "../components/ui/EmptyState";
 import { toast } from "../components/ui/Toast";
-import { Markdown } from "../components/Markdown";
+import { StatePanel } from "../components/thread/StatePanel";
 import { PostItem } from "../components/PostItem";
 import { Composer } from "../components/Composer";
 import { ActivityBar } from "../components/live/ActivityBar";
@@ -72,69 +72,6 @@ function LabelsEditor({ labels, onChange, busy }: { labels: string[]; onChange: 
         </button>
       )}
     </div>
-  );
-}
-
-function StatePanel({ state, onSave, busy }: { state: string; onSave: (s: string) => void; busy: boolean }) {
-  const [editing, setEditing] = useState(false);
-  const [v, setV] = useState(state);
-  return (
-    <section className="glass-1 card p-5" aria-label="当前状态">
-      <div className="mb-2 flex items-center gap-2">
-        <Pin size={16} className="text-mint-700" aria-hidden />
-        <h2 className="text-callout font-semibold">当前状态</h2>
-        {!editing ? (
-          <button
-            className="btn btn-ghost btn-sm ml-auto"
-            onClick={() => {
-              setV(state);
-              setEditing(true);
-            }}
-          >
-            <Pencil size={14} aria-hidden /> 编辑
-          </button>
-        ) : null}
-      </div>
-      {editing ? (
-        <div className="flex flex-col gap-2">
-          <textarea
-            className="field min-h-[140px] resize-y py-2.5 text-callout font-normal"
-            value={v}
-            onChange={(e) => setV(e.target.value)}
-            autoFocus
-            aria-label="当前状态内容"
-            onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                e.preventDefault();
-                onSave(v);
-                setEditing(false);
-              }
-            }}
-          />
-          <div className="flex justify-end gap-2">
-            <button className="btn btn-secondary btn-sm" onClick={() => setEditing(false)}>
-              取消
-            </button>
-            <button
-              className="btn btn-primary btn-sm"
-              disabled={busy || v === state}
-              onClick={() => {
-                onSave(v);
-                setEditing(false);
-              }}
-            >
-              保存
-            </button>
-          </div>
-        </div>
-      ) : state.trim() ? (
-        <div className="text-callout font-normal text-fg-2">
-          <Markdown>{state}</Markdown>
-        </div>
-      ) : (
-        <p className="text-callout font-normal text-fg-3">还没有记录。负责人会在这里总结进展、阻塞和下一步。</p>
-      )}
-    </section>
   );
 }
 
@@ -403,6 +340,8 @@ function ThreadView({ id }: { id: string }) {
           </div>
         </header>
 
+        <StatePanel key={t.state} state={t.state} busy={patch.isPending} onSave={(s) => update({ state: s })} />
+
         <AnimatePresence initial={false}>
           {t.auto_paused ? (
             <motion.div
@@ -424,10 +363,6 @@ function ThreadView({ id }: { id: string }) {
             </motion.div>
           ) : null}
         </AnimatePresence>
-
-        <div className="lg:hidden">
-          <StatePanel key={t.state} state={t.state} busy={patch.isPending} onSave={(s) => update({ state: s })} />
-        </div>
 
         <section ref={listTop} className="glass-1 card scroll-mt-24 px-3 py-2 sm:px-4" aria-label="帖子">
           {hasMore ? (
@@ -504,9 +439,6 @@ function ThreadView({ id }: { id: string }) {
       </div>
 
       <aside className="flex flex-col gap-4 lg:sticky lg:top-20" aria-label="讨论串信息">
-        <div className="hidden lg:block">
-          <StatePanel key={t.state} state={t.state} busy={patch.isPending} onSave={(s) => update({ state: s })} />
-        </div>
         <section className="glass-1 card flex flex-col gap-4 p-5">
           <label className="flex flex-col gap-1.5">
             <span className="text-caption text-fg-caption">状态</span>

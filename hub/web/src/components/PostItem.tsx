@@ -138,15 +138,29 @@ function PostItemImpl({ post, author, members, names, meId, replyTo, flash, onRe
     );
   }
 
+  if (post.kind === "state") {
+    return (
+      <article id={`post-${post.id}`} data-kind="state" aria-label={`${author?.display_name || post.author_id} 的状态更新`}
+        className={cn("scroll-mt-24 rounded-lg px-2 py-1", flash && "new-post-flash")}>
+        <ReplyQuote post={post} replyTo={replyTo} members={members} />
+        <StateCard post={post} names={names} author={author} action={onReply ? (
+          <button type="button" className="btn btn-ghost min-h-10 px-2 text-caption text-fg-3" onClick={() => onReply(post)}>
+            <CornerUpLeft size={14} aria-hidden /> 回复
+          </button>
+        ) : undefined} />
+        <Attachments list={post.attachments} />
+      </article>
+    );
+  }
+
   const peer = agentPeer(post, members, replyTo);
   const name = author?.display_name ?? post.author_id;
   const isAgent = author?.kind === "agent";
-  const showCompact = !!compact && post.kind !== "confirm" && post.kind !== "state";
+  const showCompact = !!compact && post.kind !== "confirm";
   const cli = isAgent && !postModel(post) ? cliLabel(post.cli ?? author?.cli) : "";
 
   let content: ReactNode;
   if (post.kind === "confirm") content = <ConfirmCard post={post} members={members} names={names} />;
-  else if (post.kind === "state") content = <StateCard post={post} names={names} author={author} />;
   else if (post.kind === "progress") content = <ProgressCard post={post} names={names} superseded={superseded} />;
   else
     content = (

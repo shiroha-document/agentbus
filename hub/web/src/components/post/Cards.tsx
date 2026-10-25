@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { CheckCircle2, ChevronDown, Clock, Hourglass, ListChecks, Target, XCircle } from "lucide-react";
 import "../../styles/live.css";
 import { api } from "../../api";
@@ -105,21 +105,33 @@ export function ProgressCard({ post, names, superseded }: { post: Post; names: R
   );
 }
 
-/** Pinned-looking "目标 / 状态更新" card (kind=state; created when the thread state changes). */
-export function StateCard({ post, names, author }: { post: Post; names: ReadonlySet<string>; author?: Member }) {
+/** A retained state-update post; details always come from this post's body. */
+export function StateCard({ post, names, author, action }: { post: Post; names: ReadonlySet<string>; author?: Member; action?: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const bodyId = useId();
   const rev = revisionText(post);
+  const timestamp = post.edited_at ?? post.created_at;
   return (
-    <section className="state-card mt-1 rounded-[18px] p-4" aria-label="目标 / 状态更新">
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-surface text-info-text">
-          <Target size={15} aria-hidden />
-        </span>
-        <span className="text-callout font-semibold text-fg">目标 / 状态更新</span>
-        {author ? <span className="text-caption text-fg-caption">由 {author.display_name} 更新</span> : null}
-        {rev ? <span className="tabular ml-auto text-caption text-fg-caption">{rev}</span> : null}
+    <section className="min-w-0" aria-label="状态更新">
+      <div className="flex items-center gap-1">
+        <button type="button" aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen((o) => !o)}
+          className="flex min-h-10 min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 rounded-lg px-2 py-2 text-left hover:bg-surface-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]">
+          <Target size={15} className="flex-none text-info-text" aria-hidden />
+          <span className="text-caption font-medium text-fg-2">状态已更新</span>
+          <span className="max-w-40 truncate text-caption text-fg-caption">{author?.display_name || author?.name || post.author_id}</span>
+          <time className="tabular text-caption text-fg-caption" dateTime={new Date(timestamp).toISOString()} title={formatDateTime(timestamp)}>
+            {formatRelative(timestamp)}
+          </time>
+          {rev ? <span className="tabular text-caption text-fg-caption">{rev}</span> : null}
+          <span className="ml-auto inline-flex items-center gap-1 text-caption text-fg-2">
+            {open ? "收起详情" : "查看详情"}
+            <ChevronDown size={14} className={cn("flex-none transition-transform", open && "rotate-180")} aria-hidden />
+          </span>
+        </button>
+        {action}
       </div>
-      <div className="text-callout text-fg-2">
-        <Markdown names={names}>{post.body}</Markdown>
+      <div id={bodyId} hidden={!open} className="px-2 pb-2 text-callout text-fg-2">
+        {open ? <Markdown names={names}>{post.body}</Markdown> : null}
       </div>
     </section>
   );
