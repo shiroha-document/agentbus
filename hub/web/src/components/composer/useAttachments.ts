@@ -1,3 +1,4 @@
+import { t as tr } from "../../lib/i18n";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../api";
 import { isInlineImage, mimeGroup, validateFiles } from "../../lib/attachments";
@@ -22,7 +23,7 @@ export interface PendingAttachment {
 let seq = 0;
 
 /**
- * Composer attachments: validation (≤ 6, ≤ 10 MB, Chinese toasts), upload via `api.upload`
+ * Composer attachments: validation (≤ 6, ≤ 10 MB, localized toasts), upload via `api.upload`
  * with per-file status, previews, remove, and the ids to send with the post.
  */
 export function useAttachments() {
@@ -46,8 +47,8 @@ export function useAttachments() {
       const files = input ? Array.from(input) : [];
       if (files.length === 0) return;
       const live = itemsRef.current.filter((x) => x.status !== "error").length;
-      const { ok, errors } = validateFiles(files, live);
-      errors.forEach((e) => toast(e, "error"));
+      const { ok, messages } = validateFiles(files, live);
+      messages.forEach((message) => toast(message, "error"));
       for (const file of ok) {
         const key = `att-${++seq}`;
         const mime = file.type || "application/octet-stream";
@@ -70,7 +71,7 @@ export function useAttachments() {
             stopTimer(key);
             const msg = e instanceof Error ? e.message : String(e);
             patch(key, { status: "error", progress: 0, error: msg });
-            toast(`「${file.name}」上传失败：${msg}`, "error");
+            toast(() => tr("「{0}」上传失败：{1}", [file.name, e instanceof Error ? e.message : String(e)]), "error");
           });
       }
     },

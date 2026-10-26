@@ -1,3 +1,4 @@
+import { t as tr, useLanguage, localized } from "../../lib/i18n";
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import * as Popover from "@radix-ui/react-popover";
@@ -14,6 +15,7 @@ import { toast } from "../ui/Toast";
 
 /** Square gradient tile with the team's initial(s). Gradient is keyed by team id so renames keep the colour. */
 export function TeamTile({ id, name, size = 36, className }: { id: string; name: string; size?: number; className?: string }) {
+  useLanguage();
   const g = avatarGradient(id);
   const initial = teamInitial(name);
   return (
@@ -44,6 +46,7 @@ export function useSwitchTeam() {
 }
 
 export function CreateTeamDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  useLanguage();
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const switchTeam = useSwitchTeam();
@@ -58,7 +61,7 @@ export function CreateTeamDialog({ open, onOpenChange }: { open: boolean; onOpen
       onOpenChange(false);
       setName("");
       await switchTeam(team.id);
-      toast.success(`已创建团队「${team.name}」`);
+      toast.success(localized("已创建团队「{0}」", [team.name]));
     } catch (err) {
       toast.error(err);
     } finally {
@@ -69,29 +72,25 @@ export function CreateTeamDialog({ open, onOpenChange }: { open: boolean; onOpen
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
-      title="创建团队"
-      description="团队之间的数据完全隔离。你会成为新团队的所有者。"
+      title={tr("创建团队")}
+      description={tr("团队之间的数据完全隔离。你会成为新团队的所有者。")}
       footer={
         <>
-          <button className="btn btn-secondary btn-lg sm:h-9" onClick={() => onOpenChange(false)}>
-            取消
-          </button>
+          <button className="btn btn-secondary btn-lg sm:h-9" onClick={() => onOpenChange(false)}>{tr("取消")}</button>
           <button className="btn btn-primary btn-lg sm:h-9" disabled={!valid || busy} onClick={() => void submit()}>
-            {busy ? "创建中…" : "创建"}
+            {busy ? tr("创建中…") : tr("创建")}
           </button>
         </>
       }
     >
       <form onSubmit={(e) => void submit(e)} className="flex flex-col gap-1.5 pb-1">
-        <label htmlFor="new-team-name" className="text-callout">
-          团队名称
-        </label>
+        <label htmlFor="new-team-name" className="text-callout">{tr("团队名称")}</label>
         <input
           id="new-team-name"
           className="field"
           value={name}
           maxLength={40}
-          placeholder="例如 Shiroha Lab"
+          placeholder={tr("例如 Shiroha Lab")}
           onChange={(e) => setName(e.target.value)}
           autoFocus
         />
@@ -105,6 +104,7 @@ const rowCls =
 
 /** Sidebar header: current team tile + name/role; popover lists my teams, create team and team settings. */
 export function TeamSwitcher({ collapsed }: { collapsed: boolean }) {
+  useLanguage();
   const { data } = useMe();
   const reduced = useReducedMotion() ?? false;
   const [open, setOpen] = useState(false);
@@ -127,7 +127,7 @@ export function TeamSwitcher({ collapsed }: { collapsed: boolean }) {
             "flex h-11 w-full min-w-0 items-center gap-2.5 rounded-[12px] text-left outline-none transition-colors hover:bg-mint-100 focus-visible:bg-mint-100 data-[state=open]:bg-mint-100",
             collapsed ? "justify-center px-0" : "px-1.5",
           )}
-          aria-label={`当前团队：${team.name}，切换团队`}
+          aria-label={tr("当前团队：{0}，切换团队", [team.name])}
         >
           <TeamTile id={team.id} name={team.name} size={34} />
           {!collapsed && (
@@ -152,8 +152,8 @@ export function TeamSwitcher({ collapsed }: { collapsed: boolean }) {
                   style={{ transformOrigin: "var(--radix-popover-content-transform-origin)" }}
                   className="glass-3 z-50 w-[264px] rounded-[20px] p-1.5"
                 >
-                  <div className="px-2.5 pb-1 pt-1.5 text-caption text-fg-caption">我的团队</div>
-                  <ul aria-label="切换团队" className="flex max-h-[50vh] flex-col overflow-y-auto">
+                  <div className="px-2.5 pb-1 pt-1.5 text-caption text-fg-caption">{tr("我的团队")}</div>
+                  <ul aria-label={tr("切换团队")} className="flex max-h-[50vh] flex-col overflow-y-auto">
                     {teams.map((t) => {
                       const current = t.id === team.id;
                       return (
@@ -164,7 +164,7 @@ export function TeamSwitcher({ collapsed }: { collapsed: boolean }) {
                               <span className="block truncate text-fg">{t.name}</span>
                               <span className="block truncate text-caption font-normal text-fg-caption">{roleLabel(t.role)}</span>
                             </span>
-                            {current ? <Check size={16} className="flex-none text-mint-700" aria-label="当前团队" /> : null}
+                            {current ? <Check size={16} className="flex-none text-mint-700" aria-label={tr("当前团队")} /> : null}
                           </button>
                         </li>
                       );
@@ -181,16 +181,12 @@ export function TeamSwitcher({ collapsed }: { collapsed: boolean }) {
                     >
                       <span className="flex h-7 w-7 flex-none items-center justify-center rounded-[9px] border border-dashed border-line-strong text-fg-2">
                         <Plus size={15} aria-hidden />
-                      </span>
-                      创建团队
-                    </button>
+                      </span>{tr("创建团队")}</button>
                   ) : null}
                   <Link to="/settings" hash="team" className={rowCls} onClick={() => setOpen(false)}>
                     <span className="flex h-7 w-7 flex-none items-center justify-center text-fg-2">
                       <Settings size={16} aria-hidden />
-                    </span>
-                    团队设置
-                  </Link>
+                    </span>{tr("团队设置")}</Link>
                 </motion.div>
               </Popover.Content>
             </Popover.Portal>

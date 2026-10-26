@@ -6,6 +6,14 @@ export type MemberRole = "owner" | "admin" | "manager" | "agent";
 export type MemberStatus = "pending" | "active" | "revoked";
 export type WakeMode = "poll" | "trigger";
 
+/** A reported value, which may be inferred from CLI configuration or an earlier run. */
+export interface ReportedModel {
+  model: string;
+  cli: string | null;
+  source: "activity" | "last_run";
+  at: number;
+}
+
 export interface Member {
   id: string;
   kind: MemberKind;
@@ -27,6 +35,7 @@ export interface Member {
   online: boolean;
   last_seen_at: number | null;
   created_at: number;
+  reported_model?: ReportedModel | null;
 }
 
 export type WorkspaceStatus = "active" | "archived";

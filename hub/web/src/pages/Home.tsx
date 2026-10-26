@@ -1,3 +1,4 @@
+import { t as tr, useLanguage, localized, systemText } from "../lib/i18n";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
@@ -7,7 +8,7 @@ import { api } from "../api";
 import { qk, useAction, useMe, useMembers, useRole, useWorkspaces } from "../queries";
 import { useAddAgent } from "../components/AddAgentDialog";
 import { buildHeatmap } from "../lib/heatmap";
-import { formatInt, formatRelative, formatTokens, formatUsd, greeting } from "../lib/format";
+import { formatCalendarDay, formatInt, formatRelative, formatTokens, formatUsd, greeting } from "../lib/format";
 import { enterVariants } from "../lib/motion";
 import { extractMentions } from "../lib/mentions";
 import { track } from "../lib/telemetry";
@@ -18,7 +19,7 @@ import { AnimatedNumber } from "../components/ui/AnimatedNumber";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Tip } from "../components/ui/Tip";
 import { toast } from "../components/ui/Toast";
-import { AttachButton, AttachmentTray, DropHint, RichEditor, SEND_HINT, useDropZone } from "../components/composer/RichEditor";
+import { AttachButton, AttachmentTray, DropHint, RichEditor, sendHint, useDropZone } from "../components/composer/RichEditor";
 import { useAttachments } from "../components/composer/useAttachments";
 import { FeedTick } from "../components/live/ReceiptTicks";
 import { Markdown } from "../components/Markdown";
@@ -28,6 +29,7 @@ import { ThreadCard, useMemberMap } from "../components/threads";
 const PAGE = 30;
 
 function QuickPost() {
+  useLanguage();
   const navigate = useNavigate();
   const workspaces = useWorkspaces();
   const members = useMembers();
@@ -50,12 +52,12 @@ function QuickPost() {
         ...(attachments.ids.length ? { attachments: attachments.ids } : {}),
       });
     },
-    { success: "已发布" },
+    { success: localized("已发布") },
   );
   const canSend = !!wsId && !!body.trim() && !create.isPending && !attachments.uploading;
   const submit = () => {
     if (!canSend) {
-      if (attachments.uploading && body.trim()) toast("附件还在上传，稍等一下再发布", "info");
+      if (attachments.uploading && body.trim()) toast(localized("附件还在上传，稍等一下再发布"), "info");
       return;
     }
     const nAtt = attachments.ids.length;
@@ -77,7 +79,7 @@ function QuickPost() {
         e.preventDefault();
         submit();
       }}
-      aria-label="快速发帖"
+      aria-label={tr("快速发帖")}
       {...drop.handlers}
     >
       <DropHint show={drop.dragging} />
@@ -86,10 +88,10 @@ function QuickPost() {
           className="field sm:w-48"
           value={wsId}
           onChange={(e) => setWs(e.target.value)}
-          aria-label="选择工作区"
+          aria-label={tr("选择工作区")}
           disabled={active.length === 0}
         >
-          {active.length === 0 ? <option value="">还没有工作区</option> : null}
+          {active.length === 0 ? <option value="">{tr("还没有工作区")}</option> : null}
           {active.map((w) => (
             <option key={w.id} value={w.id}>
               {w.name}
@@ -98,11 +100,11 @@ function QuickPost() {
         </select>
         <input
           className="field flex-1"
-          placeholder="标题（可选，默认取正文第一行）"
+          placeholder={tr("标题（可选，默认取正文第一行）")}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           maxLength={200}
-          aria-label="标题"
+          aria-label={tr("标题")}
         />
       </div>
       <div className="field relative z-10 mt-3 px-2 py-1.5">
@@ -114,26 +116,23 @@ function QuickPost() {
           onSubmit={submit}
           allowAll={false}
           popup="below"
-          placeholder={`给 agent 布置点什么？输入 @ 选择 agent，可粘贴或拖入图片和文件，${SEND_HINT}`}
-          ariaLabel="内容"
+          placeholder={tr("给 agent 布置点什么？输入 @ 选择 agent，可粘贴或拖入图片和文件，{0}", [sendHint()])}
+          ariaLabel={tr("内容")}
           className="min-h-[96px] px-1 py-1.5"
         />
         <AttachmentTray attachments={attachments} />
       </div>
       <div className="mt-3 flex items-center gap-2">
         <AttachButton attachments={attachments} />
-        <span className="hidden text-caption text-fg-caption sm:inline">支持 Markdown；会新建一个讨论串，@ 到的 agent 会收到通知</span>
+        <span className="hidden text-caption text-fg-caption sm:inline">{tr("支持 Markdown；会新建一个讨论串，@ 到的 agent 会收到通知")}</span>
         <button type="submit" className="btn btn-primary btn-lg ml-auto sm:h-10" disabled={!canSend}>
           <Send size={16} aria-hidden />
-          {create.isPending ? "发送中…" : attachments.uploading ? "上传中…" : "发布"}
+          {create.isPending ? tr("发送中…") : attachments.uploading ? tr("上传中…") : tr("发布")}
         </button>
       </div>
       {active.length === 0 && workspaces.isSuccess ? (
-        <p className="mt-2 text-caption text-fg-caption">
-          先去{" "}
-          <Link to="/workspaces" className="text-mint-700 underline">
-            创建一个工作区
-          </Link>
+        <p className="mt-2 text-caption text-fg-caption">{tr("先去")}{" "}
+          <Link to="/workspaces" className="text-mint-700 underline">{tr("创建一个工作区")}</Link>
           。
         </p>
       ) : null}
@@ -142,16 +141,17 @@ function QuickPost() {
 }
 
 function StatChips({ stats }: { stats: DashboardResponse["stats"] }) {
+  useLanguage();
   const items = [
     {
       icon: Zap,
-      label: "在线 agent",
+      label: tr("在线 agent"),
       value: <><AnimatedNumber value={stats.agents_online} /> / {formatInt(stats.agents_total)}</>,
     },
-    { icon: MessageSquareText, label: "今日帖子", value: <AnimatedNumber value={stats.posts_today} format={formatInt} /> },
+    { icon: MessageSquareText, label: tr("今日帖子"), value: <AnimatedNumber value={stats.posts_today} format={formatInt} /> },
     {
       icon: Coins,
-      label: "今日用量",
+      label: tr("今日用量"),
       value: (
         <>
           <AnimatedNumber value={stats.tokens_today} format={formatTokens} /> ·{" "}
@@ -174,8 +174,9 @@ function StatChips({ stats }: { stats: DashboardResponse["stats"] }) {
 }
 
 function Banners({ data }: { data: DashboardResponse }) {
-  const approve = useAction((id: string) => api.approveMember(id), { success: "已同意加入" });
-  const reject = useAction((id: string) => api.rejectMember(id), { success: "已拒绝" });
+  useLanguage();
+  const approve = useAction((id: string) => api.approveMember(id), { success: localized("已同意加入") });
+  const reject = useAction((id: string) => api.rejectMember(id), { success: localized("已拒绝") });
   const joins = data.pending_joins;
   const confirms = data.pending_confirmations;
   const mail = data.email_health && !data.email_health.ok ? data.email_health : null;
@@ -183,17 +184,14 @@ function Banners({ data }: { data: DashboardResponse }) {
   return (
     <div className="flex flex-col gap-3">
       {mail && (
-        <section className="glass-1 card flex flex-col gap-2 border-l-[3px] border-l-danger p-5" role="alert" aria-label="邮件通知发送失败">
+        <section className="glass-1 card flex flex-col gap-2 border-l-[3px] border-l-danger p-5" role="alert" aria-label={tr("邮件通知发送失败")}>
           <div className="flex items-center gap-2 text-callout">
             <MailWarning size={16} className="text-danger-text" aria-hidden />
-            <span className="font-semibold">
-              邮件通知发送失败{mail.failed_count > 1 ? `（${mail.failed_count} 批未送达）` : ""}，你可能错过了提醒
-            </span>
-            <Link to="/settings" className="ml-auto inline-flex items-center gap-1 text-mint-700 hover:underline">
-              去设置 <ArrowRight size={14} aria-hidden />
+            <span className="font-semibold">{tr("邮件通知发送失败")}{mail.failed_count > 1 ? tr("（{0} 批未送达）", [mail.failed_count]) : ""}{tr("，你可能错过了提醒")}</span>
+            <Link to="/settings" className="ml-auto inline-flex items-center gap-1 text-mint-700 hover:underline">{tr("去设置")}{" "}<ArrowRight size={14} aria-hidden />
             </Link>
           </div>
-          {mail.hint ? <p className="text-callout font-normal text-fg-2">{mail.hint}</p> : null}
+          {mail.hint ? <p className="text-callout font-normal text-fg-2">{systemText(mail.hint)}</p> : null}
           {mail.last_error ? (
             <p className="truncate text-caption text-fg-caption">
               {mail.last_error_at ? formatRelative(mail.last_error_at) + " · " : ""}
@@ -203,12 +201,11 @@ function Banners({ data }: { data: DashboardResponse }) {
         </section>
       )}
       {joins.length > 0 && (
-        <section className="glass-1 card flex flex-col gap-3 border-l-[3px] border-l-mint-500 p-5" aria-label="待审批的加入申请">
+        <section className="glass-1 card flex flex-col gap-3 border-l-[3px] border-l-mint-500 p-5" aria-label={tr("待审批的加入申请")}>
           <div className="flex items-center gap-2 text-callout">
             <UserPlus size={16} className="text-mint-700" aria-hidden />
-            <span className="font-semibold">{joins.length} 个 agent 申请加入</span>
-            <Link to="/members" className="ml-auto inline-flex items-center gap-1 text-mint-700 hover:underline">
-              去成员页 <ArrowRight size={14} aria-hidden />
+            <span className="font-semibold">{joins.length}{" "}{tr("个 agent 申请加入")}</span>
+            <Link to="/members" className="ml-auto inline-flex items-center gap-1 text-mint-700 hover:underline">{tr("去成员页")}{" "}<ArrowRight size={14} aria-hidden />
             </Link>
           </div>
           {joins.slice(0, 3).map((m) => (
@@ -222,21 +219,17 @@ function Banners({ data }: { data: DashboardResponse }) {
                   {[m.cli, m.machine, m.owner].filter(Boolean).join(" · ")} · {formatRelative(m.created_at)}
                 </div>
               </div>
-              <button className="btn btn-primary btn-sm" disabled={approve.isPending} onClick={() => approve.mutate(m.id)}>
-                同意
-              </button>
-              <button className="btn btn-secondary btn-sm" disabled={reject.isPending} onClick={() => reject.mutate(m.id)}>
-                拒绝
-              </button>
+              <button className="btn btn-primary btn-sm" disabled={approve.isPending} onClick={() => approve.mutate(m.id)}>{tr("同意")}</button>
+              <button className="btn btn-secondary btn-sm" disabled={reject.isPending} onClick={() => reject.mutate(m.id)}>{tr("拒绝")}</button>
             </div>
           ))}
         </section>
       )}
       {confirms.length > 0 && (
-        <section className="glass-1 card flex flex-col gap-2 border-l-[3px] border-l-warning p-5" aria-label="待你确认的请求">
+        <section className="glass-1 card flex flex-col gap-2 border-l-[3px] border-l-warning p-5" aria-label={tr("待你确认的请求")}>
           <div className="flex items-center gap-2 text-callout">
             <AlertCircle size={16} className="text-warning-text" aria-hidden />
-            <span className="font-semibold">{confirms.length} 个确认请求等你处理</span>
+            <span className="font-semibold">{confirms.length}{" "}{tr("个确认请求等你处理")}</span>
           </div>
           {confirms.slice(0, 4).map((c) => (
             <Link
@@ -257,7 +250,8 @@ function Banners({ data }: { data: DashboardResponse }) {
 }
 
 function Heatmap({ data }: { data: DashboardResponse["heatmap"] }) {
-  const layout = useMemo(() => buildHeatmap(data, new Date(), 365), [data]);
+  const language = useLanguage();
+  const layout = useMemo(() => buildHeatmap(data, new Date(), 365), [data, language]);
   const scroller = useRef<HTMLDivElement>(null);
   useEffect(() => {
     // Show the most recent weeks first.
@@ -267,10 +261,10 @@ function Heatmap({ data }: { data: DashboardResponse["heatmap"] }) {
   const CELL = 11;
   const GAP = 3;
   return (
-    <section className="glass-1 card p-5" aria-label="活跃度热力图">
+    <section className="glass-1 card p-5" aria-label={tr("活跃度热力图")}>
       <div className="mb-3 flex items-baseline justify-between">
-        <h2 className="text-title-2">活跃度</h2>
-        <span className="text-caption text-fg-caption">近一年 {formatInt(layout.total)} 条帖子</span>
+        <h2 className="text-title-2">{tr("活跃度")}</h2>
+        <span className="text-caption text-fg-caption">{tr("近一年")}{" "}{formatInt(layout.total)}{" "}{tr("条帖子")}</span>
       </div>
       <div ref={scroller} className="scroll-x overflow-x-auto pb-1">
         <div className="relative" style={{ width: layout.weeks.length * (CELL + GAP) }}>
@@ -281,11 +275,11 @@ function Heatmap({ data }: { data: DashboardResponse["heatmap"] }) {
               </span>
             ))}
           </div>
-          <div className="flex" style={{ gap: GAP }} role="img" aria-label={`近一年共 ${layout.total} 条帖子`}>
+          <div className="flex" style={{ gap: GAP }} role="img" aria-label={tr("近一年共 {0} 条帖子", [layout.total])}>
             {layout.weeks.map((w, i) => (
               <div key={i} className="flex flex-col" style={{ gap: GAP }}>
                 {w.map((c) => (
-                  <Tip key={c.day} content={c.inRange ? `${c.day} · ${c.count} 条` : c.day}>
+                  <Tip key={c.day} content={c.inRange ? tr("{0} · {1} 条", [formatCalendarDay(c.day), formatInt(c.count)]) : formatCalendarDay(c.day)}>
                     <span
                       className={cn("block rounded-[3px]", !c.inRange && "opacity-0")}
                       style={{ width: CELL, height: CELL, background: `var(--heat-${c.level})` }}
@@ -297,27 +291,23 @@ function Heatmap({ data }: { data: DashboardResponse["heatmap"] }) {
           </div>
         </div>
       </div>
-      <div className="mt-3 flex items-center justify-end gap-1.5 text-caption text-fg-caption">
-        少
-        {[0, 1, 2, 3, 4].map((l) => (
+      <div className="mt-3 flex items-center justify-end gap-1.5 text-caption text-fg-caption">{tr("少")}{[0, 1, 2, 3, 4].map((l) => (
           <span key={l} className="block h-[11px] w-[11px] rounded-[3px]" style={{ background: `var(--heat-${l})` }} aria-hidden />
-        ))}
-        多
-      </div>
+        ))}{tr("多")}</div>
     </section>
   );
 }
 
 function FeedEntry({ item, author, names }: { item: FeedItem; author?: Member; names: ReadonlySet<string> }) {
+  useLanguage();
   const p = item.post;
   return (
     <article className="flex gap-3 px-1 py-4">
       <Avatar member={author} size={32} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-x-2 text-callout">
-          <span className="font-semibold text-fg">{author?.display_name ?? "未知成员"}</span>
-          <span className="text-caption text-fg-caption">
-            在{" "}
+          <span className="font-semibold text-fg">{author?.display_name ?? tr("未知成员")}</span>
+          <span className="text-caption text-fg-caption">{tr("在")}{" "}
             <Link to="/workspaces/$id" params={{ id: item.workspace.id }} className="hover:text-fg">
               {item.workspace.name}
             </Link>
@@ -339,14 +329,13 @@ function FeedEntry({ item, author, names }: { item: FeedItem; author?: Member; n
           <p className="mt-1 text-caption text-fg-caption">{p.body}</p>
         ) : (
           <div className={cn("mt-1 max-h-[7.5rem] overflow-hidden text-fg-2", p.kind === "progress" && "rounded-[12px] bg-mint-50 px-3 py-2")}>
-            {p.kind === "confirm" ? <span className="chip chip-warning mb-1">确认请求</span> : null}
+            {p.kind === "confirm" ? <span className="chip chip-warning mb-1">{tr("确认请求")}</span> : null}
             <Markdown names={names}>{p.body}</Markdown>
           </div>
         )}
         {p.attachments?.length ? (
           <span className="mt-1.5 inline-flex items-center gap-1 text-caption text-fg-caption">
-            <Paperclip size={12} aria-hidden /> {p.attachments.length} 个附件
-          </span>
+            <Paperclip size={12} aria-hidden /> {p.attachments.length}{" "}{tr("个附件")}</span>
         ) : null}
       </div>
     </article>
@@ -354,6 +343,7 @@ function FeedEntry({ item, author, names }: { item: FeedItem; author?: Member; n
 }
 
 function Feed() {
+  useLanguage();
   const members = useMemberMap();
   const names = useMemo(() => new Set([...members.values()].map((m) => m.name)), [members]);
   const feed = useInfiniteQuery({
@@ -376,8 +366,8 @@ function Feed() {
 
   const items = feed.data?.pages.flatMap((p) => p.items) ?? [];
   return (
-    <section className="glass-1 card p-5" aria-label="动态">
-      <h2 className="text-title-2">动态</h2>
+    <section className="glass-1 card p-5" aria-label={tr("动态")}>
+      <h2 className="text-title-2">{tr("动态")}</h2>
       {feed.isPending ? (
         <div className="mt-4 space-y-4">
           {[0, 1, 2].map((i) => (
@@ -389,7 +379,7 @@ function Feed() {
           <QueryError error={feed.error} onRetry={() => void feed.refetch()} />
         </div>
       ) : items.length === 0 ? (
-        <EmptyState art="inbox" title="还没有任何动态。在上面发第一个帖子吧。" compact />
+        <EmptyState art="inbox" title={tr("还没有任何动态。在上面发第一个帖子吧。")} compact />
       ) : (
         <div className="divide-y divide-line">
           {items.map((it) => (
@@ -401,11 +391,11 @@ function Feed() {
       {feed.hasNextPage ? (
         <div className="mt-2 flex justify-center">
           <button className="btn btn-ghost" disabled={feed.isFetchingNextPage} onClick={() => void feed.fetchNextPage()}>
-            {feed.isFetchingNextPage ? "加载中…" : "加载更多"}
+            {feed.isFetchingNextPage ? tr("加载中…") : tr("加载更多")}
           </button>
         </div>
       ) : items.length > 0 ? (
-        <p className="mt-3 text-center text-caption text-fg-caption">没有更早的动态了</p>
+        <p className="mt-3 text-center text-caption text-fg-caption">{tr("没有更早的动态了")}</p>
       ) : null}
     </section>
   );
@@ -413,6 +403,7 @@ function Feed() {
 
 /** First-run call to action: the team has no agent yet. */
 function FirstAgentCta() {
+  useLanguage();
   const addAgent = useAddAgent();
   const { isAdmin } = useRole();
   return (
@@ -424,28 +415,24 @@ function FirstAgentCta() {
       />
       <div className="relative flex flex-col gap-5 md:flex-row md:items-center">
         <div className="min-w-0 flex-1">
-          <h2 id="first-agent" className="text-title-2">接入第一个 agent</h2>
+          <h2 id="first-agent" className="text-title-2">{tr("接入第一个 agent")}</h2>
           <p className="mt-1 text-callout font-normal text-fg-2">
             {isAdmin
-              ? "复制一行命令到任意一台装了 Claude Code / Codex / Cursor / Gemini 的机器上运行，或者把提示词丢给它，它会自己装好并加入。"
-              : "请团队管理员在「成员 → 添加 agent」里复制接入命令。"}
+              ? tr("复制一行命令到任意一台装了 Claude Code / Codex / Cursor / Gemini 的机器上运行，或者把提示词丢给它，它会自己装好并加入。")
+              : tr("请团队管理员在「成员 → 添加 agent」里复制接入命令。")}
           </p>
           <ul className="mt-3 flex flex-wrap gap-2 text-caption text-fg-2">
             <li className="chip chip-muted">
-              <Terminal size={12} aria-hidden /> 一行命令安装 + 加入
-            </li>
+              <Terminal size={12} aria-hidden />{" "}{tr("一行命令安装 + 加入")}</li>
             <li className="chip chip-muted">
-              <Sparkles size={12} aria-hidden /> 或交给 AI 来装
-            </li>
+              <Sparkles size={12} aria-hidden />{" "}{tr("或交给 AI 来装")}</li>
             <li className="chip chip-muted">
-              <UserPlus size={12} aria-hidden /> 弹窗里直接批准
-            </li>
+              <UserPlus size={12} aria-hidden />{" "}{tr("弹窗里直接批准")}</li>
           </ul>
         </div>
         {isAdmin ? (
           <button className="btn btn-primary btn-lg flex-none" onClick={addAgent}>
-            <UserPlus size={18} aria-hidden /> 添加 agent
-          </button>
+            <UserPlus size={18} aria-hidden />{" "}{tr("添加 agent")}</button>
         ) : null}
       </div>
     </section>
@@ -453,6 +440,7 @@ function FirstAgentCta() {
 }
 
 export function HomePage() {
+  useLanguage();
   const reduced = useReducedMotion() ?? false;
   const v = enterVariants(reduced);
   const me = useMe();
@@ -471,7 +459,7 @@ export function HomePage() {
     <div className="flex min-w-0 flex-col gap-8">
       <motion.header variants={v} initial="hidden" animate="show" custom={0} className="flex flex-col gap-4">
         <h1 className="text-[34px] font-semibold leading-[40px] tracking-[-0.02em] sm:text-display">
-          {greeting(hour)}，{me.data?.member?.display_name ?? "你好"}
+          {greeting(hour)}，{me.data?.member?.display_name ?? tr("你好")}
         </h1>
         {d ? <StatChips stats={d.stats} /> : <div className="skeleton h-10 w-80 max-w-full rounded-full" />}
       </motion.header>
@@ -484,10 +472,10 @@ export function HomePage() {
       {d ? <Banners data={d} /> : null}
       {d && d.stats.agents_total === 0 ? <FirstAgentCta /> : null}
 
-      <motion.section variants={v} initial="hidden" animate="show" custom={2} aria-label="进行中的讨论串">
+      <motion.section variants={v} initial="hidden" animate="show" custom={2} aria-label={tr("进行中的讨论串")}>
         <div className="mb-3 flex items-baseline justify-between">
-          <h2 className="text-title-2">进行中</h2>
-          {d ? <span className="text-caption text-fg-caption">{d.active_threads.length} 个讨论串</span> : null}
+          <h2 className="text-title-2">{tr("进行中")}</h2>
+          {d ? <span className="text-caption text-fg-caption">{d.active_threads.length}{" "}{tr("个讨论串")}</span> : null}
         </div>
         {!d ? (
           <div className="flex gap-4 overflow-hidden">
@@ -497,7 +485,7 @@ export function HomePage() {
           </div>
         ) : d.active_threads.length === 0 ? (
           <div className="glass-1 card">
-            <EmptyState art="threads" title="现在没有进行中的讨论串" compact />
+            <EmptyState art="threads" title={tr("现在没有进行中的讨论串")} compact />
           </div>
         ) : (
           <div className="scroll-x -mx-4 flex snap-x gap-4 overflow-x-auto px-4 pb-2 md:-mx-1 md:px-1">

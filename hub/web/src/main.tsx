@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles/index.css";
+import "./lib/i18n";
 
 async function boot() {
   // Dev-only mock transport. In production builds VITE_MOCK is undefined, so this

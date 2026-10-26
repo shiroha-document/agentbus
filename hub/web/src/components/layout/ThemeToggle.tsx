@@ -1,3 +1,4 @@
+import { t as tr, useLanguage } from "../../lib/i18n";
 // Header theme switcher: 浅色 / 深色 / 跟随系统 (radio menu).
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Check, Monitor, Moon, Sun, type LucideIcon } from "lucide-react";
@@ -10,19 +11,20 @@ const itemCls =
   "flex min-h-9 cursor-pointer items-center gap-2 rounded-[10px] px-3 py-1.5 text-callout outline-none data-[highlighted]:bg-mint-100";
 
 export function ThemeToggle() {
+  useLanguage();
   const { pref, resolved, setPref } = useTheme();
   // The trigger shows what is on screen; "system" gets its own icon so the choice is visible.
   const Icon = pref === "system" ? Monitor : resolved === "dark" ? Moon : Sun;
   return (
     <DropdownMenu.Root>
-      <Tip content={`主题：${THEME_LABEL[pref]}`}>
-        <DropdownMenu.Trigger className="btn btn-ghost btn-icon h-9 w-9" aria-label={`切换主题（当前：${THEME_LABEL[pref]}）`}>
+      <Tip content={tr("主题：{0}", [THEME_LABEL[pref]])}>
+        <DropdownMenu.Trigger className="btn btn-ghost btn-icon h-9 w-9" aria-label={tr("切换主题（当前：{0}）", [THEME_LABEL[pref]])}>
           <Icon size={18} aria-hidden />
         </DropdownMenu.Trigger>
       </Tip>
       <DropdownMenu.Portal>
         <DropdownMenu.Content align="end" sideOffset={8} className="glass-3 z-50 min-w-[168px] rounded-[16px] p-1.5">
-          <DropdownMenu.Label className="px-3 pb-1 pt-1.5 text-caption text-fg-caption">外观</DropdownMenu.Label>
+          <DropdownMenu.Label className="px-3 pb-1 pt-1.5 text-caption text-fg-caption">{tr("外观")}</DropdownMenu.Label>
           <DropdownMenu.RadioGroup value={pref} onValueChange={(v) => setPref(v as ThemePref)}>
             {THEME_PREFS.map((p) => {
               const I = THEME_ICON[p];
@@ -45,9 +47,10 @@ export function ThemeToggle() {
 
 /** Segmented control (Settings → 偏好). */
 export function ThemeSegmented() {
+  useLanguage();
   const { pref, setPref } = useTheme();
   return (
-    <div role="radiogroup" aria-label="外观主题" className="inline-flex rounded-[12px] bg-mint-100/60 p-1">
+    <div role="radiogroup" aria-label={tr("外观主题")} className="inline-flex rounded-[12px] bg-mint-100/60 p-1">
       {THEME_PREFS.map((p) => {
         const I = THEME_ICON[p];
         const on = p === pref;

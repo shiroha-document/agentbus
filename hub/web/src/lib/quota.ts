@@ -1,3 +1,4 @@
+import { t as tr } from "./i18n";
 import type { QuotaReading } from "../types";
 
 export type QuotaLevel = "ok" | "warn" | "danger" | "unknown";
@@ -29,12 +30,12 @@ export function clampPct(pct: number | null | undefined): number {
 }
 
 export const WINDOW_LABEL: Record<string, string> = {
-  "5h": "5 小时",
-  "7d": "7 天",
-  monthly: "本月",
-  daily: "今日",
-  balance: "余额",
-  "*": "全部窗口",
+  get "5h"() { return tr("5 小时"); },
+  get "7d"() { return tr("7 天"); },
+  get monthly() { return tr("本月"); },
+  get daily() { return tr("今日"); },
+  get balance() { return tr("余额"); },
+  get "*"() { return tr("全部窗口"); },
 };
 
 export function windowLabel(w: string): string {

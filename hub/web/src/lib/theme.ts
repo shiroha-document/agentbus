@@ -1,3 +1,4 @@
+import { t as tr } from "./i18n";
 // Light / dark / system theme. The preference lives in localStorage["agentbus.theme"];
 // <html data-theme> always carries the RESOLVED theme (light|dark) so CSS only needs one
 // selector. public/theme-init.js applies the same logic before first paint.
@@ -9,7 +10,7 @@ export type ResolvedTheme = "light" | "dark";
 
 export const THEME_KEY = "agentbus.theme";
 export const THEME_PREFS: readonly ThemePref[] = ["light", "dark", "system"];
-export const THEME_LABEL: Record<ThemePref, string> = { light: "浅色", dark: "深色", system: "跟随系统" };
+export const THEME_LABEL: Record<ThemePref, string> = { get light() { return tr("浅色"); }, get dark() { return tr("深色"); }, get system() { return tr("跟随系统"); } };
 
 export function parseThemePref(v: unknown): ThemePref {
   return v === "light" || v === "dark" ? v : "system";

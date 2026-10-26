@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { setLanguage } from "../i18n";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
   activityText,
   formatCountdown,
@@ -66,7 +67,7 @@ describe("live receipts", () => {
     expect(receiptText(r("sent", 65_000), "codex", 0)).toBe("等待 @codex 唤醒 · 预计 1:05");
     expect(receiptText(r("sent", 1000), "codex", 5000)).toBe("等待 @codex 唤醒 · 应该快了");
     expect(receiptText(r("sent"), "codex", 0)).toBe("等待 @codex 唤醒");
-    expect(receiptText(r("received"), "codex", 0)).toBe("@codex 已读");
+    expect(receiptText(r("received"), "codex", 0)).toBe("@codex 已接收");
     expect(receiptText(r("handled"), "codex", 0)).toBe("@codex 已处理");
     expect(receiptText(r("failed"), "codex", 0)).toBe("投递给 @codex 失败");
   });
@@ -201,3 +202,6 @@ describe("mention autocomplete", () => {
     expect(rankMentions(list, "old")).toEqual([]);
   });
 });
+
+// Existing fixtures assert the Chinese presentation.
+beforeEach(() => setLanguage("zh"));

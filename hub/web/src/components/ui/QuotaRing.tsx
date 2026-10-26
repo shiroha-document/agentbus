@@ -1,3 +1,4 @@
+import { t as tr, useLanguage } from "../../lib/i18n";
 import { motion, useReducedMotion } from "motion/react";
 import type { QuotaGroup } from "../../lib/quota";
 import { clampPct, quotaColorVar, quotaLevel, windowLabel } from "../../lib/quota";
@@ -14,6 +15,7 @@ interface RingProps {
 
 /** Circular progress ring. Fills from 0 on first mount over 600ms. */
 export function Ring({ pct, size = 56, stroke = 5, children }: RingProps) {
+  useLanguage();
   const reduced = useReducedMotion() ?? false;
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
@@ -44,15 +46,16 @@ export function Ring({ pct, size = 56, stroke = 5, children }: RingProps) {
 
 /** One provider/window: ring + label + source badge(s). */
 export function QuotaRing({ group, size = 56 }: { group: QuotaGroup; size?: number }) {
+  useLanguage();
   const primary = group.readings[0]!;
   const pct = primary.used_pct;
   const level = quotaLevel(pct);
   const isBalance = primary.window === "balance" || (pct === null && primary.balance);
   const tipLines = group.readings.map((r) => {
-    const parts = [`${r.source === "native" ? "原生" : "magpie"}：${r.used_pct !== null ? formatPct(r.used_pct) : r.balance ? `${r.balance.amount} ${r.balance.currency}` : "未知"}`];
-    if (r.resets_at) parts.push(`${formatUntil(r.resets_at)}后重置`);
-    parts.push(`读取于 ${formatRelative(r.read_at)}`);
-    if (r.error) parts.push(`错误：${r.error}`);
+    const parts = [`${r.source === "native" ? tr("原生") : "magpie"}：${r.used_pct !== null ? formatPct(r.used_pct) : r.balance ? `${r.balance.amount} ${r.balance.currency}` : tr("未知")}`];
+    if (r.resets_at) parts.push(tr("{0}后重置", [formatUntil(r.resets_at)]));
+    parts.push(tr("读取于 {0}", [formatRelative(r.read_at)]));
+    if (r.error) parts.push(tr("错误：{0}", [r.error]));
     return parts.join(" · ");
   });
   return (
@@ -67,14 +70,14 @@ export function QuotaRing({ group, size = 56 }: { group: QuotaGroup; size?: numb
           {tipLines.map((l) => (
             <div key={l}>{l}</div>
           ))}
-          {group.divergent ? <div className="text-warning-text">两个来源读数相差超过 5 个百分点</div> : null}
+          {group.divergent ? <div className="text-warning-text">{tr("两个来源读数相差超过 5 个百分点")}</div> : null}
         </div>
       }
     >
       <div
         className="flex w-[76px] flex-col items-center gap-1.5 rounded-[14px] px-1 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-mint-500"
         tabIndex={0}
-        aria-label={`${group.provider} ${windowLabel(group.window)} 已用 ${pct === null ? "未知" : formatPct(pct)}`}
+        aria-label={tr("{0} {1} 已用 {2}", [group.provider, windowLabel(group.window), pct === null ? tr("未知") : formatPct(pct)])}
       >
         <div className="relative">
           <Ring pct={isBalance ? null : pct} size={size}>
@@ -100,9 +103,9 @@ export function QuotaRing({ group, size = 56 }: { group: QuotaGroup; size?: numb
                   "rounded-full px-1 text-[9px] font-semibold leading-[14px]",
                   group.divergent ? "chip-warning" : "bg-surface-strong text-fg-2 ring-1 ring-line",
                 )}
-                title={r.source === "native" ? "原生读数" : "magpie 读数"}
+                title={r.source === "native" ? tr("原生读数") : tr("magpie 读数")}
               >
-                {r.source === "native" ? "原生" : "mp"}
+                {r.source === "native" ? tr("原生") : "mp"}
               </span>
             ))}
           </span>

@@ -1,3 +1,4 @@
+import { getLocale } from "./i18n";
 import type { HeatmapDay } from "../types";
 
 // GitHub-style heatmap layout: columns are weeks (Mon..Sun rows), grouped by month labels.
@@ -66,7 +67,7 @@ export function buildHeatmap(data: HeatmapDay[], end: Date = new Date(), days = 
       // A month is labelled on the column containing its 1st day; the very first
       // column is labelled with the month of its first in-range day.
       if (inRange && (cur.getDate() === 1 || weeks.length === 0) && !months.some((m) => m.col === weeks.length)) {
-        months.push({ label: `${cur.getMonth() + 1}月`, col: weeks.length });
+        months.push({ label: new Intl.DateTimeFormat(getLocale(), { month: "short" }).format(cur), col: weeks.length });
       }
       cur.setDate(cur.getDate() + 1);
     }

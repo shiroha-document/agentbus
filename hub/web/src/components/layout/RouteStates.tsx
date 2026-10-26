@@ -1,10 +1,12 @@
+import { t as tr, useLanguage } from "../../lib/i18n";
 import { Link, type ErrorComponentProps } from "@tanstack/react-router";
 import { AlertTriangle } from "lucide-react";
 import { EmptyState } from "../ui/EmptyState";
 
 export function RoutePending() {
+  useLanguage();
   return (
-    <div className="space-y-4 py-2" aria-busy="true" aria-label="加载中">
+    <div className="space-y-4 py-2" aria-busy="true" aria-label={tr("加载中")}>
       <div className="skeleton h-9 w-56" />
       <div className="skeleton h-28 w-full" />
       <div className="grid gap-4 md:grid-cols-2">
@@ -16,27 +18,25 @@ export function RoutePending() {
 }
 
 export function RouteError({ error, reset }: ErrorComponentProps) {
+  useLanguage();
   return (
     <div className="glass-1 card mx-auto mt-10 flex max-w-lg flex-col items-center gap-3 text-center">
       <AlertTriangle size={28} className="text-warning-text" aria-hidden />
-      <h2 className="text-title-2">页面加载失败</h2>
-      <p className="text-fg-2">{error instanceof Error ? error.message : "未知错误"}</p>
-      <button className="btn btn-primary" onClick={reset}>
-        重试
-      </button>
+      <h2 className="text-title-2">{tr("页面加载失败")}</h2>
+      <p className="text-fg-2">{error instanceof Error ? error.message : tr("未知错误")}</p>
+      <button className="btn btn-primary" onClick={reset}>{tr("重试")}</button>
     </div>
   );
 }
 
 export function NotFound() {
+  useLanguage();
   return (
     <EmptyState
       art="search"
-      title="找不到这个页面"
+      title={tr("找不到这个页面")}
       action={
-        <Link to="/" className="btn btn-primary">
-          回到首页
-        </Link>
+        <Link to="/" className="btn btn-primary">{tr("回到首页")}</Link>
       }
     />
   );
@@ -44,14 +44,13 @@ export function NotFound() {
 
 /** Inline query error block. */
 export function QueryError({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
+  useLanguage();
   return (
     <div className="glass-1 card flex flex-col items-center gap-3 text-center" role="alert">
       <AlertTriangle size={24} className="text-warning-text" aria-hidden />
-      <p className="text-fg-2">{error instanceof Error ? error.message : "加载失败"}</p>
+      <p className="text-fg-2">{error instanceof Error ? error.message : tr("加载失败")}</p>
       {onRetry ? (
-        <button className="btn btn-secondary" onClick={onRetry}>
-          重试
-        </button>
+        <button className="btn btn-secondary" onClick={onRetry}>{tr("重试")}</button>
       ) : null}
     </div>
   );

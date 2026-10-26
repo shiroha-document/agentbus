@@ -1,4 +1,5 @@
-import { useId, useState } from "react";
+import { t as tr, useLanguage, localized } from "../../lib/i18n";
+import { useId, useState, type ReactNode } from "react";
 import { CheckCircle2, ChevronDown, Clock, Hourglass, ListChecks, Target, XCircle } from "lucide-react";
 import "../../styles/live.css";
 import { api } from "../../api";
@@ -12,16 +13,17 @@ import { Markdown } from "../Markdown";
 import { Tip } from "../ui/Tip";
 
 export function UsageFooter({ post }: { post: Post }) {
+  useLanguage();
   const u = post.usage;
   if (!u) return null;
   const parts = [
     `${formatTokens(totalTokens(u))} tokens`,
-    `输入 ${formatTokens(u.input)}`,
-    `缓存读 ${formatTokens(u.cache_read)}`,
-    `缓存写 ${formatTokens(u.cache_write)}`,
-    `输出 ${formatTokens(u.output)}`,
+    tr("输入 {0}", [formatTokens(u.input)]),
+    tr("缓存读 {0}", [formatTokens(u.cache_read)]),
+    tr("缓存写 {0}", [formatTokens(u.cache_write)]),
+    tr("输出 {0}", [formatTokens(u.output)]),
   ];
-  if (u.cost_usd_est !== null) parts.push(`约 ${formatUsd(u.cost_usd_est)}`);
+  if (u.cost_usd_est !== null) parts.push(tr("约 {0}", [formatUsd(u.cost_usd_est)]));
   if (u.duration_ms) parts.push(formatDuration(u.duration_ms));
   return <div className="tabular mt-2 text-caption text-fg-caption">{parts.join(" · ")}</div>;
 }
@@ -31,7 +33,7 @@ export function revisionText(post: Post, now: number = Date.now()): string | nul
   const n = post.revisions ?? 0;
   if (n <= 0) return null;
   const last = post.edited_at ?? post.created_at;
-  return `已更新 ${n} 次 · 最后更新 ${formatRelative(last, now)}`;
+  return tr("已更新 {0} 次 · 最后更新 {1}", [n, formatRelative(last, now)]);
 }
 
 /** First meaningful line of a progress post (for the folded summary). */
@@ -44,6 +46,7 @@ function progressSummary(body: string): string {
 }
 
 function ProgressBody({ body, names }: { body: string; names: ReadonlySet<string> }) {
+  useLanguage();
   const parsed = parseProgress(body);
   if (!parsed) return <Markdown names={names}>{body}</Markdown>;
   return (
@@ -68,6 +71,7 @@ function ProgressBody({ body, names }: { body: string; names: ReadonlySet<string
  * replaces start folded (`superseded`).
  */
 export function ProgressCard({ post, names, superseded }: { post: Post; names: ReadonlySet<string>; superseded?: boolean }) {
+  useLanguage();
   const [open, setOpen] = useState(!superseded);
   const bodyId = useId();
   const rev = revisionText(post);
@@ -81,18 +85,18 @@ export function ProgressCard({ post, names, superseded }: { post: Post; names: R
         onClick={() => setOpen((o) => !o)}
       >
         <ListChecks size={16} className="flex-none text-mint-700" aria-hidden />
-        <span className="text-callout font-semibold text-mint-700">进度</span>
-        {superseded ? <span className="chip chip-muted">已被新进度取代</span> : null}
+        <span className="text-callout font-semibold text-mint-700">{tr("进度")}</span>
+        {superseded ? <span className="chip chip-muted">{tr("已被新进度取代")}</span> : null}
         {!open ? <span className="min-w-0 flex-1 truncate text-caption text-fg-2">{progressSummary(post.body)}</span> : <span className="flex-1" />}
         {rev ? (
-          <Tip content={post.edited_at ? `最后更新于 ${formatDateTime(post.edited_at)}` : rev}>
+          <Tip content={post.edited_at ? tr("最后更新于 {0}", [formatDateTime(post.edited_at)]) : rev}>
             <span className="tabular hidden flex-none items-center gap-1 text-caption text-fg-caption sm:inline-flex">
               <Clock size={12} aria-hidden /> {rev}
             </span>
           </Tip>
         ) : null}
         <ChevronDown size={16} className={cn("flex-none text-fg-3 transition-transform", open && "rotate-180")} aria-hidden />
-        <span className="sr-only">{open ? "收起进度" : "展开进度"}</span>
+        <span className="sr-only">{open ? tr("收起进度") : tr("展开进度")}</span>
       </button>
       {open ? (
         <div id={bodyId} className="px-4 pb-3">
@@ -105,21 +109,34 @@ export function ProgressCard({ post, names, superseded }: { post: Post; names: R
   );
 }
 
-/** Pinned-looking "目标 / 状态更新" card (kind=state; created when the thread state changes). */
-export function StateCard({ post, names, author }: { post: Post; names: ReadonlySet<string>; author?: Member }) {
+/** A retained state-update post; details always come from this post's body. */
+export function StateCard({ post, names, author, action }: { post: Post; names: ReadonlySet<string>; author?: Member; action?: ReactNode }) {
+  useLanguage();
+  const [open, setOpen] = useState(false);
+  const bodyId = useId();
   const rev = revisionText(post);
+  const timestamp = post.edited_at ?? post.created_at;
   return (
-    <section className="state-card mt-1 rounded-[18px] p-4" aria-label="目标 / 状态更新">
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-surface text-info-text">
-          <Target size={15} aria-hidden />
-        </span>
-        <span className="text-callout font-semibold text-fg">目标 / 状态更新</span>
-        {author ? <span className="text-caption text-fg-caption">由 {author.display_name} 更新</span> : null}
-        {rev ? <span className="tabular ml-auto text-caption text-fg-caption">{rev}</span> : null}
+    <section className="min-w-0" aria-label={tr("状态更新")}>
+      <div className="flex items-center gap-1">
+        <button type="button" aria-expanded={open} aria-controls={bodyId} onClick={() => setOpen((o) => !o)}
+          className="flex min-h-10 min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 rounded-lg px-2 py-2 text-left hover:bg-surface-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]">
+          <Target size={15} className="flex-none text-info-text" aria-hidden />
+          <span className="text-caption font-medium text-fg-2">{tr("状态已更新")}</span>
+          <span className="max-w-40 truncate text-caption text-fg-caption">{author?.display_name || author?.name || post.author_id}</span>
+          <time className="tabular text-caption text-fg-caption" dateTime={new Date(timestamp).toISOString()} title={formatDateTime(timestamp)}>
+            {formatRelative(timestamp)}
+          </time>
+          {rev ? <span className="tabular text-caption text-fg-caption">{rev}</span> : null}
+          <span className="ml-auto inline-flex items-center gap-1 text-caption text-fg-2">
+            {open ? tr("收起详情") : tr("查看详情")}
+            <ChevronDown size={14} className={cn("flex-none transition-transform", open && "rotate-180")} aria-hidden />
+          </span>
+        </button>
+        {action}
       </div>
-      <div className="text-callout text-fg-2">
-        <Markdown names={names}>{post.body}</Markdown>
+      <div id={bodyId} hidden={!open} className="px-2 pb-2 text-callout text-fg-2">
+        {open ? <Markdown names={names}>{post.body}</Markdown> : null}
       </div>
     </section>
   );
@@ -127,9 +144,10 @@ export function StateCard({ post, names, author }: { post: Post; names: Readonly
 
 /** Confirmation waiting for a human: prominent, pulses while pending. */
 export function ConfirmCard({ post, members, names }: { post: Post; members: Map<string, Member>; names?: ReadonlySet<string> }) {
+  useLanguage();
   const c = post.confirmation;
   const decide = useAction((d: "approve" | "reject") => api.decide(c!.id, d), {
-    success: "已处理",
+    success: localized("已处理"),
     invalidate: [qk.thread(post.thread_id), qk.dashboard],
   });
   const pending = !c || c.status === "pending";
@@ -141,12 +159,12 @@ export function ConfirmCard({ post, members, names }: { post: Post; members: Map
     <section
       className="confirm-card mt-1 overflow-hidden rounded-[18px] p-4"
       data-pending={pending}
-      aria-label={pending ? "等待你确认" : "确认请求"}
+      aria-label={pending ? tr("等待你确认") : tr("确认请求")}
     >
       <div className="mb-1.5 flex items-center gap-1.5 text-caption font-semibold text-warning-text">
         <Hourglass size={14} aria-hidden />
-        {pending ? "等待你确认" : "确认请求"}
-        {pending ? <span className="font-normal text-fg-caption">· agent 在等你的决定后继续</span> : null}
+        {pending ? tr("等待你确认") : tr("确认请求")}
+        {pending ? <span className="font-normal text-fg-caption">{tr("· agent 在等你的决定后继续")}</span> : null}
       </div>
       <div className="text-body text-fg">
         <Markdown names={names}>{c?.question ?? post.body}</Markdown>
@@ -154,16 +172,14 @@ export function ConfirmCard({ post, members, names }: { post: Post; members: Map
       {pending ? (
         <div className="mt-3 flex flex-wrap gap-2">
           <button className="btn btn-primary btn-lg sm:h-9" disabled={!c || decide.isPending} onClick={() => go("approve")}>
-            <CheckCircle2 size={16} aria-hidden /> 同意
-          </button>
+            <CheckCircle2 size={16} aria-hidden />{" "}{tr("同意")}</button>
           <button className="btn btn-secondary btn-lg sm:h-9" disabled={!c || decide.isPending} onClick={() => go("reject")}>
-            <XCircle size={16} aria-hidden /> 拒绝
-          </button>
+            <XCircle size={16} aria-hidden />{" "}{tr("拒绝")}</button>
         </div>
       ) : (
         <div className={cn("mt-3 inline-flex flex-wrap items-center gap-1.5 text-callout", c.status === "approved" ? "text-mint-700" : "text-danger-text")}>
           {c.status === "approved" ? <CheckCircle2 size={16} aria-hidden /> : <XCircle size={16} aria-hidden />}
-          {c.status === "approved" ? "已同意" : "已拒绝"}
+          {c.status === "approved" ? tr("已同意") : tr("已拒绝")}
           {c.decided_by ? ` · ${members.get(c.decided_by)?.display_name ?? c.decided_by}` : ""}
           {c.decided_at ? <span className="text-caption text-fg-caption"> · {formatRelative(c.decided_at)}</span> : null}
           {c.note ? <span className="text-fg-2">：{c.note}</span> : null}

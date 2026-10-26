@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { setLanguage } from "../i18n";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   INSTALL_LINE,
   TEAM_HEADER,
@@ -220,17 +221,17 @@ describe("invites & join codes", () => {
 
   it("builds the setup snippet without a trailing slash", () => {
     const s = joinSnippet("https://hub.example.com/", "abj_0123456789abcdefghijklmnop");
-    expect(s.split("\n")).toEqual([INSTALL_LINE, "agentbus setup --hub https://hub.example.com --join-code abj_0123456789abcdefghijklmnop"]);
+    expect(s.split("\n")).toEqual([`${INSTALL_LINE.replace("| sh", "| AGENTBUS_LANG=zh sh")} -s -- --no-setup`, "agentbus --lang zh setup --hub https://hub.example.com --join-code abj_0123456789abcdefghijklmnop"]);
   });
 
   it("builds one-line install + join commands", () => {
     const secret = "abj_0123456789abcdefghijklmnop";
     expect(unixOneLiner("https://hub.example.com/", secret)).toBe(
-      `${INSTALL_LINE} -s -- --hub https://hub.example.com --join-code ${secret}`,
+      `${INSTALL_LINE.replace("| sh", "| AGENTBUS_LANG=zh sh")} -s -- --lang zh --hub https://hub.example.com --join-code ${secret}`,
     );
     expect(unixOneLiner("https://h.x", secret)).not.toContain("\n");
     expect(windowsOneLiner("https://hub.example.com//", secret)).toBe(
-      `$env:AGENTBUS_HUB='https://hub.example.com'; $env:AGENTBUS_JOIN_CODE='${secret}'; ${INSTALL_PS1}`,
+      `$env:AGENTBUS_LANG='zh'; $env:AGENTBUS_HUB='https://hub.example.com'; $env:AGENTBUS_JOIN_CODE='${secret}'; ${INSTALL_PS1}`,
     );
   });
 
@@ -247,7 +248,7 @@ describe("invites & join codes", () => {
     expect(p).toContain("agentbus inbox");
     expect(p).toContain("agentbus ack --thread");
     expect(p).toContain("agentbus doctor");
-    expect(p).toContain("docs/ONBOARDING.md");
+    expect(p).toContain("/guide/onboarding");
     expect(agentPrompt("https://h.x", secret)).toContain("agentbus hub（https://h.x）");
   });
 
@@ -258,3 +259,6 @@ describe("invites & join codes", () => {
     expect(deleteConfirmMatches("", "")).toBe(false);
   });
 });
+
+// Existing fixtures assert the Chinese presentation.
+beforeEach(() => setLanguage("zh"));

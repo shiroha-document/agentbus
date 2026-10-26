@@ -1,12 +1,21 @@
+import { t as tr } from "./i18n";
 // Live status helpers (contract §3): delivery receipts + agent activity.
 import type { Activity, ActivityState, Receipt, ReceiptState, ThreadLive } from "../types";
 
+/** Stable, unique batches matching the live endpoint's 100-post limit. */
+export function receiptPostBatches(postIds: readonly string[]): string[][] {
+  const ids = [...new Set(postIds)].sort();
+  const batches: string[][] = [];
+  for (let i = 0; i < ids.length; i += 100) batches.push(ids.slice(i, i + 100));
+  return batches;
+}
+
 export const RECEIPT_LABEL: Record<ReceiptState, string> = {
-  sent: "已送达",
-  received: "已读",
-  working: "处理中",
-  handled: "已处理",
-  failed: "投递失败",
+  get sent() { return tr("等待接收"); },
+  get received() { return tr("已读"); },
+  get working() { return tr("处理中"); },
+  get handled() { return tr("已处理"); },
+  get failed() { return tr("投递失败"); },
 };
 
 /** Progress order: a post's aggregate state is the *least advanced* receipt (failed wins). */
@@ -63,16 +72,16 @@ export function formatElapsed(start: number, now: number): string {
 export function receiptText(r: Receipt, name: string, now: number): string {
   switch (r.state) {
     case "sent":
-      if (r.eta === null) return `等待 @${name} 唤醒`;
-      return r.eta > now ? `等待 @${name} 唤醒 · 预计 ${formatCountdown(r.eta, now)}` : `等待 @${name} 唤醒 · 应该快了`;
+      if (r.eta === null) return tr("等待 @{0} 唤醒", [name]);
+      return r.eta > now ? tr("等待 @{0} 唤醒 · 预计 {1}", [name, formatCountdown(r.eta, now)]) : tr("等待 @{0} 唤醒 · 应该快了", [name]);
     case "received":
-      return `@${name} 已读`;
+      return tr("@{0} 已读", [name]);
     case "working":
-      return `@${name} 正在处理`;
+      return tr("@{0} 正在处理", [name]);
     case "handled":
-      return `@${name} 已处理`;
+      return tr("@{0} 已处理", [name]);
     case "failed":
-      return `投递给 @${name} 失败`;
+      return tr("投递给 @{0} 失败", [name]);
   }
 }
 
@@ -96,14 +105,14 @@ export function activityText(a: Activity, name: string): string {
   const what = a.detail ?? [a.cli, a.model].filter(Boolean).join(" · ");
   switch (a.state) {
     case "claimed":
-      return `@${name} 已接收`;
+      return tr("@{0} 已接收", [name]);
     case "running":
-      return what ? `@${name} 正在运行 ${what}` : `@${name} 正在运行`;
+      return what ? tr("@{0} 正在运行 {1}", [name, what]) : tr("@{0} 正在运行", [name]);
     case "typing":
-      return `@${name} 正在输入`;
+      return tr("@{0} 正在输入", [name]);
     case "done":
-      return `@${name} 已完成`;
+      return tr("@{0} 已完成", [name]);
     case "failed":
-      return a.detail ? `@${name} 运行失败：${a.detail}` : `@${name} 运行失败`;
+      return a.detail ? tr("@{0} 运行失败：{1}", [name, a.detail]) : tr("@{0} 运行失败", [name]);
   }
 }

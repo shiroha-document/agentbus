@@ -10,6 +10,7 @@
 // Also used for README screenshots, so the data should read like a real team.
 
 import { setTransport, type RawResponse } from "./api";
+import { t } from "./lib/i18n";
 import { extraHandle } from "./mock-extra";
 import type {
   Activity,
@@ -870,13 +871,14 @@ function claimFiles(s: Store, ids: unknown, postId: string): Attachment[] {
   return out;
 }
 
-function liveView(s: Store, tid: string) {
+function liveView(s: Store, tid: string, postIds?: readonly string[]) {
   const t = now();
   const list = s.posts.filter((x) => x.thread_id === tid).sort((a, b) => a.created_at - b.created_at);
   const receipts: Record<string, Receipt[]> = {};
   const acts = s.activity.filter((a) => a.thread_id === tid && t - a.updated_at < 30 * MIN);
   const busy = new Set(acts.filter((a) => a.state === "running" || a.state === "typing").map((a) => a.member_id));
-  for (const x of list.slice(-30)) {
+  const requested = postIds ? new Set(postIds) : null;
+  for (const x of requested ? list.filter((post) => requested.has(post.id)) : list.slice(-30)) {
     const rs = s.receipts[x.id];
     if (!rs?.length) continue;
     receipts[x.id] = rs.map((r) => (r.state === "received" && busy.has(r.member_id) ? { ...r, state: "working" as const } : { ...r }));
@@ -1291,7 +1293,7 @@ function teamHandle(S: Store, me: Member, admin: boolean, owner: boolean, method
       };
       S.joinCodes.push(code);
       // Demo of the one-click flow: a machine "runs the command" a few seconds later.
-      if (code.label.startsWith("一键接入") && !S.members.some((m) => m.name === "mac-mini-claude")) {
+      if (["zh", "en"].some((language) => code.label.startsWith(t("一键接入", [], language as "zh" | "en"))) && !S.members.some((m) => m.name === "mac-mini-claude")) {
         const store = S;
         setTimeout(() => {
           const t = now();
@@ -1418,7 +1420,16 @@ function teamHandle(S: Store, me: Member, admin: boolean, owner: boolean, method
       t.updated_at = now();
       return ok({ thread: t });
     }
-    if (p[2] === "live" && method === "GET") return ok(liveView(S, t.id));
+    if (p[2] === "live" && method === "GET") {
+      let ids: string[] | undefined;
+      if (q.has("post_ids")) {
+        ids = q.get("post_ids")!.split(",");
+        if (q.getAll("post_ids").length !== 1 || ids.length > 100 || ids.some((id) => !/^[A-Za-z0-9_-]{1,40}$/.test(id))) {
+          return err(400, "bad_request", "post_ids must contain 1–100 valid post IDs");
+        }
+      }
+      return ok(liveView(S, t.id, ids));
+    }
     const w = workspaces.find((x) => x.id === t.workspace_id)!;
     // Contract §3: newest 100 posts by default; `?before=<post_id>` returns the 100 older ones.
     const all = posts.filter((x) => x.thread_id === t.id).sort((a, b) => a.created_at - b.created_at);

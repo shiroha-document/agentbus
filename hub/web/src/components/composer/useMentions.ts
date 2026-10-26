@@ -1,3 +1,4 @@
+import { t as tr, useLanguage } from "../../lib/i18n";
 import { useCallback, useMemo, useState, type KeyboardEvent, type RefObject } from "react";
 import { activeMentionQuery, applyMention, rankMentions } from "../../lib/mentions";
 import { track } from "../../lib/telemetry";
@@ -16,6 +17,7 @@ export function useMentions(
   ref: RefObject<HTMLTextAreaElement | null>,
   opts: { allowAll?: boolean } = {},
 ) {
+  const language = useLanguage();
   const [mention, setMention] = useState<{ query: string; start: number } | null>(null);
   const [active, setActive] = useState(0);
   const allowAll = opts.allowAll ?? true;
@@ -24,9 +26,9 @@ export function useMentions(
     if (!mention) return [];
     const list: MentionSuggestion[] = rankMentions(members, mention.query, 6).map((m) => ({ name: m.name, label: m.display_name, member: m }));
     const q = mention.query.toLowerCase();
-    if (allowAll && ("all".startsWith(q) || "所有".startsWith(q))) list.push({ name: "all", label: "所有参与者" });
+    if (allowAll && ("all".startsWith(q) || "所有".startsWith(q))) list.push({ name: "all", label: tr("所有参与者") });
     return list;
-  }, [mention, members, allowAll]);
+  }, [mention, members, allowAll, language]);
 
   const update = useCallback((value: string, caret: number) => {
     setMention(activeMentionQuery(value, caret));

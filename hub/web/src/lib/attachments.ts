@@ -1,3 +1,4 @@
+import { t as tr, localized, type LocalizedMessage } from "./i18n";
 // Attachment helpers (contract §4): ≤ 6 files per post, ≤ 10 MB each.
 export const MAX_ATTACHMENTS = 6;
 export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
@@ -31,20 +32,20 @@ export function formatBytes(n: number): string {
 }
 
 /**
- * Split picked files into accepted ones and Chinese error messages, given how many are
+ * Split picked files into accepted ones and localized error messages, given how many are
  * already attached.
  */
-export function validateFiles<T extends { name: string; size: number }>(files: readonly T[], existing: number): { ok: T[]; errors: string[] } {
+export function validateFiles<T extends { name: string; size: number }>(files: readonly T[], existing: number): { ok: T[]; errors: string[]; messages: LocalizedMessage[] } {
   const ok: T[] = [];
-  const errors: string[] = [];
+  const messages: LocalizedMessage[] = [];
   let tooMany = 0;
   for (const f of files) {
     if (f.size > MAX_ATTACHMENT_BYTES) {
-      errors.push(`「${f.name}」超过 10 MB，无法上传`);
+      messages.push(localized("「{0}」超过 10 MB，无法上传", [f.name]));
       continue;
     }
     if (f.size === 0) {
-      errors.push(`「${f.name}」是空文件`);
+      messages.push(localized("「{0}」是空文件", [f.name]));
       continue;
     }
     if (existing + ok.length >= MAX_ATTACHMENTS) {
@@ -53,8 +54,8 @@ export function validateFiles<T extends { name: string; size: number }>(files: r
     }
     ok.push(f);
   }
-  if (tooMany) errors.push(`每条消息最多 ${MAX_ATTACHMENTS} 个附件，已忽略 ${tooMany} 个`);
-  return { ok, errors };
+  if (tooMany) messages.push(localized("每条消息最多 {0} 个附件，已忽略 {1} 个", [MAX_ATTACHMENTS, tooMany]));
+  return { ok, errors: messages.map((message) => tr(message.key, message.values)), messages };
 }
 
 const SAFE_DATA_URL = /^data:(image\/(png|jpeg|gif|webp)(;base64)?|text\/plain(;charset=utf-8)?(;base64)?),/i;

@@ -1,10 +1,11 @@
+import { t as tr, useLanguage } from "../lib/i18n";
 import { useMemo, useState } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Area, Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../api";
 import { qk } from "../queries";
-import { formatInt, formatTokens, formatUsd, totalTokens } from "../lib/format";
+import { formatCalendarDay, formatInt, formatTokens, formatUsd, totalTokens } from "../lib/format";
 import { cn } from "../lib/util";
 import type { UsageGroup, UsageSeriesItem } from "../types";
 import { AnimatedNumber } from "../components/ui/AnimatedNumber";
@@ -14,21 +15,22 @@ import { useMemberMap } from "../components/threads";
 import { RunsTable } from "./MemberDetail";
 
 const SERIES = [
-  { key: "input", label: "输入", color: "var(--chart-input)" },
-  { key: "cache_read", label: "缓存读", color: "var(--chart-cache-read)" },
-  { key: "cache_write", label: "缓存写", color: "var(--chart-cache-write)" },
-  { key: "output", label: "输出", color: "var(--chart-output)" },
+  { key: "input", get label() { return tr("输入"); }, color: "var(--chart-input)" },
+  { key: "cache_read", get label() { return tr("缓存读"); }, color: "var(--chart-cache-read)" },
+  { key: "cache_write", get label() { return tr("缓存写"); }, color: "var(--chart-cache-write)" },
+  { key: "output", get label() { return tr("输出"); }, color: "var(--chart-output)" },
 ] as const;
 
 const GROUPS: { value: UsageGroup; label: string }[] = [
-  { value: "day", label: "按天" },
-  { value: "agent", label: "按 agent" },
-  { value: "thread", label: "按讨论串" },
+  { value: "day", get label() { return tr("按天"); } },
+  { value: "agent", get label() { return tr("按 agent"); } },
+  { value: "thread", get label() { return tr("按讨论串"); } },
 ];
 
 const RANGES = [7, 30, 90] as const;
 
 function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: { dataKey?: unknown; value?: unknown; color?: string; name?: unknown }[]; label?: unknown }) {
+  useLanguage();
   if (!active || !payload?.length) return null;
   return (
     <div className="glass-3 rounded-[14px] px-3 py-2 text-caption">
@@ -45,18 +47,19 @@ function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: 
 }
 
 function UsageChart({ series, group }: { series: UsageSeriesItem[]; group: UsageGroup }) {
+  const language = useLanguage();
   const data = useMemo(
     () =>
       series.map((s) => ({
         ...s,
-        label: group === "day" ? s.label.replace(/^\d{4}-/, "") : s.label,
+        label: group === "day" ? formatCalendarDay(s.label, true) : s.label,
       })),
-    [series, group],
+    [series, group, language],
   );
-  if (data.length === 0) return <EmptyState art="chart" compact title="这段时间没有用量数据" />;
+  if (data.length === 0) return <EmptyState art="chart" compact title={tr("这段时间没有用量数据")} />;
   const axis = { stroke: "var(--chart-axis)", fontSize: 12, tickLine: false, axisLine: false } as const;
   return (
-    <div className="h-[320px] w-full" role="img" aria-label="token 用量和金额趋势图">
+    <div className="h-[320px] w-full" role="img" aria-label={tr("token 用量和金额趋势图")}>
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: 4 }}>
           <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
@@ -88,7 +91,7 @@ function UsageChart({ series, group }: { series: UsageSeriesItem[]; group: Usage
             yAxisId="c"
             type="monotone"
             dataKey="cost"
-            name="金额"
+            name={tr("金额")}
             stroke="var(--chart-cost)"
             strokeWidth={2}
             dot={group !== "day"}
@@ -101,6 +104,7 @@ function UsageChart({ series, group }: { series: UsageSeriesItem[]; group: Usage
 }
 
 function SeriesTable({ series, group }: { series: UsageSeriesItem[]; group: UsageGroup }) {
+  useLanguage();
   const rows = [...series].sort((a, b) => (group === "day" ? b.key.localeCompare(a.key) : totalTokens(b) - totalTokens(a)));
   if (rows.length === 0) return null;
   return (
@@ -108,21 +112,21 @@ function SeriesTable({ series, group }: { series: UsageSeriesItem[]; group: Usag
       <table className="w-full min-w-[640px] text-left text-caption">
         <thead className="text-fg-caption">
           <tr className="border-b border-line">
-            <th className="px-2 py-2 font-medium">{group === "day" ? "日期" : group === "agent" ? "agent" : "讨论串"}</th>
+            <th className="px-2 py-2 font-medium">{group === "day" ? tr("日期") : group === "agent" ? "agent" : tr("讨论串")}</th>
             {SERIES.map((s) => (
               <th key={s.key} className="px-2 py-2 text-right font-medium">
                 {s.label}
               </th>
             ))}
-            <th className="px-2 py-2 text-right font-medium">金额</th>
-            <th className="px-2 py-2 text-right font-medium">轮次</th>
-            <th className="px-2 py-2 text-right font-medium">失败</th>
+            <th className="px-2 py-2 text-right font-medium">{tr("金额")}</th>
+            <th className="px-2 py-2 text-right font-medium">{tr("轮次")}</th>
+            <th className="px-2 py-2 text-right font-medium">{tr("失败")}</th>
           </tr>
         </thead>
         <tbody className="tabular">
           {rows.map((r) => (
             <tr key={r.key} className="border-b border-line last:border-b-0">
-              <td className="max-w-[220px] truncate px-2 py-2 text-fg">{r.label}</td>
+              <td className="max-w-[220px] truncate px-2 py-2 text-fg">{group === "day" ? formatCalendarDay(r.label) : r.label}</td>
               {SERIES.map((s) => (
                 <td key={s.key} className="px-2 py-2 text-right text-fg-2">
                   {formatTokens(r[s.key])}
@@ -140,6 +144,7 @@ function SeriesTable({ series, group }: { series: UsageSeriesItem[]; group: Usag
 }
 
 function FailedRuns() {
+  useLanguage();
   const members = useMemberMap();
   const q = useInfiniteQuery({
     queryKey: qk.runs({ failed: true }),
@@ -149,8 +154,8 @@ function FailedRuns() {
   });
   const runs = q.data?.pages.flatMap((p) => p.runs) ?? [];
   return (
-    <section className="glass-1 card p-5" aria-label="失败的轮次">
-      <h2 className="mb-3 text-title-2">失败的轮次</h2>
+    <section className="glass-1 card p-5" aria-label={tr("失败的轮次")}>
+      <h2 className="mb-3 text-title-2">{tr("失败的轮次")}</h2>
       {q.isPending ? (
         <div className="skeleton h-32" />
       ) : q.isError ? (
@@ -161,7 +166,7 @@ function FailedRuns() {
           {q.hasNextPage ? (
             <div className="mt-3 flex justify-center">
               <button className="btn btn-ghost" disabled={q.isFetchingNextPage} onClick={() => void q.fetchNextPage()}>
-                {q.isFetchingNextPage ? "加载中…" : "加载更多"}
+                {q.isFetchingNextPage ? tr("加载中…") : tr("加载更多")}
               </button>
             </div>
           ) : null}
@@ -172,6 +177,7 @@ function FailedRuns() {
 }
 
 export function UsagePage() {
+  useLanguage();
   const [group, setGroup] = useState<UsageGroup>("day");
   const [days, setDays] = useState<number>(30);
   const members = useMemberMap();
@@ -182,8 +188,8 @@ export function UsagePage() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-title-1">用量</h1>
-        <div className="ml-auto flex gap-1 rounded-[12px] bg-mint-100/60 p-1" role="group" aria-label="时间范围">
+        <h1 className="text-title-1">{tr("用量")}</h1>
+        <div className="ml-auto flex gap-1 rounded-[12px] bg-mint-100/60 p-1" role="group" aria-label={tr("时间范围")}>
           {RANGES.map((r) => (
             <button
               key={r}
@@ -191,18 +197,17 @@ export function UsagePage() {
               className={cn("h-8 rounded-[9px] px-3 text-callout transition-colors", days === r ? "bg-surface-solid text-fg shadow-1" : "text-fg-2 hover:text-fg")}
               onClick={() => setDays(r)}
             >
-              {r} 天
-            </button>
+              {r}{" "}{tr("天")}</button>
           ))}
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {[
-          { label: "总 tokens", value: totals ? totalTokens(totals) : 0, fmt: formatTokens },
-          { label: "金额（估算）", value: totals?.cost ?? 0, fmt: formatUsd },
-          { label: "轮次", value: totals?.runs ?? 0, fmt: formatInt },
-          { label: "失败轮次", value: totals?.failed ?? 0, fmt: formatInt, danger: (totals?.failed ?? 0) > 0 },
+          { label: tr("总 tokens"), value: totals ? totalTokens(totals) : 0, fmt: formatTokens },
+          { label: tr("金额（估算）"), value: totals?.cost ?? 0, fmt: formatUsd },
+          { label: tr("轮次"), value: totals?.runs ?? 0, fmt: formatInt },
+          { label: tr("失败轮次"), value: totals?.failed ?? 0, fmt: formatInt, danger: (totals?.failed ?? 0) > 0 },
         ].map((s) => (
           <div key={s.label} className="glass-1 card p-5">
             <div className="text-caption text-fg-caption">{s.label}</div>
@@ -215,8 +220,8 @@ export function UsagePage() {
 
       <Tabs.Root value={group} onValueChange={(v) => setGroup(v as UsageGroup)} className="glass-1 card p-5">
         <div className="mb-4 flex flex-wrap items-center gap-3">
-          <h2 className="text-title-2">趋势</h2>
-          <Tabs.List className="ml-auto flex gap-1 rounded-[12px] bg-mint-100/60 p-1" aria-label="分组方式">
+          <h2 className="text-title-2">{tr("趋势")}</h2>
+          <Tabs.List className="ml-auto flex gap-1 rounded-[12px] bg-mint-100/60 p-1" aria-label={tr("分组方式")}>
             {GROUPS.map((g) => (
               <Tabs.Trigger
                 key={g.value}
@@ -244,11 +249,11 @@ export function UsagePage() {
         ))}
       </Tabs.Root>
 
-      <section className="glass-1 card p-5" aria-label="固定开销">
-        <h2 className="text-title-2">固定开销</h2>
-        <p className="mb-3 mt-1 text-caption text-fg-caption">每个 agent 每轮的系统提示、工具定义等基础 token（agentbus usage baseline 上报）。</p>
+      <section className="glass-1 card p-5" aria-label={tr("固定开销")}>
+        <h2 className="text-title-2">{tr("固定开销")}</h2>
+        <p className="mb-3 mt-1 text-caption text-fg-caption">{tr("每个 agent 每轮的系统提示、工具定义等基础 token（agentbus usage baseline 上报）。")}</p>
         {baseline.length === 0 ? (
-          <p className="text-callout font-normal text-fg-3">还没有基线数据</p>
+          <p className="text-callout font-normal text-fg-3">{tr("还没有基线数据")}</p>
         ) : (
           <ul className="flex flex-col gap-2">
             {(() => {

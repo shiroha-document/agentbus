@@ -1,3 +1,4 @@
+import { t as tr, useLanguage } from "../../lib/i18n";
 import { useState } from "react";
 import { ChevronLeft, ChevronRight, Download, File, FileArchive, FileText, FileType2, Image as ImageIcon } from "lucide-react";
 import "../../styles/live.css";
@@ -9,12 +10,14 @@ import { Dialog } from "../ui/Dialog";
 const ICON: Record<MimeGroup, typeof File> = { image: ImageIcon, text: FileText, pdf: FileType2, archive: FileArchive, other: File };
 
 export function MimeIcon({ mime, name, size = 16, className }: { mime: string; name?: string; size?: number; className?: string }) {
+  useLanguage();
   const Icon = ICON[mimeGroup(mime, name)];
   return <Icon size={size} className={className} aria-hidden />;
 }
 
 /** One file chip: mime icon, name, size, download link. */
 export function FileChip({ att }: { att: Attachment }) {
+  useLanguage();
   const href = attachmentHref(att.url);
   const body = (
     <>
@@ -37,7 +40,7 @@ export function FileChip({ att }: { att: Attachment }) {
       target="_blank"
       rel="noopener noreferrer"
       className={cn(cls, "transition-colors hover:bg-mint-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]")}
-      aria-label={`下载 ${att.name}（${formatBytes(att.size)}）`}
+      aria-label={tr("下载 {0}（{1}）", [att.name, formatBytes(att.size)])}
     >
       {body}
     </a>
@@ -46,6 +49,7 @@ export function FileChip({ att }: { att: Attachment }) {
 
 /** Image grid (click → lightbox) + file chips. */
 export function Attachments({ list }: { list: Attachment[] | undefined }) {
+  useLanguage();
   const [open, setOpen] = useState<number | null>(null);
   if (!list || list.length === 0) return null;
   const images = list.filter((a) => isInlineImage(a.mime) && attachmentHref(a.url));
@@ -62,7 +66,7 @@ export function Attachments({ list }: { list: Attachment[] | undefined }) {
               type="button"
               className={cn("att-thumb", images.length === 1 ? "aspect-[16/10] max-h-[320px]" : "aspect-square")}
               onClick={() => setOpen(i)}
-              aria-label={`查看图片 ${a.name}`}
+              aria-label={tr("查看图片 {0}", [a.name])}
             >
               <img src={attachmentHref(a.url)!} alt={a.name} loading="lazy" decoding="async" />
             </button>
@@ -79,25 +83,22 @@ export function Attachments({ list }: { list: Attachment[] | undefined }) {
       <Dialog
         open={!!cur}
         onOpenChange={(o) => !o && setOpen(null)}
-        title={cur?.name ?? "图片"}
-        description={cur ? `${formatBytes(cur.size)}${images.length > 1 ? ` · 第 ${open! + 1} / ${images.length} 张` : ""}` : undefined}
+        title={cur?.name ?? tr("图片")}
+        description={cur ? `${formatBytes(cur.size)}${images.length > 1 ? tr(" · 第 {0} / {1} 张", [open! + 1, images.length]) : ""}` : undefined}
         wide
         footer={
           cur ? (
             <>
               {images.length > 1 ? (
                 <>
-                  <button className="btn btn-secondary" onClick={() => step(-1)} aria-label="上一张">
-                    <ChevronLeft size={16} aria-hidden /> 上一张
-                  </button>
-                  <button className="btn btn-secondary" onClick={() => step(1)} aria-label="下一张">
-                    下一张 <ChevronRight size={16} aria-hidden />
+                  <button className="btn btn-secondary" onClick={() => step(-1)} aria-label={tr("上一张")}>
+                    <ChevronLeft size={16} aria-hidden />{" "}{tr("上一张")}</button>
+                  <button className="btn btn-secondary" onClick={() => step(1)} aria-label={tr("下一张")}>{tr("下一张")}{" "}<ChevronRight size={16} aria-hidden />
                   </button>
                 </>
               ) : null}
               <a className="btn btn-primary" href={attachmentHref(cur.url)!} download={cur.name} target="_blank" rel="noopener noreferrer">
-                <Download size={16} aria-hidden /> 下载
-              </a>
+                <Download size={16} aria-hidden />{" "}{tr("下载")}</a>
             </>
           ) : null
         }

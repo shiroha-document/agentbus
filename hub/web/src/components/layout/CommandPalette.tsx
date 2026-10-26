@@ -1,3 +1,4 @@
+import { t as tr, useLanguage } from "../../lib/i18n";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { Command } from "cmdk";
 import * as RDialog from "@radix-ui/react-dialog";
@@ -11,7 +12,7 @@ import { useAddAgent } from "../AddAgentDialog";
 import { sanitizeSnippet } from "../../lib/sanitize";
 import { formatRelative } from "../../lib/format";
 import { reducedFade, springSoft } from "../../lib/motion";
-import { visibleNav } from "./nav";
+import { matchingNav, matchesSearch } from "./nav";
 import { track } from "../../lib/telemetry";
 import { THEME_LABEL, nextThemePref, useTheme } from "../../lib/theme";
 import { THEME_ICON } from "./ThemeToggle";
@@ -21,6 +22,7 @@ import { TeamTile, useSwitchTeam } from "./TeamSwitcher";
 import { roleLabel } from "../../lib/team";
 
 export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  useLanguage();
   const reduced = useReducedMotion() ?? false;
   const navigate = useNavigate();
   const [q, setQ] = useState("");
@@ -57,32 +59,31 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
     fn();
   };
 
-  const navMatches = visibleNav(isAdmin).filter((n) => !dq || n.label.includes(dq));
-  const lq = dq.toLowerCase();
-  const kw = (words: string) => !dq || words.toLowerCase().includes(lq);
+  const navMatches = matchingNav(isAdmin, dq);
+  const kw = (words: string) => matchesSearch(words, dq);
   const nextTheme = nextThemePref(theme.pref);
   const NextThemeIcon = THEME_ICON[nextTheme];
   const actions = [
-    isAdmin && kw("添加 agent 接入 加入码 add agent")
-      ? { id: "add-agent", label: "添加 agent", hint: "一行命令接入新机器", icon: UserPlus, run: addAgent }
+    isAdmin && kw(tr("添加 agent 接入 加入码 add agent"))
+      ? { id: "add-agent", label: tr("添加 agent"), hint: tr("一行命令接入新机器"), icon: UserPlus, run: addAgent }
       : null,
-    kw("切换主题 外观 深色 浅色 暗色 亮色 黑暗 跟随系统 theme dark light")
+    kw(tr("切换主题 外观 深色 浅色 暗色 亮色 黑暗 跟随系统 theme dark light"))
       ? {
           id: "theme",
-          label: "切换主题",
+          label: tr("切换主题"),
           hint: `${THEME_LABEL[theme.pref]} → ${THEME_LABEL[nextTheme]}`,
           icon: NextThemeIcon,
           run: () => theme.setPref(nextTheme),
         }
       : null,
-    kw("查看更新日志 版本 新功能 changelog version")
-      ? { id: "changelog", label: "查看更新日志", hint: `v${__APP_VERSION__}`, icon: Sparkles, run: openChangelog }
+    kw(tr("查看更新日志 版本 新功能 changelog version"))
+      ? { id: "changelog", label: tr("查看更新日志"), hint: `v${__APP_VERSION__}`, icon: Sparkles, run: openChangelog }
       : null,
-    kw("关于 agentbus 介绍 帮助 文档 about")
-      ? { id: "about", label: "关于 agentbus", hint: "功能介绍与版本", icon: Info, run: () => void navigate({ to: "/about" }) }
+    kw(tr("关于 agentbus 介绍 帮助 文档 about"))
+      ? { id: "about", label: tr("关于 agentbus"), hint: tr("功能介绍与版本"), icon: Info, run: () => void navigate({ to: "/about" }) }
       : null,
-    isAdmin && kw("数据统计 埋点 分析 看板 analytics stats")
-      ? { id: "analytics", label: "数据统计", hint: "使用情况与延迟", icon: LineChart, run: () => void navigate({ to: "/analytics" }) }
+    isAdmin && kw(tr("数据统计 埋点 分析 看板 analytics stats"))
+      ? { id: "analytics", label: tr("数据统计"), hint: tr("使用情况与延迟"), icon: LineChart, run: () => void navigate({ to: "/analytics" }) }
       : null,
   ].filter((a) => a !== null);
   const wsMatches = (workspaces.data?.workspaces ?? []).filter((w) => dq && w.name.toLowerCase().includes(dq.toLowerCase())).slice(0, 4);
@@ -93,7 +94,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   // Other teams: always listed when idle; filtered by name (or "团队"/"切换") while typing.
   const otherTeams = (me.data?.teams ?? []).filter((t) => t.id !== me.data?.team?.id);
   const teamMatches = otherTeams
-    .filter((t) => !dq || t.name.toLowerCase().includes(dq.toLowerCase()) || "切换团队".includes(dq))
+    .filter((t) => !dq || matchesSearch(t.name, dq) || kw(tr("切换团队")))
     .slice(0, 5);
 
   const itemCls =
@@ -107,53 +108,53 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
             an outside click: close, same as the overlay / Esc / the X button. */}
         <RDialog.Content
           className="fixed inset-0 z-50 flex items-start justify-center px-3 pt-[10vh] outline-none"
-          aria-label="搜索"
+          aria-label={tr("搜索")}
           onClick={(e) => {
             if (e.target === e.currentTarget) onOpenChange(false);
           }}
         >
-          <RDialog.Title className="sr-only">搜索</RDialog.Title>
-          <RDialog.Description className="sr-only">搜索帖子、工作区和成员</RDialog.Description>
+          <RDialog.Title className="sr-only">{tr("搜索")}</RDialog.Title>
+          <RDialog.Description className="sr-only">{tr("搜索帖子、工作区和成员")}</RDialog.Description>
           <motion.div
             initial={reduced ? { opacity: 0 } : { opacity: 0, y: -8, scale: 0.98 }}
             animate={reduced ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
             transition={reduced ? reducedFade : springSoft}
             className="glass-3 w-full max-w-[640px] overflow-hidden rounded-[28px]"
           >
-            <Command shouldFilter={false} label="搜索" loop>
+            <Command shouldFilter={false} label={tr("搜索")} loop>
               <div className="flex items-center gap-3 border-b border-line px-5">
                 <Search size={18} className="text-fg-3" aria-hidden />
                 <Command.Input
                   value={q}
                   onValueChange={setQ}
-                  placeholder="搜索帖子、工作区、成员、团队…"
+                  placeholder={tr("搜索帖子、工作区、成员、团队…")}
                   className="h-14 flex-1 bg-transparent text-body outline-none placeholder:text-fg-3"
                   autoFocus
                 />
                 <kbd className="hidden rounded-[6px] border border-line px-1.5 text-caption text-fg-caption sm:inline" aria-hidden>
                   Esc
                 </kbd>
-                <RDialog.Close className="btn btn-ghost btn-icon -mr-2 h-9 w-9" aria-label="关闭搜索">
+                <RDialog.Close className="btn btn-ghost btn-icon -mr-2 h-9 w-9" aria-label={tr("关闭搜索")}>
                   <X size={18} aria-hidden />
                 </RDialog.Close>
               </div>
               <div className="flex flex-wrap gap-2 border-b border-line px-5 py-2.5">
-                <select className="field h-8 min-h-0 w-auto py-0 text-caption" value={member} onChange={(e) => setMember(e.target.value)} aria-label="按成员筛选">
-                  <option value="">全部成员</option>
+                <select className="field h-8 min-h-0 w-auto py-0 text-caption" value={member} onChange={(e) => setMember(e.target.value)} aria-label={tr("按成员筛选")}>
+                  <option value="">{tr("全部成员")}</option>
                   {(members.data?.members ?? []).map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.display_name || m.name}
                     </option>
                   ))}
                 </select>
-                <select className="field h-8 min-h-0 w-auto py-0 text-caption" value={status} onChange={(e) => setStatus(e.target.value)} aria-label="按状态筛选">
-                  <option value="">全部状态</option>
-                  <option value="open">进行中</option>
-                  <option value="done">已完成</option>
-                  <option value="closed">已关闭</option>
+                <select className="field h-8 min-h-0 w-auto py-0 text-caption" value={status} onChange={(e) => setStatus(e.target.value)} aria-label={tr("按状态筛选")}>
+                  <option value="">{tr("全部状态")}</option>
+                  <option value="open">{tr("进行中")}</option>
+                  <option value="done">{tr("已完成")}</option>
+                  <option value="closed">{tr("已关闭")}</option>
                 </select>
-                <select className="field h-8 min-h-0 w-auto py-0 text-caption" value={workspace} onChange={(e) => setWorkspace(e.target.value)} aria-label="按工作区筛选">
-                  <option value="">全部工作区</option>
+                <select className="field h-8 min-h-0 w-auto py-0 text-caption" value={workspace} onChange={(e) => setWorkspace(e.target.value)} aria-label={tr("按工作区筛选")}>
+                  <option value="">{tr("全部工作区")}</option>
                   {(workspaces.data?.workspaces ?? []).map((w) => (
                     <option key={w.id} value={w.id}>
                       {w.name}
@@ -163,7 +164,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
               </div>
               <Command.List className="max-h-[52vh] overflow-y-auto p-2">
                 {actions.length > 0 && (
-                  <Command.Group heading="操作">
+                  <Command.Group heading={tr("操作")}>
                     {actions.map(({ id, label, hint, icon: Icon, run }) => (
                       <Command.Item key={id} value={`action-${id}`} onSelect={() => go(`action.${id}`, run)} className={itemCls}>
                         <Icon size={16} className="text-mint-700" aria-hidden />
@@ -174,7 +175,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                   </Command.Group>
                 )}
                 {navMatches.length > 0 && (
-                  <Command.Group heading="跳转">
+                  <Command.Group heading={tr("跳转")}>
                     {navMatches.map(({ to, label, icon: Icon }) => (
                       <Command.Item key={to} value={`nav-${to}`} onSelect={() => go("nav", () => void navigate({ to }))} className={itemCls}>
                         <Icon size={16} className="text-fg-2" aria-hidden />
@@ -184,11 +185,11 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                   </Command.Group>
                 )}
                 {teamMatches.length > 0 && (
-                  <Command.Group heading="切换团队">
+                  <Command.Group heading={tr("切换团队")}>
                     {teamMatches.map((t) => (
                       <Command.Item key={t.id} value={`team-${t.id}`} onSelect={() => go("team", () => void switchTeam(t.id))} className={itemCls}>
                         <TeamTile id={t.id} name={t.name} size={22} />
-                        <span className="flex-1 truncate">切换到 {t.name}</span>
+                        <span className="flex-1 truncate">{tr("切换到")}{" "}{t.name}</span>
                         <span className="flex items-center gap-1 text-caption text-fg-caption">
                           {roleLabel(t.role)} <ArrowLeftRight size={12} aria-hidden />
                         </span>
@@ -197,7 +198,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                   </Command.Group>
                 )}
                 {wsMatches.length > 0 && (
-                  <Command.Group heading="工作区">
+                  <Command.Group heading={tr("工作区")}>
                     {wsMatches.map((w) => (
                       <Command.Item
                         key={w.id}
@@ -213,7 +214,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                   </Command.Group>
                 )}
                 {memberMatches.length > 0 && (
-                  <Command.Group heading="成员">
+                  <Command.Group heading={tr("成员")}>
                     {memberMatches.map((m) => (
                       <Command.Item
                         key={m.id}
@@ -229,15 +230,15 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                   </Command.Group>
                 )}
                 {enabled && (
-                  <Command.Group heading="帖子">
+                  <Command.Group heading={tr("帖子")}>
                     {search.isFetching && !search.data ? (
                       <Command.Loading>
-                        <div className="px-3 py-3 text-callout font-normal text-fg-3">搜索中…</div>
+                        <div className="px-3 py-3 text-callout font-normal text-fg-3">{tr("搜索中…")}</div>
                       </Command.Loading>
                     ) : null}
                     {search.isError ? <div className="px-3 py-3 text-callout font-normal text-danger-text">{(search.error as Error).message}</div> : null}
                     {search.data?.results.length === 0 ? (
-                      <div className="px-3 py-3 text-callout font-normal text-fg-3">没有找到匹配的帖子</div>
+                      <div className="px-3 py-3 text-callout font-normal text-fg-3">{tr("没有找到匹配的帖子")}</div>
                     ) : null}
                     {search.data?.results.map((r) => {
                       const author = memberById.get(r.post.author_id);
@@ -269,8 +270,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
                 )}
                 {!dq && (
                   <div className="flex items-center gap-2 px-3 py-3 text-caption text-fg-caption">
-                    <Users size={14} aria-hidden /> 输入关键词搜索全部帖子；3 个字符以上使用全文检索
-                  </div>
+                    <Users size={14} aria-hidden />{" "}{tr("输入关键词搜索全部帖子；3 个字符以上使用全文检索")}</div>
                 )}
               </Command.List>
             </Command>

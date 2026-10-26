@@ -1,3 +1,4 @@
+import { t as tr, useLanguage } from "../lib/i18n";
 // 数据统计 (owner / admin only): product analytics from the events table (contract §5).
 import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
@@ -6,7 +7,7 @@ import { Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, T
 import { Activity, Bot, Clock3, LineChart as LineIcon, MessageSquare, PlayCircle, ShieldAlert, Terminal, Users, XCircle } from "lucide-react";
 import { api, ApiError } from "../api";
 import { useRole } from "../queries";
-import { formatDuration, formatInt } from "../lib/format";
+import { formatCalendarDay, formatDuration, formatInt } from "../lib/format";
 import { cliLabel } from "../lib/cli";
 import { cn } from "../lib/util";
 import { telemetryEnabled } from "../lib/telemetry";
@@ -18,56 +19,57 @@ import { QueryError } from "../components/layout/RouteStates";
 const RANGES = [7, 30, 90] as const;
 
 const SOURCES = [
-  { key: "web", label: "网页", color: "var(--chart-input)" },
-  { key: "cli", label: "命令行", color: "var(--chart-cache-write)" },
-  { key: "hub", label: "服务端", color: "var(--chart-cache-read)" },
+  { key: "web", get label() { return tr("网页"); }, color: "var(--chart-input)" },
+  { key: "cli", get label() { return tr("命令行"); }, color: "var(--chart-cache-write)" },
+  { key: "hub", get label() { return tr("服务端"); }, color: "var(--chart-cache-read)" },
 ] as const;
 
-const SOURCE_LABEL: Record<string, string> = { web: "网页", cli: "命令行", hub: "服务端" };
+const SOURCE_LABEL: Record<string, string> = { get web() { return tr("网页"); }, get cli() { return tr("命令行"); }, get hub() { return tr("服务端"); } };
 
 /** Readable hints for the event names in contract §5 (unknown names are shown raw). */
 const EVENT_LABEL: Record<string, string> = {
-  "page.view": "页面浏览",
-  "post.create": "发帖",
-  "composer.mention": "输入框 @",
-  "composer.attach": "添加附件",
-  "palette.open": "打开搜索",
-  "palette.select": "搜索选择",
-  "theme.change": "切换主题",
-  "pwa.installed": "安装为应用",
-  "pwa.prompt": "安装提示",
-  "thread.jump": "讨论串跳转",
-  "confirm.decide": "处理确认",
-  "changelog.open": "查看更新日志",
-  "agent.add_open": "打开添加 agent",
-  "cli.command": "CLI 命令",
-  "cli.tick": "CLI 轮询",
-  "cli.setup": "CLI 初始化",
-  "cli.update": "CLI 自动更新",
-  "delivery.claim": "agent 领取消息",
-  "delivery.done": "agent 完成投递",
-  "member.join": "成员加入",
+  get "page.view"() { return tr("页面浏览"); },
+  get "post.create"() { return tr("发帖"); },
+  get "composer.mention"() { return tr("输入框 @"); },
+  get "composer.attach"() { return tr("添加附件"); },
+  get "palette.open"() { return tr("打开搜索"); },
+  get "palette.select"() { return tr("搜索选择"); },
+  get "theme.change"() { return tr("切换主题"); },
+  get "pwa.installed"() { return tr("安装为应用"); },
+  get "pwa.prompt"() { return tr("安装提示"); },
+  get "thread.jump"() { return tr("讨论串跳转"); },
+  get "confirm.decide"() { return tr("处理确认"); },
+  get "changelog.open"() { return tr("查看更新日志"); },
+  get "agent.add_open"() { return tr("打开添加 agent"); },
+  get "cli.command"() { return tr("CLI 命令"); },
+  get "cli.tick"() { return tr("CLI 轮询"); },
+  get "cli.setup"() { return tr("CLI 初始化"); },
+  get "cli.update"() { return tr("CLI 自动更新"); },
+  get "delivery.claim"() { return tr("agent 领取消息"); },
+  get "delivery.done"() { return tr("agent 完成投递"); },
+  get "member.join"() { return tr("成员加入"); },
 };
 
-const KIND_LABEL: Record<string, string> = { msg: "消息", progress: "进度", confirm: "确认", system: "系统", state: "目标 / 状态" };
+const KIND_LABEL: Record<string, string> = { get msg() { return tr("消息"); }, get progress() { return tr("进度"); }, get confirm() { return tr("确认"); }, get system() { return tr("系统"); }, get state() { return tr("目标 / 状态"); } };
 
 const PAGE_LABEL: Record<string, string> = {
-  "/": "动态",
-  "/workspaces": "工作区",
-  "/workspaces/$id": "工作区详情",
-  "/threads/$id": "讨论串",
-  "/members": "成员",
-  "/members/$id": "成员详情",
-  "/usage": "用量",
-  "/analytics": "数据统计",
-  "/settings": "设置",
-  "/about": "关于",
-  "/invite/$token": "邀请链接",
+  get "/"() { return tr("动态"); },
+  get "/workspaces"() { return tr("工作区"); },
+  get "/workspaces/$id"() { return tr("工作区详情"); },
+  get "/threads/$id"() { return tr("讨论串"); },
+  get "/members"() { return tr("成员"); },
+  get "/members/$id"() { return tr("成员详情"); },
+  get "/usage"() { return tr("用量"); },
+  get "/analytics"() { return tr("数据统计"); },
+  get "/settings"() { return tr("设置"); },
+  get "/about"() { return tr("关于"); },
+  get "/invite/$token"() { return tr("邀请链接"); },
 };
 
 // ---------------------------------------------------------------- building blocks
 
 function Section({ title, hint, children, className }: { title: string; hint?: string; children: ReactNode; className?: string }) {
+  useLanguage();
   const id = `an-${title}`;
   return (
     <section className={cn("glass-1 card p-5", className)} aria-labelledby={id}>
@@ -81,6 +83,7 @@ function Section({ title, hint, children, className }: { title: string; hint?: s
 }
 
 function Kpi({ label, value, icon: Icon, danger, sub }: { label: string; value: number | undefined; icon: typeof Users; danger?: boolean; sub?: string }) {
+  useLanguage();
   return (
     <div className="glass-1 card p-5">
       <div className="flex items-center gap-1.5 text-caption text-fg-caption">
@@ -96,6 +99,7 @@ function Kpi({ label, value, icon: Icon, danger, sub }: { label: string; value: 
 
 /** Horizontal share bars (pages, clients, kinds). */
 function BarList({ rows, empty }: { rows: { key: string; label: ReactNode; sub?: string; n: number }[]; empty: string }) {
+  useLanguage();
   if (rows.length === 0) return <p className="text-callout font-normal text-fg-3">{empty}</p>;
   const max = Math.max(...rows.map((r) => r.n), 1);
   return (
@@ -117,10 +121,12 @@ function BarList({ rows, empty }: { rows: { key: string; label: ReactNode; sub?:
 }
 
 function Th({ children, right }: { children: ReactNode; right?: boolean }) {
+  useLanguage();
   return <th className={cn("px-2 py-2 font-medium", right && "text-right")}>{children}</th>;
 }
 
 function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: { dataKey?: unknown; value?: unknown; color?: string; name?: unknown }[]; label?: unknown }) {
+  useLanguage();
   if (!active || !payload?.length) return null;
   return (
     <div className="glass-3 rounded-[14px] px-3 py-2 text-caption">
@@ -137,12 +143,13 @@ function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: 
 }
 
 function DailyChart({ daily }: { daily: AnalyticsResponse["daily"] }) {
-  const data = useMemo(() => daily.map((d) => ({ ...d, label: d.day.replace(/^\d{4}-/, "") })), [daily]);
+  const language = useLanguage();
+  const data = useMemo(() => daily.map((d) => ({ ...d, label: formatCalendarDay(d.day, true) })), [daily, language]);
   const empty = data.every((d) => d.web + d.cli + d.hub + d.posts === 0);
-  if (data.length === 0 || empty) return <EmptyState art="chart" compact title="这段时间还没有事件" />;
+  if (data.length === 0 || empty) return <EmptyState art="chart" compact title={tr("这段时间还没有事件")} />;
   const axis = { stroke: "var(--chart-axis)", fontSize: 12, tickLine: false, axisLine: false } as const;
   return (
-    <div className="h-[300px] w-full" role="img" aria-label="每日事件数（按来源）与发帖数趋势图">
+    <div className="h-[300px] w-full" role="img" aria-label={tr("每日事件数（按来源）与发帖数趋势图")}>
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: 4 }}>
           <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
@@ -154,7 +161,7 @@ function DailyChart({ daily }: { daily: AnalyticsResponse["daily"] }) {
           {SOURCES.map((s) => (
             <Bar key={s.key} yAxisId="e" dataKey={s.key} name={s.label} stackId="ev" fill={s.color} maxBarSize={28} isAnimationActive={false} />
           ))}
-          <Line yAxisId="p" type="monotone" dataKey="posts" name="发帖" stroke="var(--chart-cost)" strokeWidth={2} dot={false} isAnimationActive={false} />
+          <Line yAxisId="p" type="monotone" dataKey="posts" name={tr("发帖")} stroke="var(--chart-cost)" strokeWidth={2} dot={false} isAnimationActive={false} />
         </ComposedChart>
       </ResponsiveContainer>
     </div>
@@ -162,6 +169,7 @@ function DailyChart({ daily }: { daily: AnalyticsResponse["daily"] }) {
 }
 
 function LatencyTile({ label, p50, p90, hint }: { label: string; p50: number | null; p90: number | null; hint: string }) {
+  useLanguage();
   return (
     <div className="rounded-[16px] bg-mint-50 p-4">
       <div className="flex items-center gap-1.5 text-caption text-fg-caption">
@@ -183,18 +191,15 @@ function LatencyTile({ label, p50, p90, hint }: { label: string; p50: number | n
 }
 
 function Forbidden() {
+  useLanguage();
   return (
     <div className="glass-1 card flex flex-col items-center gap-3 px-6 py-14 text-center" role="status">
       <span className="flex h-14 w-14 items-center justify-center rounded-full bg-mint-100 text-mint-700">
         <ShieldAlert size={26} aria-hidden />
       </span>
-      <h2 className="text-title-2">只有团队所有者和管理员可以查看数据统计</h2>
-      <p className="max-w-md text-callout font-normal text-fg-2">
-        统计包含整个团队的使用情况。如果你需要这些数据，请联系团队管理员为你调整角色。
-      </p>
-      <Link to="/" className="btn btn-secondary mt-1">
-        回到动态
-      </Link>
+      <h2 className="text-title-2">{tr("只有团队所有者和管理员可以查看数据统计")}</h2>
+      <p className="max-w-md text-callout font-normal text-fg-2">{tr("统计包含整个团队的使用情况。如果你需要这些数据，请联系团队管理员为你调整角色。")}</p>
+      <Link to="/" className="btn btn-secondary mt-1">{tr("回到动态")}</Link>
     </div>
   );
 }
@@ -202,6 +207,7 @@ function Forbidden() {
 // ---------------------------------------------------------------- page
 
 export function AnalyticsPage() {
+  useLanguage();
   const { isAdmin, role } = useRole();
   const [days, setDays] = useState<number>(30);
   const q = useQuery({
@@ -218,11 +224,11 @@ export function AnalyticsPage() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-0">
-          <h1 className="text-title-1">数据统计</h1>
-          <p className="mt-0.5 text-callout font-normal text-fg-2">团队怎么使用 agentbus：活跃度、命令、页面和响应速度。</p>
+          <h1 className="text-title-1">{tr("数据统计")}</h1>
+          <p className="mt-0.5 text-callout font-normal text-fg-2">{tr("团队怎么使用 agentbus：活跃度、命令、页面和响应速度。")}</p>
         </div>
         {!forbidden && (
-          <div className="ml-auto flex gap-1 rounded-[12px] bg-mint-100/60 p-1" role="group" aria-label="时间范围">
+          <div className="ml-auto flex gap-1 rounded-[12px] bg-mint-100/60 p-1" role="group" aria-label={tr("时间范围")}>
             {RANGES.map((r) => (
               <button
                 key={r}
@@ -230,8 +236,7 @@ export function AnalyticsPage() {
                 className={cn("h-8 rounded-[9px] px-3 text-callout transition-colors", days === r ? "bg-surface-solid text-fg shadow-1" : "text-fg-2 hover:text-fg")}
                 onClick={() => setDays(r)}
               >
-                {r} 天
-              </button>
+                {r}{" "}{tr("天")}</button>
             ))}
           </div>
         )}
@@ -244,32 +249,32 @@ export function AnalyticsPage() {
       ) : (
         <>
           {!telemetryEnabled() && (
-            <p className="chip chip-info self-start">你已在「设置 → 偏好」关闭匿名使用统计，你自己的网页操作不会计入。</p>
+            <p className="chip chip-info self-start">{tr("你已在「设置 → 偏好」关闭匿名使用统计，你自己的网页操作不会计入。")}</p>
           )}
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-            <Kpi label="事件" value={t?.events} icon={Activity} />
-            <Kpi label="活跃成员" value={t?.active_humans} icon={Users} />
-            <Kpi label="活跃 agent" value={t?.active_agents} icon={Bot} />
-            <Kpi label="帖子" value={t?.posts} icon={MessageSquare} />
-            <Kpi label="运行轮次" value={t?.runs} icon={PlayCircle} />
+            <Kpi label={tr("事件")} value={t?.events} icon={Activity} />
+            <Kpi label={tr("活跃成员")} value={t?.active_humans} icon={Users} />
+            <Kpi label={tr("活跃 agent")} value={t?.active_agents} icon={Bot} />
+            <Kpi label={tr("帖子")} value={t?.posts} icon={MessageSquare} />
+            <Kpi label={tr("运行轮次")} value={t?.runs} icon={PlayCircle} />
             <Kpi
-              label="失败轮次"
+              label={tr("失败轮次")}
               value={t?.failed_runs}
               icon={XCircle}
               danger={(t?.failed_runs ?? 0) > 0}
-              sub={t && t.runs > 0 ? `失败率 ${((t.failed_runs / t.runs) * 100).toFixed(1)}%` : undefined}
+              sub={t && t.runs > 0 ? tr("失败率 {0}%", [((t.failed_runs / t.runs) * 100).toFixed(1)]) : undefined}
             />
           </div>
 
-          <Section title="每日趋势" hint="柱：按来源统计的事件数；线：发帖数（UTC 日期）">
+          <Section title={tr("每日趋势")} hint={tr("柱：按来源统计的事件数；线：发帖数（UTC 日期）")}>
             {d ? <DailyChart daily={d.daily} /> : <div className="skeleton h-[300px]" />}
           </Section>
 
-          <Section title="响应速度" hint="衡量 agent 多快接手、多快回复">
+          <Section title={tr("响应速度")} hint={tr("衡量 agent 多快接手、多快回复")}>
             {d ? (
               <div className="grid gap-3 sm:grid-cols-2">
-                <LatencyTile label="领取延迟" p50={d.latency.claim_p50_ms} p90={d.latency.claim_p90_ms} hint="消息投递创建 → agent 领取" />
-                <LatencyTile label="回复延迟" p50={d.latency.reply_p50_ms} p90={d.latency.reply_p90_ms} hint="成员发帖 → 被 @ 的 agent 首次回复" />
+                <LatencyTile label={tr("领取延迟")} p50={d.latency.claim_p50_ms} p90={d.latency.claim_p90_ms} hint={tr("消息投递创建 → agent 领取")} />
+                <LatencyTile label={tr("回复延迟")} p50={d.latency.reply_p50_ms} p90={d.latency.reply_p90_ms} hint={tr("成员发帖 → 被 @ 的 agent 首次回复")} />
               </div>
             ) : (
               <div className="skeleton h-32" />
@@ -277,19 +282,19 @@ export function AnalyticsPage() {
           </Section>
 
           <div className="grid gap-6 lg:grid-cols-2">
-            <Section title="热门事件" hint="前 20 个事件名">
+            <Section title={tr("热门事件")} hint={tr("前 20 个事件名")}>
               {!d ? (
                 <div className="skeleton h-48" />
               ) : d.top_events.length === 0 ? (
-                <p className="text-callout font-normal text-fg-3">还没有事件</p>
+                <p className="text-callout font-normal text-fg-3">{tr("还没有事件")}</p>
               ) : (
                 <div className="-mx-1 overflow-x-auto">
                   <table className="w-full min-w-[360px] text-left text-caption">
                     <thead className="text-fg-caption">
                       <tr className="border-b border-line">
-                        <Th>事件</Th>
-                        <Th>来源</Th>
-                        <Th right>次数</Th>
+                        <Th>{tr("事件")}</Th>
+                        <Th>{tr("来源")}</Th>
+                        <Th right>{tr("次数")}</Th>
                       </tr>
                     </thead>
                     <tbody className="tabular">
@@ -311,20 +316,20 @@ export function AnalyticsPage() {
               )}
             </Section>
 
-            <Section title="CLI 命令" hint="agentbus 子命令的调用次数、失败率和耗时中位数">
+            <Section title={tr("CLI 命令")} hint={tr("agentbus 子命令的调用次数、失败率和耗时中位数")}>
               {!d ? (
                 <div className="skeleton h-48" />
               ) : d.cli_commands.length === 0 ? (
-                <p className="text-callout font-normal text-fg-3">还没有 CLI 上报（需要 agentbus v0.6 及以上）</p>
+                <p className="text-callout font-normal text-fg-3">{tr("还没有 CLI 上报（需要 agentbus v0.6 及以上）")}</p>
               ) : (
                 <div className="-mx-1 overflow-x-auto">
                   <table className="w-full min-w-[360px] text-left text-caption">
                     <thead className="text-fg-caption">
                       <tr className="border-b border-line">
-                        <Th>命令</Th>
-                        <Th right>次数</Th>
-                        <Th right>失败率</Th>
-                        <Th right>P50 耗时</Th>
+                        <Th>{tr("命令")}</Th>
+                        <Th right>{tr("次数")}</Th>
+                        <Th right>{tr("失败率")}</Th>
+                        <Th right>{tr("P50 耗时")}</Th>
                       </tr>
                     </thead>
                     <tbody className="tabular">
@@ -352,10 +357,10 @@ export function AnalyticsPage() {
               )}
             </Section>
 
-            <Section title="页面浏览" hint="按路由统计，不含具体 id">
+            <Section title={tr("页面浏览")} hint={tr("按路由统计，不含具体 id")}>
               {d ? (
                 <BarList
-                  empty="还没有页面浏览"
+                  empty={tr("还没有页面浏览")}
                   rows={d.pages.map((p) => ({ key: p.path, label: PAGE_LABEL[p.path] ?? p.path, sub: p.path, n: p.n }))}
                 />
               ) : (
@@ -363,10 +368,10 @@ export function AnalyticsPage() {
               )}
             </Section>
 
-            <Section title="客户端版本" hint="每个版本的去重成员数（网页与 CLI）">
+            <Section title={tr("客户端版本")} hint={tr("每个版本的去重成员数（网页与 CLI）")}>
               {d ? (
                 <BarList
-                  empty="还没有版本数据"
+                  empty={tr("还没有版本数据")}
                   rows={d.clients.map((c) => ({ key: c.version, label: <span className="font-mono">v{c.version.replace(/^v/, "")}</span>, n: c.n }))}
                 />
               ) : (
@@ -374,25 +379,25 @@ export function AnalyticsPage() {
               )}
             </Section>
 
-            <Section title="编程 CLI" hint="agent 使用的编程 CLI">
+            <Section title={tr("编程 CLI")} hint={tr("agent 使用的编程 CLI")}>
               {!d ? (
                 <div className="skeleton h-40" />
               ) : d.adapters.length === 0 ? (
-                <p className="text-callout font-normal text-fg-3">还没有 agent 上报</p>
+                <p className="text-callout font-normal text-fg-3">{tr("还没有 agent 上报")}</p>
               ) : (
                 <div className="-mx-1 overflow-x-auto">
                   <table className="w-full min-w-[320px] text-left text-caption">
                     <thead className="text-fg-caption">
                       <tr className="border-b border-line">
                         <Th>CLI</Th>
-                        <Th right>agent 数</Th>
-                        <Th right>运行轮次</Th>
+                        <Th right>{tr("agent 数")}</Th>
+                        <Th right>{tr("运行轮次")}</Th>
                       </tr>
                     </thead>
                     <tbody className="tabular">
                       {d.adapters.map((a) => (
                         <tr key={a.cli} className="border-b border-line last:border-b-0">
-                          <td className="px-2 py-2 text-fg">{cliLabel(a.cli) || "未知"}</td>
+                          <td className="px-2 py-2 text-fg">{cliLabel(a.cli) || tr("未知")}</td>
                           <td className="px-2 py-2 text-right text-fg-2">{formatInt(a.members)}</td>
                           <td className="px-2 py-2 text-right text-fg">{formatInt(a.runs)}</td>
                         </tr>
@@ -403,10 +408,10 @@ export function AnalyticsPage() {
               )}
             </Section>
 
-            <Section title="帖子类型">
+            <Section title={tr("帖子类型")}>
               {d ? (
                 <BarList
-                  empty="还没有帖子"
+                  empty={tr("还没有帖子")}
                   rows={d.posts_by_kind.map((k) => ({ key: k.kind, label: KIND_LABEL[k.kind] ?? k.kind, n: k.n }))}
                 />
               ) : (
@@ -416,9 +421,7 @@ export function AnalyticsPage() {
           </div>
 
           <p className="flex items-center gap-1.5 text-caption text-fg-caption">
-            <LineIcon size={14} aria-hidden />
-            统计只记录事件名与少量匿名属性，不包含帖子内容、邮箱、令牌或文件名；原始事件保留 90 天。
-          </p>
+            <LineIcon size={14} aria-hidden />{tr("统计只记录事件名与少量匿名属性，不包含帖子内容、邮箱、令牌或文件名；原始事件保留 90 天。")}</p>
         </>
       )}
     </div>

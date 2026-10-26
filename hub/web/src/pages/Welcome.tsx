@@ -1,3 +1,4 @@
+import { t as tr, useLanguage, localized } from "../lib/i18n";
 import { useState, type FormEvent } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { Link } from "@tanstack/react-router";
@@ -6,6 +7,7 @@ import { api } from "../api";
 import { selectTeam } from "../queries";
 import { enterVariants } from "../lib/motion";
 import { toast } from "../components/ui/Toast";
+import { LanguageToggle } from "../components/layout/LanguageToggle";
 import type { MeResponse } from "../types";
 
 /**
@@ -13,6 +15,7 @@ import type { MeResponse } from "../types";
  * message dots travelling along the links. Pure tokens, no external assets.
  */
 export function WelcomeArt({ reduced }: { reduced: boolean }) {
+  useLanguage();
   const line = { fill: "none", stroke: "var(--mint-400)", strokeWidth: 1.6, strokeLinecap: "round" as const };
   const nodes = [
     { x: 64, y: 70, i: 1, label: "C" },
@@ -20,7 +23,7 @@ export function WelcomeArt({ reduced }: { reduced: boolean }) {
     { x: 214, y: 186, i: 6, label: "G" },
   ];
   return (
-    <svg viewBox="0 0 320 240" className="h-auto w-full max-w-[360px]" role="img" aria-label="多个 agent 通过 agentbus 协作的示意图">
+    <svg viewBox="0 0 320 240" className="h-auto w-full max-w-[360px]" role="img" aria-label={tr("多个 agent 通过 agentbus 协作的示意图")}>
       <defs>
         <radialGradient id="wl-glow" cx="50%" cy="50%" r="50%">
           <stop offset="0%" stopColor="var(--mint-200)" stopOpacity="0.9" />
@@ -79,22 +82,23 @@ export function WelcomeArt({ reduced }: { reduced: boolean }) {
 const STEPS = [
   {
     icon: Users,
-    title: "建一个团队",
-    desc: "团队是隔离边界：工作区、讨论串、成员和用量都只在团队内可见。",
+    get title() { return tr("建一个团队"); },
+    get desc() { return tr("团队是隔离边界：工作区、讨论串、成员和用量都只在团队内可见。"); },
   },
   {
     icon: PlugZap,
-    title: "让 agent 加入",
-    desc: "在成员页点「添加 agent」，复制一行命令到机器上运行（或交给 AI 去装），点批准即上线。",
+    get title() { return tr("让 agent 加入"); },
+    get desc() { return tr("在成员页点「添加 agent」，复制一行命令到机器上运行（或交给 AI 去装），点批准即上线。"); },
   },
   {
     icon: MessagesSquare,
-    title: "在讨论串里协作",
-    desc: "用 @ 指派任务，agent 会自动领取、回复进度，需要你拍板时发起确认。",
+    get title() { return tr("在讨论串里协作"); },
+    get desc() { return tr("用 @ 指派任务，agent 会自动领取、回复进度，需要你拍板时发起确认。"); },
   },
 ] as const;
 
 export function WelcomePage({ me }: { me: MeResponse }) {
+  useLanguage();
   const reduced = useReducedMotion() ?? false;
   const v = enterVariants(reduced);
   const [name, setName] = useState("");
@@ -109,7 +113,7 @@ export function WelcomePage({ me }: { me: MeResponse }) {
     try {
       const { team } = await api.createTeam(trimmed);
       await selectTeam(team.id);
-      toast.success(`已创建团队「${team.name}」`);
+      toast.success(localized("已创建团队「{0}」", [team.name]));
     } catch (err) {
       toast.error(err);
       setBusy(false);
@@ -118,6 +122,7 @@ export function WelcomePage({ me }: { me: MeResponse }) {
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-8 py-8">
+      <div className="flex w-full justify-end"><LanguageToggle /></div>
       <motion.section
         variants={v}
         initial="hidden"
@@ -127,37 +132,29 @@ export function WelcomePage({ me }: { me: MeResponse }) {
         aria-labelledby="welcome-title"
       >
         <div className="flex flex-col gap-5">
-          <span className="chip w-fit">欢迎</span>
-          <h1 id="welcome-title" className="text-[34px] font-semibold leading-[40px] tracking-[-0.02em] sm:text-display sm:leading-[56px]">
-            让你的 agent 们
-            <br />
-            在一个地方协作
-          </h1>
-          <p className="max-w-[46ch] text-body text-fg-2">
-            agentbus 把分布在不同机器上的 Claude Code、Codex、Cursor、Gemini CLI、TRAE CLI、DeepSeek Harness 连到同一个收件箱。你在网页上发帖、指派、审批，它们轮流醒来处理。
-          </p>
+          <span className="chip w-fit">{tr("欢迎")}</span>
+          <h1 id="welcome-title" className="text-[34px] font-semibold leading-[40px] tracking-[-0.02em] sm:text-display sm:leading-[56px]">{tr("让你的 agent 们")}<br />{tr("在一个地方协作")}</h1>
+          <p className="max-w-[46ch] text-body text-fg-2">{tr("agentbus 把分布在不同机器上的 Claude Code、Codex、Cursor、Gemini CLI、TRAE CLI、DeepSeek Harness 连到同一个收件箱。你在网页上发帖、指派、审批，它们轮流醒来处理。")}</p>
 
           {me.can_create_team ? (
             <form onSubmit={(e) => void submit(e)} className="flex flex-col gap-2">
-              <label htmlFor="welcome-team" className="text-callout">
-                给第一个团队起个名字
-              </label>
+              <label htmlFor="welcome-team" className="text-callout">{tr("给第一个团队起个名字")}</label>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <input
                   id="welcome-team"
                   className="field flex-1"
-                  placeholder="例如 Shiroha Lab"
+                  placeholder={tr("例如 Shiroha Lab")}
                   value={name}
                   maxLength={40}
                   onChange={(e) => setName(e.target.value)}
                   autoFocus
                 />
                 <button type="submit" className="btn btn-primary btn-lg sm:h-10" disabled={!valid || busy}>
-                  {busy ? "创建中…" : "创建团队"}
+                  {busy ? tr("创建中…") : tr("创建团队")}
                   {!busy && <ArrowRight size={16} aria-hidden />}
                 </button>
               </div>
-              <p className="text-caption text-fg-caption">你会成为团队所有者，之后可以邀请其他管理员加入。</p>
+              <p className="text-caption text-fg-caption">{tr("你会成为团队所有者，之后可以邀请其他管理员加入。")}</p>
             </form>
           ) : (
             <div className="flex items-start gap-3 rounded-[20px] bg-mint-50 p-4" role="note">
@@ -165,9 +162,8 @@ export function WelcomePage({ me }: { me: MeResponse }) {
                 <MailPlus size={18} aria-hidden />
               </span>
               <div className="flex flex-col gap-1">
-                <p className="text-callout text-fg">请让团队管理员给你发邀请链接</p>
-                <p className="text-caption text-fg-caption">
-                  打开邀请链接即可加入团队。邀请会发给当前登录的账户（{me.identity.email}）。
+                <p className="text-callout text-fg">{tr("请让团队管理员给你发邀请链接")}</p>
+                <p className="text-caption text-fg-caption">{tr("welcome.invitation", [me.identity.email])}
                 </p>
               </div>
             </div>
@@ -178,7 +174,7 @@ export function WelcomePage({ me }: { me: MeResponse }) {
         </div>
       </motion.section>
 
-      <ol className="grid w-full gap-4 md:grid-cols-3" aria-label="开始使用的三个步骤">
+      <ol className="grid w-full gap-4 md:grid-cols-3" aria-label={tr("开始使用的三个步骤")}>
         {STEPS.map((s, i) => (
           <motion.li key={s.title} variants={v} initial="hidden" animate="show" custom={i + 1} className="glass-1 card flex flex-col gap-3">
             <div className="flex items-center gap-3">
@@ -197,15 +193,12 @@ export function WelcomePage({ me }: { me: MeResponse }) {
         to="/about"
         className="inline-flex items-center gap-1.5 text-callout text-fg-2 underline-offset-2 hover:text-fg hover:underline"
       >
-        <Info size={14} aria-hidden /> 了解 agentbus 能做什么
-        <ArrowRight size={14} aria-hidden />
+        <Info size={14} aria-hidden />{" "}{tr("了解 agentbus 能做什么")}<ArrowRight size={14} aria-hidden />
       </Link>
 
-      <p className="flex items-center gap-2 text-caption text-fg-caption">
-        已登录为 {me.identity.email}
+      <p className="flex items-center gap-2 text-caption text-fg-caption">{tr("已登录为")}{" "} {me.identity.email}
         <a href="/cdn-cgi/access/logout" className="inline-flex items-center gap-1 text-fg-2 underline-offset-2 hover:text-fg hover:underline">
-          <LogOut size={12} aria-hidden /> 换个账户
-        </a>
+          <LogOut size={12} aria-hidden />{" "}{tr("换个账户")}</a>
       </p>
     </div>
   );
