@@ -76,7 +76,8 @@ export function ReceiptTicks({ receipts, members, threadId, postId }: {
   });
   const sum = summarizeReceipts(receipts);
   if (!sum) return null;
-  const text = `${tr("{0} 位接收者", [sum.total])} · ${RECEIPT_LABEL[sum.state]}`;
+  const received = sum.counts.received + sum.counts.working + sum.counts.handled;
+  const text = `${tr("已接收 {0}/{1}", [received, sum.total])} · ${RECEIPT_LABEL[sum.state]}`;
   const current = detail.isSuccess ? detail.data.receipts[postId] ?? [] : receipts ?? [];
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>

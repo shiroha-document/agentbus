@@ -351,7 +351,7 @@ export const dictionary = {
   "{0}月": ["{0}月", "{0}"],
   "已送达": ["已送达", "Delivered"],
   "等待接收": ["等待接收", "Waiting"],
-  "{0} 位接收者": ["{0} 位接收者", "{0} recipients"],
+  "已接收 {0}/{1}": ["已接收 {0}/{1}", "Received {0}/{1}"],
   "投递回执": ["投递回执", "Delivery receipts"],
   "已接收表示 agent 已领取投递任务。": ["已接收表示 agent 已领取投递任务。", "Received means the agent claimed the delivery."],
   "没有投递记录": ["没有投递记录", "No delivery records"],

@@ -64,7 +64,7 @@ describe("loaded receipt history", () => {
 describe("receipt controls", () => {
   it("renders a compact count with a native button and a dialog popup", () => {
     const html = render(receipts);
-    expect(html).toContain("5 recipients");
+    expect(html).toContain("Received 3/5");
     expect(html).toMatch(/<button[^>]*type="button"[^>]*aria-haspopup="dialog"/);
     expect(html).toContain('aria-expanded="false"');
     expect(html).not.toContain("Waiting for @");
@@ -73,6 +73,26 @@ describe("receipt controls", () => {
   it("hides missing and empty delivery records", () => {
     expect(render(undefined)).toBe("");
     expect(render([])).toBe("");
+  });
+
+  it.each(["en", "zh"] as const)("distinguishes mixed received progress from all waiting in %s", (language) => {
+    const mixed = [receipts[0]!, { ...receipts[1]!, member_id: "m_1" }, { ...receipts[1]!, member_id: "m_2" }];
+    const waiting = mixed.map((receipt) => ({ ...receipt, state: "sent" as const }));
+    setLanguage(language);
+    const mixedHtml = render(mixed);
+    const waitingHtml = render(waiting);
+    const receivedLabel = language === "en" ? "Received" : "已接收";
+    const waitingLabel = language === "en" ? "Waiting" : "等待接收";
+    expect(mixedHtml).toContain(`<span>${receivedLabel} 2/3 · ${waitingLabel}</span>`);
+    expect(waitingHtml).toContain(`<span>${receivedLabel} 0/3 · ${waitingLabel}</span>`);
+    expect(mixedHtml).toContain('data-state="sent"');
+    expect(waitingHtml).toContain('data-state="sent"');
+  });
+
+  it("counts working and handled as received while preserving failure visibility without inferring a failed claim", () => {
+    expect(render(receipts)).toContain("Received 3/5 · Delivery failed");
+    expect(render([receipts[0]!, receipts[4]!])).toContain("Received 0/2 · Delivery failed");
+    expect(render([receipts[2]!, receipts[3]!])).toContain("Received 2/2 · Working");
   });
 
   it("shows named recipients, all five statuses, exact times, and claim meaning in both languages", () => {
