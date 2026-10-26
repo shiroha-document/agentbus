@@ -16,6 +16,7 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { QuotaRing } from "../components/ui/QuotaRing";
 import { StatusDot, presenceOf } from "../components/ui/StatusDot";
 import { QueryError, RoutePending } from "../components/layout/RouteStates";
+import { MemberModel } from "../components/MemberModel";
 
 function Section({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
   useLanguage();
@@ -342,6 +343,8 @@ export function MemberDetail({ id, onGone }: { id: string; onGone?: () => void }
           </div>
         ))}
       </dl>
+
+      {isAgent ? <MemberModel member={m} lastRun={d.runs[0]} /> : null}
 
       {m.paused ? (
         <div className="rounded-[14px] border border-line border-l-[3px] border-l-warning bg-surface-strong px-4 py-3 text-callout">

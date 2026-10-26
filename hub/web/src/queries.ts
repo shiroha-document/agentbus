@@ -95,7 +95,7 @@ export async function selectTeam(id: string | null): Promise<void> {
   ]);
 }
 
-/** Poll GET /web/changes every 10s; on a new seq invalidate all queries. */
+/** Poll changes every 10s; active member models also refresh as activity ages without a new seq. */
 export function useChangePolling(intervalMs = 10_000): void {
   const qc = useQueryClient();
   useEffect(() => {
@@ -112,6 +112,10 @@ export function useChangePolling(intervalMs = 10_000): void {
             const first = lastSeq === null;
             lastSeq = seq;
             if (!first) await qc.invalidateQueries();
+          } else {
+            // Activity heartbeats do not bump change_seq. Reuse this visible-document
+            // timer for model switches and expiry, without refetching inactive views.
+            await qc.invalidateQueries({ predicate: (q) => q.isActive() && (q.queryKey[0] === "members" || q.queryKey[0] === "member") });
           }
         } catch {
           // transient network errors are ignored; 401 is surfaced by the api layer

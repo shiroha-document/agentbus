@@ -80,6 +80,10 @@ export function getLocale(language = getLanguage()): string { return LOCALE[lang
 // Source copy is the typed key: shared labels use one translation, and parameters
 // replace only system templates. User-authored text is never sent through this map.
 export const dictionary = {
+  "上报模型": ["上报模型", "Reported model"],
+  "活动上报": ["活动上报", "Activity report"],
+  "尚未上报": ["尚未上报", "Not reported yet"],
+  "模型值可能来自 CLI 配置或前一轮推导，未经独立验证。": ["模型值可能来自 CLI 配置或前一轮推导，未经独立验证。", "The model value may come from CLI configuration or a previous run and has not been independently verified."],
   "需要通过 Cloudflare Access 登录": ["需要通过 Cloudflare Access 登录", "Sign in with Cloudflare Access"],
   "登录状态已失效或尚未登录。请重新加载页面，按提示完成 Cloudflare Access 验证。": ["登录状态已失效或尚未登录。请重新加载页面，按提示完成 Cloudflare Access 验证。", "Your session has expired or you have not signed in. Reload the page and complete Cloudflare Access verification."],
   "重新加载": ["重新加载", "Reload"],

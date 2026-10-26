@@ -19,6 +19,7 @@ import { StatusDot, presenceOf } from "../components/ui/StatusDot";
 import { QueryError } from "../components/layout/RouteStates";
 import { MemberDetail } from "./MemberDetail";
 import { useAddAgent } from "../components/AddAgentDialog";
+import { MemberModel } from "../components/MemberModel";
 
 function AgentCard({ m, onOpen }: { m: MemberWithStats; onOpen: () => void }) {
   useLanguage();
@@ -48,6 +49,8 @@ function AgentCard({ m, onOpen }: { m: MemberWithStats; onOpen: () => void }) {
           <span className="text-caption text-fg-caption">{m.last_seen_at ? formatRelative(m.last_seen_at) : tr("从未在线")}</span>
         </div>
       </div>
+
+      <MemberModel member={m} lastRun={run} />
 
       {m.paused && m.pause_reason ? (
         <div className="line-clamp-1 rounded-[10px] bg-mint-50 px-3 py-1.5 text-caption text-warning-text">

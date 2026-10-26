@@ -31,6 +31,8 @@ import {
   putBudget,
   putQuotaRules,
   quotaRules,
+  reportedActivityModels,
+  reportedRunModel,
   rejectMember,
   resumeMember,
   revokeMember,
@@ -316,14 +318,15 @@ function latestQuota(rows: Row[]) {
 
 web.get("/members", async (c) => {
   const db = new DB(c.env.DB, c.get("me").team_id);
-  const today = shDayStart(Date.now());
-  const [members, quota, lastRuns, todays] = await Promise.all([
+  const now = Date.now();
+  const today = shDayStart(now);
+  const [members, quota, lastRuns, todays, models] = await Promise.all([
     listMembers(db),
     db.all("SELECT q.* FROM quota_readings q JOIN members m ON m.id = q.member_id WHERE m.team_id = ?", db.team),
     db.all(
-      `SELECT r.* FROM runs r JOIN (SELECT member_id, MAX(started_at) AS s FROM runs WHERE team_id = ? GROUP BY member_id) x
-       ON x.member_id = r.member_id AND x.s = r.started_at WHERE r.team_id = ?`,
-      db.team,
+      `SELECT r.* FROM members m JOIN runs r ON r.member_id = m.id AND r.team_id = m.team_id
+       AND r.id = (SELECT x.id FROM runs x WHERE x.member_id = m.id AND x.team_id = m.team_id ORDER BY x.started_at DESC, x.id DESC LIMIT 1)
+       WHERE m.team_id = ? AND m.kind = 'agent'`,
       db.team,
     ),
     db.all<{ member_id: string; tokens: number; cost: number }>(
@@ -331,6 +334,7 @@ web.get("/members", async (c) => {
       db.team,
       today,
     ),
+    reportedActivityModels(db, now),
   ]);
   const q = new Map<string, Row[]>();
   for (const r of latestQuota(quota)) {
@@ -348,6 +352,7 @@ web.get("/members", async (c) => {
         ...m,
         quota: (q.get(m.id) ?? []).map(quotaOut),
         last_run: run ? runOut(run) : null,
+        reported_model: m.kind === "agent" ? models.get(m.id) ?? reportedRunModel(run) : null,
         today: { tokens: Number(t?.tokens ?? 0), cost: Number(t?.cost ?? 0) },
       };
     }),
@@ -411,18 +416,20 @@ web.get("/members/:id", async (c) => {
   const db = new DB(c.env.DB, c.get("me").team_id);
   const id = c.req.param("id");
   const m = await loadMember(db, id);
-  const since = shDayStart(Date.now()) - 6 * DAY;
-  const [keys, quota, rules, budget, runs, usage, scopes] = await Promise.all([
+  const now = Date.now();
+  const since = shDayStart(now) - 6 * DAY;
+  const [keys, quota, rules, budget, runs, usage, scopes, models] = await Promise.all([
     db.all("SELECT created_at, expires_at FROM member_keys WHERE member_id = ? ORDER BY created_at DESC", id),
     db.all("SELECT * FROM quota_readings WHERE member_id = ?", id),
     quotaRules(db, id),
     budgetFor(db, id),
-    db.all("SELECT * FROM runs WHERE member_id = ? ORDER BY started_at DESC LIMIT 50", id),
+    db.all("SELECT * FROM runs WHERE member_id = ? AND team_id = ? ORDER BY started_at DESC, id DESC LIMIT 50", id, db.team),
     usageSeries(db, "day", since, 7, id),
     m.role === "manager" ? db.all<{ workspace_id: string }>("SELECT workspace_id FROM manager_scopes WHERE manager_id = ?", id) : Promise.resolve(null),
+    m.kind === "agent" ? reportedActivityModels(db, now, id) : Promise.resolve(new Map()),
   ]);
   return c.json({
-    member: memberOut(m),
+    member: { ...memberOut(m, now), reported_model: m.kind === "agent" ? models.get(id) ?? reportedRunModel(runs[0]) : null },
     keys: keys.map((k) => ({ created_at: Number(k.created_at), expires_at: k.expires_at == null ? null : Number(k.expires_at) })),
     quota: latestQuota(quota).map(quotaOut),
     quota_rules: rules,

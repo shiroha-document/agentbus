@@ -3,6 +3,7 @@ import type { Env, Me } from "./env";
 import { DB, memberOut, qmarks, type Row } from "./db";
 import { isAdmin } from "./core";
 import { evaluatePause } from "./pause";
+import { STALE_MS } from "./live";
 import { bad, conflict, forbidden, notFound } from "./util";
 
 /** Member of `db.team` (other teams' members are 404). */
@@ -193,6 +194,30 @@ export async function listMembers(db: DB) {
   const rows = await db.all("SELECT * FROM members WHERE kind != 'system' AND team_id = ? ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'active' THEN 1 ELSE 2 END, kind DESC, name", db.team);
   const now = Date.now();
   return rows.map((r) => memberOut(r, now));
+}
+
+/** At most one non-stale active model row per current-team agent. */
+export async function reportedActivityModels(db: DB, now: number, memberId?: string) {
+  const rows = await db.all(
+    `SELECT a.member_id, a.model, a.cli, a.updated_at FROM members m
+     JOIN activity a ON a.member_id = m.id AND a.team_id = m.team_id
+       AND a.thread_id = (SELECT x.thread_id FROM activity x
+         WHERE x.member_id = m.id AND x.team_id = m.team_id
+           AND x.state IN ('claimed', 'running', 'typing') AND x.updated_at >= ?
+           AND x.model IS NOT NULL AND TRIM(x.model) != ''
+         ORDER BY x.updated_at DESC, x.thread_id DESC LIMIT 1)
+     WHERE m.team_id = ? AND m.kind = 'agent'${memberId ? " AND m.id = ?" : ""}`,
+    now - STALE_MS, db.team, ...(memberId ? [memberId] : []),
+  );
+  return new Map(rows.map((a) => [a.member_id as string, {
+    model: a.model as string, cli: (a.cli as string | null) ?? null, source: "activity" as const, at: Number(a.updated_at),
+  }]));
+}
+
+export function reportedRunModel(run: Row | undefined) {
+  return typeof run?.model === "string" && run.model.trim()
+    ? { model: run.model, cli: (run.cli as string | null) ?? null, source: "last_run" as const, at: Number(run.started_at) }
+    : null;
 }
 
 export async function membersByIds(db: DB, ids: string[]) {

@@ -2,7 +2,7 @@
 import { DB, qmarks } from "./db";
 
 const ACTIVITY_WINDOW_MS = 30 * 60_000;
-const STALE_MS = 10 * 60_000;
+export const STALE_MS = 10 * 60_000;
 const RECEIPT_POSTS = 30;
 
 export type ReceiptState = "sent" | "received" | "working" | "handled" | "failed";
