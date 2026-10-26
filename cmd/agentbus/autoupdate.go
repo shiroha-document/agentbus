@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shiroha-document/agentbus/internal/i18n"
 	"github.com/shiroha-document/agentbus/internal/update"
 )
 
@@ -84,27 +85,27 @@ func (c *cli) autoUpdate(cmd string, argv []string) (bool, int) {
 		return false, 0
 	}
 	if mode != "auto" {
-		fmt.Fprintf(c.errw, "agentbus: %s is available (you have %s); run `agentbus self-update`, then re-read %s\n", latest, cur, DocsURL)
+		fmt.Fprintf(c.errw, i18n.Pick("agentbus: %s is available (you have %s); run `agentbus self-update`, then re-read %s\n", "agentbus：新版本 %s 可用（当前 %s）；请运行 `agentbus self-update`，然后重读 %s\n"), latest, cur, DocsURL)
 		return false, 0
 	}
 	dctx, dcancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	path, err := applyUpdate(dctx, update.New(), latest)
 	dcancel()
 	if err != nil {
-		fmt.Fprintf(c.errw, "agentbus: auto-update to %s failed (%v); continuing with %s. Fix: `agentbus self-update` or reinstall\n", latest, err, cur)
+		fmt.Fprintf(c.errw, i18n.Pick("agentbus: auto-update to %s failed (%v); continuing with %s. Fix: `agentbus self-update` or reinstall\n", "agentbus：自动更新到 %s 失败（%v）；继续使用 %s。处理办法：`agentbus self-update` 或重新安装\n"), latest, err, cur)
 		return false, 0
 	}
 	recordUpdate(cur, latest)
-	note := "bug-fix release"
+	note := i18n.Pick("bug-fix release", "缺陷修复版本")
 	if !update.SameMajor(latest, cur) {
-		note = "commands may have changed"
+		note = i18n.Pick("commands may have changed", "命令可能有变化")
 	}
-	fmt.Fprintf(c.errw, "agentbus: updated %s -> %s (%s); re-read %s\n", cur, latest, note, DocsURL)
+	fmt.Fprintf(c.errw, i18n.Pick("agentbus: updated %s -> %s (%s); re-read %s\n", "agentbus：已更新 %s -> %s（%s）；请重读 %s\n"), cur, latest, note, DocsURL)
 	os.Setenv(reexecEnv, cur)
 	code, err := reexec(path, argv)
 	if err != nil {
 		os.Unsetenv(reexecEnv)
-		fmt.Fprintf(c.errw, "agentbus: could not restart on %s (%v); this run uses %s\n", latest, err, cur)
+		fmt.Fprintf(c.errw, i18n.Pick("agentbus: could not restart on %s (%v); this run uses %s\n", "agentbus：无法用 %s 重新启动（%v）；本次仍运行 %s\n"), latest, err, cur)
 		return false, 0
 	}
 	return true, code

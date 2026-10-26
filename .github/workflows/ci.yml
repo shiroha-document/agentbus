@@ -29,3 +29,57 @@ jobs:
         run: test -z "$(gofmt -l .)"
       - run: go vet ./...
       - run: go test -count=1 ./...
+      # New user-facing print literals in cmd/ must go through i18n.Pick.
+      - if: runner.os == 'Linux'
+        run: python3 scripts/check-cli-i18n.py --strict
+      - if: runner.os == 'Linux'
+        run: python3 scripts/test_check_cli_i18n.py
+      # install.ps1 must stay parseable on Windows PowerShell 5.1 (pwsh on the
+      # Windows runner covers PowerShell 7; 5.1 ships with the runner image).
+      - if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $tokens = $null; $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/install.ps1", [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count) { $errors; exit 1 }
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tokens = $null; $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/install.ps1", [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count) { $errors; exit 1 }
+      # The runtime test harness itself must parse on the runner's pwsh.
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tokens = $null; $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/scripts/win-install-runtime.ps1", [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count) { $errors; exit 1 }
+
+  # Actually run install.ps1 on Windows through both advertised entry points
+  # (downloaded -File and HTTP irm|iex), under Windows PowerShell 5.1 and
+  # PowerShell 7, in zh and en, against a local loopback release fixture. A
+  # tampered-checksum fixture proves the non-zero failure path. No hub, join
+  # code, member, or scheduled task is involved; see scripts/win-install-runtime.ps1.
+  windows-install-runtime:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Run installer runtime matrix
+        shell: pwsh
+        run: ./scripts/win-install-runtime.ps1
+      - name: Upload installer logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: win-install-logs
+          path: |
+            ${{ runner.temp }}/agentbus-winci-*/logs
+          if-no-files-found: ignore
+          retention-days: 14

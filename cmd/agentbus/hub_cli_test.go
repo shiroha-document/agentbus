@@ -45,6 +45,7 @@ type cliHub struct {
 	collapsed  bool // POST /agent/posts answers collapsed
 
 	// self-driven (inbox) endpoints
+	threads    []hub.Thread
 	claims     []hub.ClaimedThread
 	acks       []string
 	nacks      []string
@@ -142,6 +143,16 @@ func (h *cliHub) serve(w http.ResponseWriter, r *http.Request) {
 		_ = json.Unmarshal(b, &p)
 		h.patches = append(h.patches, p)
 		reply(200, map[string]any{"thread": hub.Thread{ID: strings.TrimPrefix(path, "/agent/threads/")}})
+	case path == "/agent/threads" && r.Method == "GET":
+		ts := h.threads
+		if ts == nil {
+			ts = []hub.Thread{}
+		}
+		reply(200, map[string]any{"threads": ts})
+	case path == "/agent/manage/members" && r.Method == "GET":
+		reply(200, map[string]any{"members": []hub.Member{{ID: "m_1", Name: "alice", Role: "agent", Status: "active"}}})
+	case path == "/agent/workspaces" && r.Method == "GET":
+		reply(200, map[string]any{"workspaces": []hub.Workspace{{ID: "w_1", Name: "app", Status: "active", Goal: "iterate"}}})
 	case path == "/agent/claim":
 		cs := h.claims
 		h.claims = nil
@@ -276,7 +287,7 @@ func TestHubJoinCode(t *testing.T) {
 	h, url := newCLIHub(t)
 	// missing --join-code (and no $AGENTBUS_JOIN_CODE): usage error, no request
 	code, out := run(t, "join", url, "--name", "alice")
-	if code != exitUsage || !strings.Contains(out, "join code is required") || !strings.Contains(out, "Settings → Agent 加入码") ||
+	if code != exitUsage || !strings.Contains(out, "join code is required") || !strings.Contains(out, "Settings → Agent join code") ||
 		!strings.Contains(out, "AGENTBUS_JOIN_CODE") || len(h.paths) != 0 {
 		t.Fatalf("missing code: %d %s %v", code, out, h.paths)
 	}
@@ -289,7 +300,7 @@ func TestHubJoinCode(t *testing.T) {
 	const wrong = "abj_wrongwrongwrongwrongwrongw"
 	code, out = run(t, "join", url, "--join-code", wrong, "--name", "alice")
 	if code != exitErr || !strings.Contains(out, "rejected this join code") || !strings.Contains(out, "ask a team admin") ||
-		!strings.Contains(out, "Settings → Agent 加入码") {
+		!strings.Contains(out, "Settings → Agent join code") {
 		t.Fatalf("bad code: %d %s", code, out)
 	}
 	if h.code != wrong || hub.Exists(hub.Dir()) {
@@ -322,9 +333,9 @@ func TestJoinErrorMapping(t *testing.T) {
 		want []string
 	}{
 		{&hub.APIError{Status: 400, Code: "join_code_required", Message: "join_code is required"},
-			[]string{"join code is required", "ask a team admin", "Settings → Agent 加入码", "--join-code", "join_code_required"}},
+			[]string{"join code is required", "ask a team admin", "Settings → Agent join code", "--join-code", "join_code_required"}},
 		{&hub.APIError{Status: 403, Code: "bad_join_code", Message: "invalid"},
-			[]string{"rejected this join code", "expired or revoked", "ask a team admin", "Settings → Agent 加入码", "bad_join_code"}},
+			[]string{"rejected this join code", "expired or revoked", "ask a team admin", "Settings → Agent join code", "bad_join_code"}},
 		{&hub.APIError{Status: 409, Code: "conflict", Message: "taken"}, []string{`name "alice" is taken`, "pick another --name"}},
 	}
 	for _, tc := range cases {
@@ -637,7 +648,7 @@ func TestUsageText(t *testing.T) {
 		t.Fatalf("help exit %d", code)
 	}
 	for _, w := range []string{"Setup & identity", "Daily loop", "Threads", "Quota", "Manager", "Maintenance",
-		"join URL --join-code CODE --name N", "setup [URL] [--join-code CODE]", "AGENTBUS_JOIN_CODE", "AGENTBUS_HUB", "Settings → Agent 加入码",
+		"join URL --join-code CODE --name N", "setup [URL] [--join-code CODE]", "AGENTBUS_JOIN_CODE", "AGENTBUS_HUB", "Settings → Agent join code",
 		"Self-driven agents", "inbox [--max-threads 1]", "heartbeat [--thread T]", "release [--thread T]", "manual"} {
 		if !strings.Contains(out, w) {
 			t.Errorf("usage lacks %q", w)
