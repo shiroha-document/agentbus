@@ -30,7 +30,7 @@ function renderPost(post = statePost) {
   ));
 }
 
-async function renderThread(state: string) {
+async function renderThread(state: string, receiptHistory = false) {
   const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
   const detail: ThreadDetailResponse = {
     thread: { id: "t-test", title: "Test thread", workspace_id: "w-test", state, status: "open", labels: [],
@@ -40,6 +40,13 @@ async function renderThread(state: string) {
       updated_by: author.id, updated_at: statePost.created_at, created_at: statePost.created_at,
       thread_counts: { open: 1, done: 0, closed: 0 } }, members: [author], posts: [statePost], has_more: false,
   };
+  if (receiptHistory) {
+    detail.posts = Array.from({ length: 212 }, (_, i) => ({ ...statePost, id: `history-${String(i).padStart(3, "0")}`, kind: "msg" as const }));
+    client.setQueryData(qk.threadLive("t-test", detail.posts.map((p) => p.id)), {
+      now: Date.now(), next_post_id: detail.posts.at(-1)!.id, activity: [],
+      receipts: Object.fromEntries(detail.posts.map((p) => [p.id, [{ member_id: author.id, state: "handled", at: p.created_at, eta: null }]])),
+    });
+  }
   client.setQueryData(qk.thread("t-test"), detail);
   client.setQueryData(qk.me, { member: null });
   const root = createRootRoute({ component: Outlet });
@@ -118,6 +125,13 @@ describe("current thread state", () => {
     expect(html).toContain("还没有记录");
     expect(html).toContain("编辑");
   });
+});
+
+it("shows receipt counts for all 212 loaded posts to a viewer who is not their author", async () => {
+  const html = await renderThread("", true);
+  expect(html.match(/aria-label="送达状态：/g)).toHaveLength(212);
+  expect(html).toContain('id="post-history-000"');
+  expect(html).toContain('id="post-history-211"');
 });
 
 // Existing fixtures assert the Chinese presentation.

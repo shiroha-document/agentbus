@@ -36,6 +36,7 @@ import type {
   WorkspacesResponse,
 } from "./types";
 import { clearStoredTeam, getStoredTeam, teamHeaders } from "./lib/team";
+import { receiptPostBatches } from "./lib/live";
 
 export const API_BASE = "/api/v1/web";
 
@@ -224,7 +225,7 @@ export const api = {
   createThread: (body: { workspace_id: string; title: string; body: string; assignee?: string; attachments?: string[] }) =>
     post<{ thread: Thread; post: Post }>("/threads", body),
   thread: (id: string, before?: string) => get<ThreadDetailResponse>(`/threads/${enc(id)}${qs({ before })}`),
-  threadLive: (id: string) => get<ThreadLive>(`/threads/${enc(id)}/live`),
+  threadLive: (id: string, postIds?: readonly string[]) => get<ThreadLive>(`/threads/${enc(id)}/live${qs({ post_ids: postIds?.join(",") })}`),
   updateThread: (id: string, body: ThreadPatch) => patch<{ thread: Thread }>(`/threads/${enc(id)}`, body),
 
   createPost: (body: { thread_id: string; body: string; reply_to?: string; attachments?: string[] }) =>
@@ -268,6 +269,14 @@ export const api = {
     get<SearchResponse>(`/search${qs(p)}`),
   audit: (before?: string) => get<AuditResponse>(`/audit${qs({ before })}`),
 };
+
+/** Load receipts for the complete visible history, retaining the live activity payload. */
+export async function fetchThreadLive(id: string, postIds?: readonly string[]): Promise<ThreadLive> {
+  const batches = receiptPostBatches(postIds ?? []);
+  if (!batches.length) return api.threadLive(id);
+  const results = await Promise.all(batches.map((batch) => api.threadLive(id, batch)));
+  return { ...results[0]!, receipts: Object.assign({}, ...results.map((result) => result.receipts)) };
+}
 
 async function uploadFile(file: File): Promise<{ attachment: Attachment }> {
   const team = getStoredTeam();

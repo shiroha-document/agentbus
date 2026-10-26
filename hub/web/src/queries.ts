@@ -1,6 +1,6 @@
-import { QueryClient, useMutation, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
+import { QueryClient, keepPreviousData, useMutation, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { api, ApiError } from "./api";
+import { api, ApiError, fetchThreadLive } from "./api";
 import { toast, type ToastMessage } from "./components/ui/Toast";
 import { isLiveActive } from "./lib/live";
 import { isAdminRole, isOwnerRole, setStoredTeam } from "./lib/team";
@@ -26,7 +26,8 @@ export const qk = {
   workspace: (id: string) => ["workspace", id] as const,
   threads: (p: object) => ["threads", p] as const,
   thread: (id: string) => ["thread", id] as const,
-  threadLive: (id: string) => ["thread-live", id] as const,
+  threadLive: (id: string, postIds?: readonly string[]) => postIds ? ["thread-live", id, postIds] as const : ["thread-live", id] as const,
+  threadReceipt: (threadId: string, postId: string) => ["thread-receipt", threadId, postId] as const,
   members: ["members"] as const,
   member: (id: string) => ["member", id] as const,
   usage: (g: string, d: number) => ["usage", g, d] as const,
@@ -157,13 +158,14 @@ function useDocumentVisible(): boolean {
  * post differs from `newestPostId`, the thread query is invalidated so new posts show up.
  * `boost()` forces fast polling for a short while (e.g. right after I post).
  */
-export function useThreadLive(threadId: string, newestPostId: string | null | undefined) {
+export function useThreadLive(threadId: string, newestPostId: string | null | undefined, postIds?: readonly string[]) {
   const qc = useQueryClient();
   const visible = useDocumentVisible();
   const [boostUntil, setBoostUntil] = useState(0);
   const q = useQuery({
-    queryKey: qk.threadLive(threadId),
-    queryFn: () => api.threadLive(threadId),
+    queryKey: qk.threadLive(threadId, postIds),
+    queryFn: () => fetchThreadLive(threadId, postIds),
+    placeholderData: keepPreviousData,
     enabled: visible && !!threadId,
     staleTime: 0,
     gcTime: 60_000,

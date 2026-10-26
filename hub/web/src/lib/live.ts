@@ -2,8 +2,16 @@ import { t as tr } from "./i18n";
 // Live status helpers (contract §3): delivery receipts + agent activity.
 import type { Activity, ActivityState, Receipt, ReceiptState, ThreadLive } from "../types";
 
+/** Stable, unique batches matching the live endpoint's 100-post limit. */
+export function receiptPostBatches(postIds: readonly string[]): string[][] {
+  const ids = [...new Set(postIds)].sort();
+  const batches: string[][] = [];
+  for (let i = 0; i < ids.length; i += 100) batches.push(ids.slice(i, i + 100));
+  return batches;
+}
+
 export const RECEIPT_LABEL: Record<ReceiptState, string> = {
-  get sent() { return tr("已送达"); },
+  get sent() { return tr("等待接收"); },
   get received() { return tr("已读"); },
   get working() { return tr("处理中"); },
   get handled() { return tr("已处理"); },

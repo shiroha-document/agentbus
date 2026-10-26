@@ -41,14 +41,16 @@ async function activityMap(db: DB, threadIds: string[], now: number) {
 }
 
 /** GET /web/threads/:id/live body (thread already checked to be in db.team). */
-export async function threadLive(db: DB, threadId: string, now = Date.now()) {
+export async function threadLive(db: DB, threadId: string, now = Date.now(), requestedPostIds?: readonly string[]) {
   const [postIds, act, newest] = await Promise.all([
-    db.all<{ post_id: string }>(
-      "SELECT DISTINCT post_id FROM deliveries WHERE thread_id = ? AND team_id = ? ORDER BY post_id DESC LIMIT ?",
-      threadId,
-      db.team,
-      RECEIPT_POSTS,
-    ),
+    requestedPostIds === undefined
+      ? db.all<{ post_id: string }>(
+          "SELECT DISTINCT post_id FROM deliveries WHERE thread_id = ? AND team_id = ? ORDER BY post_id DESC LIMIT ?",
+          threadId,
+          db.team,
+          RECEIPT_POSTS,
+        )
+      : requestedPostIds.map((post_id) => ({ post_id })),
     db.all<{
       member_id: string;
       state: string;
@@ -69,11 +71,13 @@ export async function threadLive(db: DB, threadId: string, now = Date.now()) {
   const ds = ids.length
     ? await db.all<{ post_id: string; member_id: string; state: string; updated_at: number; last_seen_at: number | null; wake_interval_s: number | null }>(
         `SELECT d.post_id, d.member_id, d.state, d.updated_at, m.last_seen_at, m.wake_interval_s
-         FROM deliveries d LEFT JOIN members m ON m.id = d.member_id
-         WHERE d.team_id = ? AND d.thread_id = ? AND d.post_id IN (${qmarks(ids.length)}) ORDER BY d.post_id, d.created_at`,
+         FROM deliveries d
+         JOIN posts p ON p.id = d.post_id AND p.team_id = d.team_id AND p.thread_id = d.thread_id
+         LEFT JOIN members m ON m.id = d.member_id AND m.team_id = d.team_id
+         WHERE d.team_id = ? AND d.thread_id = ? AND d.post_id IN (SELECT value FROM json_each(?)) ORDER BY d.post_id, d.created_at`,
         db.team,
         threadId,
-        ...ids,
+        JSON.stringify(ids),
       )
     : [];
   const actState = new Map(act.map((a) => [a.member_id, a.state]));

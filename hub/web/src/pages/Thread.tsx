@@ -186,7 +186,8 @@ function ThreadView({ id }: { id: string }) {
   const posts = useMemo(() => (latest ? (older.length ? mergeOlder(older, latest) : latest) : undefined), [older, latest]);
   const hasMore = olderHasMore ?? q.data?.has_more ?? false;
   const newestId = latest ? (latest[latest.length - 1]?.id ?? null) : undefined;
-  const { live, boost } = useThreadLive(id, newestId);
+  const loadedPostIds = useMemo(() => posts?.map((p) => p.id).sort(), [posts]);
+  const { live, boost } = useThreadLive(id, newestId, loadedPostIds);
 
   // Once older pages are loaded, posts that slide out of the newest-100 window move into
   // `older` so the list never develops a gap.
@@ -383,21 +384,27 @@ function ThreadView({ id }: { id: string }) {
                 if (row.type === "day") return <DaySeparator key={row.key} label={row.label} />;
                 const p = row.post;
                 const isFresh = fresh.has(p.id);
-                const receipts = meId && p.author_id === meId ? live?.receipts[p.id] : undefined;
+                const receipts = live?.receipts[p.id];
                 const node = (
-                  <PostItem
-                    post={p}
-                    author={memberMap.get(p.author_id)}
-                    members={memberMap}
-                    names={names}
-                    meId={meId}
-                    replyTo={p.reply_to ? postById.get(p.reply_to) : undefined}
-                    flash={isFresh}
-                    compact={row.compact}
-                    superseded={superseded.has(p.id)}
-                    footer={receipts?.length ? <ReceiptTicks receipts={receipts} members={memberMap} /> : undefined}
-                    onReply={t.status === "closed" ? undefined : setReplyTo}
-                  />
+                  <>
+                    <PostItem
+                      post={p}
+                      author={memberMap.get(p.author_id)}
+                      members={memberMap}
+                      names={names}
+                      meId={meId}
+                      replyTo={p.reply_to ? postById.get(p.reply_to) : undefined}
+                      flash={isFresh}
+                      compact={row.compact}
+                      superseded={superseded.has(p.id)}
+                      onReply={t.status === "closed" ? undefined : setReplyTo}
+                    />
+                    {receipts?.length ? (
+                      <div className="flex justify-end px-2 pb-1">
+                        <ReceiptTicks receipts={receipts} members={memberMap} threadId={id} postId={p.id} />
+                      </div>
+                    ) : null}
+                  </>
                 );
                 return isFresh ? (
                   <motion.div key={p.id} variants={arrive} initial="hidden" animate="show">

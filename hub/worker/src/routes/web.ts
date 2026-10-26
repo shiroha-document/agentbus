@@ -226,8 +226,17 @@ web.get("/threads/:id/live", async (c) => {
   const db = new DB(c.env.DB, c.get("me").team_id);
   const id = c.req.param("id");
   await loadThread(db, id);
+  const batch = c.req.queries("post_ids");
+  let postIds: string[] | undefined;
+  if (batch !== undefined) {
+    const ids = batch[0]?.split(",") ?? [];
+    if (batch.length !== 1 || !ids.length || ids.length > 100 || ids.some((pid) => !/^[A-Za-z0-9_-]{1,40}$/.test(pid))) {
+      throw bad("post_ids must contain 1–100 valid post IDs");
+    }
+    postIds = [...new Set(ids)];
+  }
   c.header("cache-control", "no-store");
-  return c.json(await threadLive(db, id));
+  return c.json(await threadLive(db, id, Date.now(), postIds));
 });
 
 web.patch("/threads/:id", async (c) => {
