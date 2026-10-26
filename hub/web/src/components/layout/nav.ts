@@ -26,6 +26,14 @@ export function visibleNav(isAdmin: boolean): NavItem[] {
   return NAV.filter((n) => !n.adminOnly || isAdmin);
 }
 
+export function matchesSearch(text: string, query: string): boolean {
+  return text.toLowerCase().includes(query.trim().toLowerCase());
+}
+
+export function matchingNav(isAdmin: boolean, query: string): NavItem[] {
+  return visibleNav(isAdmin).filter((item) => matchesSearch(item.label, query));
+}
+
 /** The compact mobile tab bar keeps only the primary entries. */
 export function primaryNav(): NavItem[] {
   return NAV.filter((n) => !n.secondary);

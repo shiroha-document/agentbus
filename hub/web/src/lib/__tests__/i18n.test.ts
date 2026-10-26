@@ -254,3 +254,45 @@ it("keeps the mock onboarding flow working for English quick codes", async () =>
     info.mockRestore();
   }
 });
+
+it("finds localized navigation labels regardless of English search capitalization", async () => {
+  const nav = await import("../../components/layout/nav");
+  expect(nav).toHaveProperty("matchingNav");
+  expect(nav).toHaveProperty("matchesSearch");
+  expect(nav.matchesSearch("My TEAM", "team")).toBe(true);
+  for (const query of ["settings", "SeTtInGs", " SETTINGS "]) {
+    expect(nav.matchingNav(true, query).some((item) => item.to === "/settings")).toBe(true);
+  }
+  expect(nav.matchingNav(false, "analytics")).toEqual([]);
+  i18n!.setLanguage("zh");
+  expect(nav.matchingNav(true, "设置").some((item) => item.to === "/settings")).toBe(true);
+});
+
+it("localizes conflict mail prefixes while retaining actionable backend diagnostics", () => {
+  const diagnostic = "E_RECIPIENT_NOT_ALLOWED: verify 收件地址 ${0}";
+  const confirmation = errorFrom(409, { error: { code: "conflict", message: `确认邮件发送失败：${diagnostic}` } });
+  const testMail = errorFrom(409, { error: { code: "conflict", message: `发送失败：${diagnostic}` } });
+  expect(confirmation.message).toBe(`Confirmation email failed: ${diagnostic}`);
+  expect(testMail.message).toBe(`Email sending failed: ${diagnostic}`);
+  i18n!.setLanguage("zh");
+  expect(confirmation.message).toBe(`确认邮件发送失败：${diagnostic}`);
+  expect(testMail.message).toBe(`发送失败：${diagnostic}`);
+});
+
+it("keeps meaningful conflict messages and uses neutral fallback copy", () => {
+  const detail = "自定义冲突诊断 ${0}";
+  expect(errorFrom(409, { error: { code: "conflict", message: detail } }).message).toBe(detail);
+  const generic = errorFrom(409, { error: { code: "conflict" } });
+  expect(generic.message).not.toMatch(/data has changed|refresh/i);
+  expect(generic.message).toContain("completed");
+});
+
+it("retains localized revocation guidance for invite and join-code limits", () => {
+  for (const message of ["未使用的邀请太多了，请先作废一些", "有效的加入码太多了，请先作废一些"]) {
+    const error = errorFrom(409, { error: { code: "conflict", message } });
+    expect(error.message).toMatch(/revoke/i);
+    i18n!.setLanguage("zh");
+    expect(error.message).toBe(message);
+    i18n!.setLanguage("en");
+  }
+});

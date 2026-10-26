@@ -12,7 +12,7 @@ import { useAddAgent } from "../AddAgentDialog";
 import { sanitizeSnippet } from "../../lib/sanitize";
 import { formatRelative } from "../../lib/format";
 import { reducedFade, springSoft } from "../../lib/motion";
-import { visibleNav } from "./nav";
+import { matchingNav, matchesSearch } from "./nav";
 import { track } from "../../lib/telemetry";
 import { THEME_LABEL, nextThemePref, useTheme } from "../../lib/theme";
 import { THEME_ICON } from "./ThemeToggle";
@@ -59,9 +59,8 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
     fn();
   };
 
-  const navMatches = visibleNav(isAdmin).filter((n) => !dq || n.label.includes(dq));
-  const lq = dq.toLowerCase();
-  const kw = (words: string) => !dq || words.toLowerCase().includes(lq);
+  const navMatches = matchingNav(isAdmin, dq);
+  const kw = (words: string) => matchesSearch(words, dq);
   const nextTheme = nextThemePref(theme.pref);
   const NextThemeIcon = THEME_ICON[nextTheme];
   const actions = [
@@ -95,7 +94,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   // Other teams: always listed when idle; filtered by name (or "团队"/"切换") while typing.
   const otherTeams = (me.data?.teams ?? []).filter((t) => t.id !== me.data?.team?.id);
   const teamMatches = otherTeams
-    .filter((t) => !dq || t.name.toLowerCase().includes(dq.toLowerCase()) || tr("切换团队").includes(dq))
+    .filter((t) => !dq || matchesSearch(t.name, dq) || kw(tr("切换团队")))
     .slice(0, 5);
 
   const itemCls =

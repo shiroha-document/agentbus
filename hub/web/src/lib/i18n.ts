@@ -929,7 +929,21 @@ export const dictionary = {
   "error.not_member": ["你不是该团队的成员，请选择其他团队。", "You are not a member of this team. Choose another team."],
   "error.no_team": ["你还没有加入团队，请创建团队或使用邀请链接加入。", "You have not joined a team. Create one or use an invitation link."],
   "error.not_found": ["找不到请求的资源。", "The requested resource was not found."],
-  "error.conflict": ["数据已发生变化，请刷新后重试。", "The data has changed. Refresh and try again."],
+  "error.conflict": ["操作无法完成，请检查当前状态后重试。", "This action could not be completed. Check the current state and try again."],
+  "error.confirmation_mail": ["确认邮件发送失败：{0}", "Confirmation email failed: {0}"],
+  "error.mail": ["发送失败：{0}", "Email sending failed: {0}"],
+  "error.team_owner_limit": ["每人最多拥有 {0} 个团队", "Each person can own at most {0} teams"],
+  "error.recipient_team_limit": ["对方已经拥有 {0} 个团队", "The recipient already owns {0} teams"],
+  "error.name_taken": ["名字 {0} 已被占用", "The name {0} is already in use"],
+  "确认邮件发得太频繁了，请稍后再试": ["确认邮件发得太频繁了，请稍后再试", "Confirmation emails were requested too frequently. Try again later"],
+  "未使用的邀请太多了，请先作废一些": ["未使用的邀请太多了，请先作废一些", "Too many unused invitations. Revoke some before creating another"],
+  "有效的加入码太多了，请先作废一些": ["有效的加入码太多了，请先作废一些", "Too many active join codes. Revoke some before creating another"],
+  "工作区已归档": ["工作区已归档", "This workspace is archived"],
+  "这个确认请求已经处理过了": ["这个确认请求已经处理过了", "This confirmation request has already been handled"],
+  "这个公钥已经在用了": ["这个公钥已经在用了", "This public key is already in use"],
+  "只有待审批的成员可以批准": ["只有待审批的成员可以批准", "Only pending members can be approved"],
+  "只有待审批的成员可以拒绝": ["只有待审批的成员可以拒绝", "Only pending members can be rejected"],
+  "只能删除已吊销的成员": ["只能删除已吊销的成员", "Only revoked members can be deleted"],
   "error.rate_limited": ["请求过于频繁，请稍后重试。", "Too many requests. Try again later."],
   "error.too_large": ["附件超过允许的大小。", "The attachment exceeds the allowed size."],
   "error.unavailable": ["服务暂时不可用，请稍后重试。", "The service is temporarily unavailable. Try again later."],
@@ -984,6 +998,20 @@ const ERROR_KEYS: Readonly<Record<string, TranslationKey>> = {
 };
 /** Known protocol errors get system copy; unknown messages pass through unchanged. */
 export function errorMessage(code: string, original?: string, status?: number): string {
+  if (code === "conflict" && original) {
+    const patterns: readonly [RegExp, TranslationKey][] = [
+      [/^确认邮件发送失败：([\s\S]*)$/, "error.confirmation_mail"],
+      [/^发送失败：([\s\S]*)$/, "error.mail"],
+      [/^每人最多拥有 (\d+) 个团队$/, "error.team_owner_limit"],
+      [/^对方已经拥有 (\d+) 个团队$/, "error.recipient_team_limit"],
+      [/^名字 (.+) 已被占用$/, "error.name_taken"],
+    ];
+    for (const [pattern, key] of patterns) {
+      const match = pattern.exec(original);
+      if (match) return t(key, [match[1]]);
+    }
+    return systemText(original);
+  }
   const key = Object.hasOwn(ERROR_KEYS, code) ? ERROR_KEYS[code] : undefined;
   if (key) return t(key);
   return original ?? t("请求失败（HTTP {0}）", [status]);
