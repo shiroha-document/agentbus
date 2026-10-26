@@ -1,9 +1,10 @@
+import { setLanguage } from "../i18n";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, Outlet, RouterProvider } from "@tanstack/react-router";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { Avatar } from "../../components/ui/Avatar";
 import { PostItem } from "../../components/PostItem";
 import { ThreadPage } from "../../pages/Thread";
@@ -54,11 +55,11 @@ describe("category avatars", () => {
   it("gives known humans a circular avatar and category in the accessible name", () => {
     const html = renderToStaticMarkup(createElement(Avatar, { member: { ...author, kind: "human", display_name: "Alice" } }));
     expect(html).toContain("rounded-full");
-    expect(html).toMatch(/aria-label="[^"]*human[^"]*Alice/);
+    expect(html).toMatch(/aria-label="[^"]*人类[^"]*Alice/);
   });
   it("keeps uploaded agent avatars visibly square with a robot marker at 16px", () => {
     const html = renderToStaticMarkup(createElement(Avatar, { member: { ...author, avatar_url: "https://example.test/avatar.png" }, size: 16 }));
-    expect(html).toMatch(/aria-label="[^"]*agent[^"]*Helper/);
+    expect(html).toMatch(/aria-label="[^"]*Agent[^"]*Helper/);
     expect(html).toContain("lucide-bot");
     expect(html).toContain("border-radius:4px");
     expect(html).toContain("https://example.test/avatar.png");
@@ -118,3 +119,6 @@ describe("current thread state", () => {
     expect(html).toContain("编辑");
   });
 });
+
+// Existing fixtures assert the Chinese presentation.
+beforeEach(() => setLanguage("zh"));

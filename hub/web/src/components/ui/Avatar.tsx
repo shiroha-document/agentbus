@@ -1,3 +1,4 @@
+import { t, useLanguage } from "../../lib/i18n";
 import { useState } from "react";
 import { Bot } from "lucide-react";
 import { avatarGradient, avatarInitial } from "../../lib/avatar";
@@ -12,6 +13,7 @@ interface Props {
 }
 
 export function Avatar({ member, size = 32, className, ring }: Props) {
+  useLanguage();
   const name = member?.name ?? "?";
   const label = member?.display_name || name;
   const kind = member?.kind;
@@ -20,7 +22,7 @@ export function Avatar({ member, size = 32, className, ring }: Props) {
   return (
     <span
       role="img"
-      aria-label={knownKind ? `${knownKind} · ${label}` : label}
+      aria-label={knownKind ? `${t(knownKind === "human" ? "kind.human" : "kind.agent")} · ${label}` : label}
       className={cn(
         "relative inline-flex flex-none select-none items-center justify-center font-semibold",
         knownKind === "human" && "rounded-full",
@@ -47,6 +49,7 @@ export function Avatar({ member, size = 32, className, ring }: Props) {
 
 /** The URL key resets a failed image when the member changes their avatar. */
 function AvatarContent({ url, agent, size, initial }: { url?: string | null; agent: boolean; size: number; initial: string }) {
+  useLanguage();
   const [broken, setBroken] = useState(false);
   let valid = false;
   if (url) {

@@ -1,3 +1,4 @@
+import { t as tr, useLanguage, localized } from "../lib/i18n";
 import { useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { motion, useReducedMotion } from "motion/react";
@@ -24,6 +25,7 @@ export function WorkspaceForm({
   submitLabel: string;
   onCancel: () => void;
 }) {
+  useLanguage();
   const [name, setName] = useState(initial?.name ?? "");
   const [goal, setGoal] = useState(initial?.goal ?? "");
   const [repo, setRepo] = useState(initial?.repo ?? "");
@@ -39,35 +41,33 @@ export function WorkspaceForm({
       }}
     >
       <label className="flex flex-col gap-1.5">
-        <span className="text-callout text-fg-2">名称</span>
+        <span className="text-callout text-fg-2">{tr("名称")}</span>
         <input className="field" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} required autoFocus />
       </label>
       <label className="flex flex-col gap-1.5">
-        <span className="text-callout text-fg-2">目标</span>
+        <span className="text-callout text-fg-2">{tr("目标")}</span>
         <input className="field" value={goal} onChange={(e) => setGoal(e.target.value)} maxLength={300} required />
       </label>
       <div className="grid gap-4 sm:grid-cols-[2fr_1fr]">
         <label className="flex flex-col gap-1.5">
-          <span className="text-callout text-fg-2">仓库（可选）</span>
+          <span className="text-callout text-fg-2">{tr("仓库（可选）")}</span>
           <input className="field" value={repo} onChange={(e) => setRepo(e.target.value)} placeholder="github.com/org/repo" />
         </label>
         <label className="flex flex-col gap-1.5">
-          <span className="text-callout text-fg-2">分支（可选）</span>
+          <span className="text-callout text-fg-2">{tr("分支（可选）")}</span>
           <input className="field" value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="main" />
         </label>
       </div>
       {initial === undefined && (
         <label className="flex flex-col gap-1.5">
-          <span className="text-callout text-fg-2">Brief（可选，Markdown）</span>
+          <span className="text-callout text-fg-2">{tr("Brief（可选，Markdown）")}</span>
           <textarea className="field min-h-[120px] resize-y py-2.5 font-mono text-callout" value={brief} onChange={(e) => setBrief(e.target.value)} />
         </label>
       )}
       <div className="flex justify-end gap-2 pt-2">
-        <button type="button" className="btn btn-secondary" onClick={onCancel}>
-          取消
-        </button>
+        <button type="button" className="btn btn-secondary" onClick={onCancel}>{tr("取消")}</button>
         <button type="submit" className="btn btn-primary" disabled={!valid || busy}>
-          {busy ? "保存中…" : submitLabel}
+          {busy ? tr("保存中…") : submitLabel}
         </button>
       </div>
     </form>
@@ -75,6 +75,7 @@ export function WorkspaceForm({
 }
 
 function WorkspaceCard({ w }: { w: Workspace }) {
+  useLanguage();
   return (
     <Link to="/workspaces/$id" params={{ id: w.id }} className="glass-1 card card-hover flex h-full flex-col gap-3 p-5">
       <div className="flex items-start gap-3">
@@ -84,7 +85,7 @@ function WorkspaceCard({ w }: { w: Workspace }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h2 className="truncate text-title-2">{w.name}</h2>
-            {w.status === "archived" ? <span className="chip chip-muted flex-none">已归档</span> : null}
+            {w.status === "archived" ? <span className="chip chip-muted flex-none">{tr("已归档")}</span> : null}
           </div>
           <p className="mt-1 line-clamp-2 text-callout font-normal text-fg-2">{w.goal}</p>
         </div>
@@ -99,16 +100,17 @@ function WorkspaceCard({ w }: { w: Workspace }) {
         </div>
       ) : null}
       <div className="mt-auto flex flex-wrap items-center gap-2 text-caption">
-        <span className="chip">进行中 {w.thread_counts.open}</span>
-        <span className="chip chip-info">已完成 {w.thread_counts.done}</span>
-        <span className="chip chip-muted">已关闭 {w.thread_counts.closed}</span>
-        <span className="ml-auto text-fg-caption">更新于 {formatRelative(w.updated_at)}</span>
+        <span className="chip">{tr("进行中")}{" "}{w.thread_counts.open}</span>
+        <span className="chip chip-info">{tr("已完成")}{" "}{w.thread_counts.done}</span>
+        <span className="chip chip-muted">{tr("已关闭")}{" "}{w.thread_counts.closed}</span>
+        <span className="ml-auto text-fg-caption">{tr("更新于")}{" "}{formatRelative(w.updated_at)}</span>
       </div>
     </Link>
   );
 }
 
 export function WorkspacesPage() {
+  useLanguage();
   const reduced = useReducedMotion() ?? false;
   const v = enterVariants(reduced);
   const navigate = useNavigate();
@@ -118,7 +120,7 @@ export function WorkspacesPage() {
   const create = useAction(
     (b: { name: string; goal: string; repo: string; branch: string; brief: string }) =>
       api.createWorkspace({ name: b.name, goal: b.goal, repo: b.repo || undefined, branch: b.branch || undefined, brief: b.brief || undefined }),
-    { success: "工作区已创建" },
+    { success: localized("工作区已创建") },
   );
   const all = ws.data?.workspaces ?? [];
   const list = all.filter((w) => showArchived || w.status === "active");
@@ -127,16 +129,14 @@ export function WorkspacesPage() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-title-1">工作区</h1>
+        <h1 className="text-title-1">{tr("工作区")}</h1>
         {archivedCount > 0 ? (
           <label className="ml-2 flex items-center gap-2 text-callout text-fg-2">
-            <input type="checkbox" className="h-4 w-4 accent-[var(--mint-500)]" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
-            显示已归档（{archivedCount}）
+            <input type="checkbox" className="h-4 w-4 accent-[var(--mint-500)]" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />{tr("显示已归档（")}{archivedCount}）
           </label>
         ) : null}
         <button className="btn btn-primary ml-auto" onClick={() => setOpen(true)}>
-          <Plus size={16} aria-hidden /> 新建工作区
-        </button>
+          <Plus size={16} aria-hidden />{" "}{tr("新建工作区")}</button>
       </div>
       {ws.isPending ? (
         <div className="grid gap-4 md:grid-cols-2">
@@ -150,11 +150,10 @@ export function WorkspacesPage() {
         <div className="glass-1 card">
           <EmptyState
             art="folder"
-            title="还没有工作区。工作区对应一个目标和一个仓库，agent 在里面开讨论串协作。"
+            title={tr("还没有工作区。工作区对应一个目标和一个仓库，agent 在里面开讨论串协作。")}
             action={
               <button className="btn btn-primary" onClick={() => setOpen(true)}>
-                <Plus size={16} aria-hidden /> 新建工作区
-              </button>
+                <Plus size={16} aria-hidden />{" "}{tr("新建工作区")}</button>
             }
           />
         </div>
@@ -167,10 +166,10 @@ export function WorkspacesPage() {
           ))}
         </div>
       )}
-      <Dialog open={open} onOpenChange={setOpen} title="新建工作区" wide>
+      <Dialog open={open} onOpenChange={setOpen} title={tr("新建工作区")} wide>
         {open ? (
           <WorkspaceForm
-            submitLabel="创建"
+            submitLabel={tr("创建")}
             busy={create.isPending}
             onCancel={() => setOpen(false)}
             onSubmit={(b) =>

@@ -1,3 +1,4 @@
+import { t as tr } from "./i18n";
 // Human labels for coding CLIs (contract docs/design/v06-contract.md §7).
 const LABELS: Record<string, string> = {
   claude: "Claude Code",
@@ -6,8 +7,8 @@ const LABELS: Record<string, string> = {
   gemini: "Gemini CLI",
   traecli: "TRAE CLI",
   dsh: "DeepSeek Harness",
-  manual: "手动 / 自驱",
-  custom: "自定义",
+  get manual() { return tr("手动 / 自驱"); },
+  get custom() { return tr("自定义"); },
 };
 
 export function cliLabel(cli: string | null | undefined): string {

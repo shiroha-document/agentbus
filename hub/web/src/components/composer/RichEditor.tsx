@@ -1,3 +1,4 @@
+import { t as tr, useLanguage } from "../../lib/i18n";
 import { useId, useRef, useState, type DragEvent, type ReactNode, type RefObject } from "react";
 import { AlertCircle, Paperclip, X } from "lucide-react";
 import "../../styles/live.css";
@@ -12,7 +13,7 @@ import type { AttachmentsState } from "./useAttachments";
 import { useMentions } from "./useMentions";
 
 export const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
-export const SEND_HINT = `${isMac ? "⌘" : "Ctrl"} + Enter 发送`;
+export function sendHint(): string { return tr("{0} + Enter 发送", [isMac ? "⌘" : "Ctrl"]); }
 
 /** Drag-and-drop files onto a container; render `<DropHint />` while `dragging`. */
 export function useDropZone(attachments: AttachmentsState, disabled?: boolean) {
@@ -48,16 +49,17 @@ export function useDropZone(attachments: AttachmentsState, disabled?: boolean) {
 }
 
 export function DropHint({ show }: { show: boolean }) {
+  useLanguage();
   if (!show) return null;
   return (
     <div className="drop-hint" aria-hidden>
-      <Paperclip size={18} className="mr-2" /> 松开即可添加附件
-    </div>
+      <Paperclip size={18} className="mr-2" />{" "}{tr("松开即可添加附件")}</div>
   );
 }
 
 /** Paperclip button + hidden file input. */
 export function AttachButton({ attachments, disabled }: { attachments: AttachmentsState; disabled?: boolean }) {
+  useLanguage();
   const input = useRef<HTMLInputElement>(null);
   const full = attachments.items.filter((x) => x.status !== "error").length >= MAX_ATTACHMENTS;
   return (
@@ -79,8 +81,8 @@ export function AttachButton({ attachments, disabled }: { attachments: Attachmen
         className="btn btn-ghost btn-icon h-9 min-h-0 w-9 text-fg-2"
         disabled={disabled || full}
         onClick={() => input.current?.click()}
-        aria-label={full ? `最多 ${MAX_ATTACHMENTS} 个附件` : "添加附件（图片或文件，单个不超过 10 MB）"}
-        title={full ? `最多 ${MAX_ATTACHMENTS} 个附件` : "添加附件"}
+        aria-label={full ? tr("最多 {0} 个附件", [MAX_ATTACHMENTS]) : tr("添加附件（图片或文件，单个不超过 10 MB）")}
+        title={full ? tr("最多 {0} 个附件", [MAX_ATTACHMENTS]) : tr("添加附件")}
       >
         <Paperclip size={18} aria-hidden />
       </button>
@@ -90,9 +92,10 @@ export function AttachButton({ attachments, disabled }: { attachments: Attachmen
 
 /** Previews of picked files with upload progress and a remove button. */
 export function AttachmentTray({ attachments }: { attachments: AttachmentsState }) {
+  useLanguage();
   if (attachments.items.length === 0) return null;
   return (
-    <ul className="flex flex-wrap gap-2 px-1 pb-1 pt-2" aria-label="待发送的附件">
+    <ul className="flex flex-wrap gap-2 px-1 pb-1 pt-2" aria-label={tr("待发送的附件")}>
       {attachments.items.map((a) => (
         <li
           key={a.key}
@@ -113,11 +116,10 @@ export function AttachmentTray({ attachments }: { attachments: AttachmentsState 
             <span className="block truncate text-caption text-fg">{a.name}</span>
             <span className={cn("tabular block text-[11px] leading-4", a.status === "error" ? "text-danger-text" : "text-fg-caption")}>
               {a.status === "uploading" ? (
-                `上传中 ${Math.round(a.progress * 100)}%`
+                tr("上传中 {0}%", [Math.round(a.progress * 100)])
               ) : a.status === "error" ? (
                 <span className="inline-flex items-center gap-1">
-                  <AlertCircle size={11} aria-hidden /> 上传失败
-                </span>
+                  <AlertCircle size={11} aria-hidden />{" "}{tr("上传失败")}</span>
               ) : (
                 formatBytes(a.size)
               )}
@@ -128,7 +130,7 @@ export function AttachmentTray({ attachments }: { attachments: AttachmentsState 
               className="att-progress"
               style={{ width: `${Math.round(a.progress * 100)}%` }}
               role="progressbar"
-              aria-label={`${a.name} 上传进度`}
+              aria-label={tr("{0} 上传进度", [a.name])}
               aria-valuemin={0}
               aria-valuemax={100}
               aria-valuenow={Math.round(a.progress * 100)}
@@ -138,7 +140,7 @@ export function AttachmentTray({ attachments }: { attachments: AttachmentsState 
             type="button"
             className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-surface-strong text-fg-2 hover:text-fg focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
             onClick={() => attachments.remove(a.key)}
-            aria-label={`移除附件 ${a.name}`}
+            aria-label={tr("移除附件 {0}", [a.name])}
           >
             <X size={12} aria-hidden />
           </button>
@@ -184,6 +186,7 @@ export function RichEditor({
   allowAll = true,
   popup = "above",
 }: EditorProps) {
+  useLanguage();
   const own = useRef<HTMLTextAreaElement>(null);
   const ref = textareaRef ?? own;
   const listId = useId();
@@ -195,7 +198,7 @@ export function RichEditor({
         <ul
           id={listId}
           role="listbox"
-          aria-label="提及成员"
+          aria-label={tr("提及成员")}
           className={cn(
             "glass-3 absolute left-0 z-30 w-80 max-w-full overflow-hidden rounded-[16px] p-1",
             popup === "above" ? "bottom-full mb-2" : "top-full mt-2",
@@ -226,7 +229,7 @@ export function RichEditor({
                 <span className="block truncate text-caption text-fg-caption">
                   @{s.name}
                   {s.member?.kind === "agent" && s.member.cli ? ` · ${cliLabel(s.member.cli)}` : ""}
-                  {s.member?.kind === "human" ? " · 成员" : ""}
+                  {s.member?.kind === "human" ? tr(" · 成员") : ""}
                 </span>
               </span>
               {s.member?.kind === "agent" ? <StatusDot state={presenceOf(s.member)} className="flex-none" /> : null}

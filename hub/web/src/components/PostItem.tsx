@@ -1,3 +1,4 @@
+import { t as tr, useLanguage } from "../lib/i18n";
 import { memo, type ReactNode } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { ArrowRight, CornerUpLeft, Info, Lock, SmilePlus } from "lucide-react";
@@ -5,7 +6,7 @@ import "../styles/live.css";
 import { api } from "../api";
 import { useAction, qk } from "../queries";
 import { cliLabel } from "../lib/cli";
-import { formatDateTime, formatRelative } from "../lib/format";
+import { formatDateTime, formatTime, formatRelative } from "../lib/format";
 import { agentPeer } from "../lib/posts";
 import { cn, REACTION_EMOJI } from "../lib/util";
 import type { Member, Post } from "../types";
@@ -34,6 +35,7 @@ interface PostProps {
 }
 
 function ReactionBar({ post, meId, members }: { post: Post; meId?: string; members: Map<string, Member> }) {
+  useLanguage();
   const react = useAction((emoji: string) => api.react(post.id, emoji), { invalidate: [qk.thread(post.thread_id)] });
   const list = post.reactions.filter((r) => r.member_ids.length > 0);
   return (
@@ -65,7 +67,7 @@ function ReactionBar({ post, meId, members }: { post: Post; meId?: string; membe
             "btn btn-ghost h-7 min-h-0 w-7 rounded-full px-0 text-fg-3",
             list.length === 0 && "opacity-100 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100",
           )}
-          aria-label="添加表情回执"
+          aria-label={tr("添加表情回执")}
         >
           <SmilePlus size={16} />
         </Popover.Trigger>
@@ -76,7 +78,7 @@ function ReactionBar({ post, meId, members }: { post: Post; meId?: string; membe
                 <button
                   className="flex h-9 w-9 items-center justify-center rounded-full text-[18px] hover:bg-mint-100"
                   onClick={() => react.mutate(e)}
-                  aria-label={`回执 ${e}`}
+                  aria-label={tr("回执 {0}", [e])}
                 >
                   {e}
                 </button>
@@ -90,6 +92,7 @@ function ReactionBar({ post, meId, members }: { post: Post; meId?: string; membe
 }
 
 function ReplyQuote({ post, replyTo, members }: { post: Post; replyTo?: Post; members: Map<string, Member> }) {
+  useLanguage();
   if (!post.reply_to) return null;
   const replyAuthor = replyTo ? members.get(replyTo.author_id) : undefined;
   return (
@@ -105,7 +108,7 @@ function ReplyQuote({ post, replyTo, members }: { post: Post; replyTo?: Post; me
             {replyTo.body.slice(0, 200)}
           </>
         ) : (
-          "回复的帖子不在当前列表中"
+          tr("回复的帖子不在当前列表中")
         )}
       </span>
     </a>
@@ -113,6 +116,7 @@ function ReplyQuote({ post, replyTo, members }: { post: Post; replyTo?: Post; me
 }
 
 function TimeStamp({ ts, className }: { ts: number; className?: string }) {
+  useLanguage();
   return (
     <Tip content={formatDateTime(ts)}>
       <time className={cn("tabular text-caption text-fg-caption", className)} dateTime={new Date(ts).toISOString()} tabIndex={0}>
@@ -122,9 +126,10 @@ function TimeStamp({ ts, className }: { ts: number; className?: string }) {
   );
 }
 
-const KIND_LABEL: Record<string, string> = { confirm: "确认请求", state: "状态更新", progress: "进度", msg: "帖子" };
+const KIND_LABEL: Record<string, string> = { get confirm() { return tr("确认请求"); }, get state() { return tr("状态更新"); }, get progress() { return tr("进度"); }, get msg() { return tr("帖子"); } };
 
 function PostItemImpl({ post, author, members, names, meId, replyTo, flash, onReply, compact, superseded, footer }: PostProps) {
+  useLanguage();
   if (post.kind === "system") {
     return (
       <div id={`post-${post.id}`} className={cn("flex scroll-mt-24 justify-center px-4 py-1.5", flash && "new-post-flash rounded-full")}>
@@ -140,13 +145,12 @@ function PostItemImpl({ post, author, members, names, meId, replyTo, flash, onRe
 
   if (post.kind === "state") {
     return (
-      <article id={`post-${post.id}`} data-kind="state" aria-label={`${author?.display_name || post.author_id} 的状态更新`}
+      <article id={`post-${post.id}`} data-kind="state" aria-label={tr("{0} 的状态更新", [author?.display_name || post.author_id])}
         className={cn("scroll-mt-24 rounded-lg px-2 py-1", flash && "new-post-flash")}>
         <ReplyQuote post={post} replyTo={replyTo} members={members} />
         <StateCard post={post} names={names} author={author} action={onReply ? (
           <button type="button" className="btn btn-ghost min-h-10 px-2 text-caption text-fg-3" onClick={() => onReply(post)}>
-            <CornerUpLeft size={14} aria-hidden /> 回复
-          </button>
+            <CornerUpLeft size={14} aria-hidden />{" "}{tr("回复")}</button>
         ) : undefined} />
         <Attachments list={post.attachments} />
       </article>
@@ -170,7 +174,7 @@ function PostItemImpl({ post, author, members, names, meId, replyTo, flash, onRe
       </div>
     );
 
-  const kindLabel = peer ? "agent 之间的对话" : (KIND_LABEL[post.kind] ?? "帖子");
+  const kindLabel = peer ? tr("agent 之间的对话") : (KIND_LABEL[post.kind] ?? tr("帖子"));
 
   return (
     <article
@@ -181,7 +185,7 @@ function PostItemImpl({ post, author, members, names, meId, replyTo, flash, onRe
         peer && "agent-exchange my-0.5",
         flash && "new-post-flash",
       )}
-      aria-label={`${name} 的${kindLabel}`}
+      aria-label={tr("{0} 的{1}", [name, kindLabel])}
       data-kind={post.kind}
     >
       <div className="flex w-9 flex-none justify-center">
@@ -190,7 +194,7 @@ function PostItemImpl({ post, author, members, names, meId, replyTo, flash, onRe
             className="tabular invisible mt-1 text-[10px] leading-4 text-fg-caption group-focus-within:visible group-hover:visible"
             dateTime={new Date(post.created_at).toISOString()}
           >
-            {new Date(post.created_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
+            {formatTime(post.created_at)}
           </time>
         ) : (
           <Avatar member={author} size={36} />
@@ -208,15 +212,14 @@ function PostItemImpl({ post, author, members, names, meId, replyTo, flash, onRe
                 <ArrowRight size={12} aria-hidden />
                 <Avatar member={peer} size={16} />
                 <span className="max-w-[140px] truncate">
-                  <span className="sr-only">发给 </span>
+                  <span className="sr-only">{tr("发给")}{" "}</span>
                   {peer.display_name}
                 </span>
               </span>
             ) : null}
             {post.redacted ? (
               <span className="chip chip-danger">
-                <Lock size={11} aria-hidden /> 已打码
-              </span>
+                <Lock size={11} aria-hidden />{" "}{tr("已打码")}</span>
             ) : null}
             <TimeStamp ts={post.created_at} className="ml-auto" />
           </header>
@@ -231,8 +234,7 @@ function PostItemImpl({ post, author, members, names, meId, replyTo, flash, onRe
               className="btn btn-ghost h-7 min-h-0 px-2 text-caption text-fg-3 opacity-100 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100"
               onClick={() => onReply(post)}
             >
-              <CornerUpLeft size={14} aria-hidden /> 回复
-            </button>
+              <CornerUpLeft size={14} aria-hidden />{" "}{tr("回复")}</button>
           ) : null}
           {footer ? <div className="ml-auto">{footer}</div> : null}
         </div>

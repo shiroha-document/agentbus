@@ -1,8 +1,10 @@
+import { useLanguage } from "../../lib/i18n";
 import { animate, useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 
 /** Rolling counter (ui-guidelines §6: 400ms). */
 export function AnimatedNumber({ value, format = (n) => String(Math.round(n)) }: { value: number; format?: (n: number) => string }) {
+  useLanguage();
   const reduced = useReducedMotion() ?? false;
   const [shown, setShown] = useState(value);
   const prev = useRef(0);

@@ -1,3 +1,4 @@
+import { t as tr, useLanguage, localized } from "../../lib/i18n";
 import { useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { cn } from "../../lib/util";
@@ -26,26 +27,28 @@ export async function writeClipboard(text: string): Promise<boolean> {
   }
 }
 
-export function CopyButton({ text, label = "复制", className }: { text: string; label?: string; className?: string }) {
+export function CopyButton({ text, label = tr("复制"), className }: { text: string; label?: string; className?: string }) {
+  useLanguage();
   const [done, setDone] = useState(false);
   const copy = async () => {
     if (await writeClipboard(text)) {
       setDone(true);
       window.setTimeout(() => setDone(false), 1600);
     } else {
-      toast("复制失败，请手动选择文本复制", "error");
+      toast(localized("复制失败，请手动选择文本复制"), "error");
     }
   };
   return (
     <button type="button" className={cn("btn btn-secondary", className)} onClick={() => void copy()} aria-label={label}>
       {done ? <Check size={16} className="text-mint-700" aria-hidden /> : <Copy size={16} aria-hidden />}
-      <span aria-live="polite">{done ? "已复制" : label}</span>
+      <span aria-live="polite">{done ? tr("已复制") : label}</span>
     </button>
   );
 }
 
 /** One-time secret block: monospace, selectable, with a copy button and a "only shown once" hint. */
 export function SecretBlock({ text, hint, multiline }: { text: string; hint: string; multiline?: boolean }) {
+  useLanguage();
   return (
     <div className="flex flex-col gap-2 rounded-[16px] border border-mint-300 bg-mint-50 p-3">
       <div className="flex items-start gap-2">

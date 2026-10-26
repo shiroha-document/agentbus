@@ -1,3 +1,4 @@
+import { t as tr, useLanguage, localized, systemText } from "../lib/i18n";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useInfiniteQuery, useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
@@ -17,31 +18,32 @@ import { PreferencesSection } from "./settings/PreferencesSection";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function EmailHealthNotice({ h }: { h?: EmailHealth }) {
+  useLanguage();
   if (!h) return null;
   if (h.ok) {
     return h.last_sent_at ? (
       <p className="mb-4 flex items-center gap-1.5 text-caption text-fg-caption">
-        <CheckCircle2 size={14} className="text-mint-700" aria-hidden /> 最近一次成功发送：{formatDateTime(h.last_sent_at)}
+        <CheckCircle2 size={14} className="text-mint-700" aria-hidden />{" "}{tr("最近一次成功发送：")}{formatDateTime(h.last_sent_at)}
       </p>
     ) : null;
   }
   return (
     <div className="mb-4 flex flex-col gap-1.5 rounded-[12px] border-l-[3px] border-l-danger bg-danger-bg px-3 py-2" role="alert">
       <div className="flex items-center gap-1.5 text-callout font-semibold text-danger-text">
-        <MailWarning size={16} aria-hidden /> 邮件通知发送失败
-        {h.failed_count > 1 ? <span className="font-normal">（{h.failed_count} 批未送达）</span> : null}
+        <MailWarning size={16} aria-hidden />{" "}{tr("邮件通知发送失败")}{h.failed_count > 1 ? <span className="font-normal">（{h.failed_count}{" "}{tr("批未送达）")}</span> : null}
       </div>
-      {h.hint ? <p className="text-callout font-normal text-fg-2">{h.hint}</p> : null}
+      {h.hint ? <p className="text-callout font-normal text-fg-2">{systemText(h.hint)}</p> : null}
       <p className="break-all text-caption text-fg-caption">
         {h.last_error_at ? formatDateTime(h.last_error_at) + " · " : ""}
         {h.last_error}
-        {h.last_sent_at ? ` · 上次成功：${formatDateTime(h.last_sent_at)}` : ""}
+        {h.last_sent_at ? tr(" · 上次成功：{0}", [formatDateTime(h.last_sent_at)]) : ""}
       </p>
     </div>
   );
 }
 
 function EmailSection({ masked, health }: { masked: string | null; health?: EmailHealth }) {
+  useLanguage();
   const [email, setEmail] = useState("");
   const [sentTo, setSentTo] = useState<string | null>(null);
   const change = useAction((e: string) => api.changeEmail(e), { invalidate: [qk.settings] });
@@ -60,41 +62,38 @@ function EmailSection({ masked, health }: { masked: string | null; health?: Emai
   return (
     <section className="glass-1 card p-5" aria-labelledby="s-email">
       <h2 id="s-email" className="mb-1 flex items-center gap-2 text-title-2">
-        <Mail size={20} className="text-mint-700" aria-hidden /> 通知邮箱
-      </h2>
-      <p className="mb-4 text-callout font-normal text-fg-2">
-        当前：<span className="tabular font-medium text-fg">{masked ?? "未设置"}</span>
+        <Mail size={20} className="text-mint-700" aria-hidden />{" "}{tr("通知邮箱")}</h2>
+      <p className="mb-4 text-callout font-normal text-fg-2">{tr("当前：")}<span className="tabular font-medium text-fg">{masked ?? tr("未设置")}</span>
       </p>
       <EmailHealthNotice h={health} />
       <form onSubmit={submit} className="flex flex-col gap-2 sm:flex-row">
         <input
           type="email"
           className="field flex-1"
-          placeholder="新的邮箱地址"
+          placeholder={tr("新的邮箱地址")}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          aria-label="新的通知邮箱"
+          aria-label={tr("新的通知邮箱")}
           autoComplete="email"
         />
         <button type="submit" className="btn btn-primary btn-lg sm:h-10" disabled={!valid || change.isPending}>
-          {change.isPending ? "发送中…" : "更换邮箱"}
+          {change.isPending ? tr("发送中…") : tr("更换邮箱")}
         </button>
       </form>
       {sentTo ? (
-        <p className="mt-3 rounded-[12px] bg-mint-50 px-3 py-2 text-callout font-normal text-fg-2" role="status">
-          确认邮件已发送到新地址（{sentTo}），30 分钟内点击邮件里的链接完成更换。
-        </p>
+        <p className="mt-3 rounded-[12px] bg-mint-50 px-3 py-2 text-callout font-normal text-fg-2" role="status">{tr("确认邮件已发送到新地址（")}{sentTo}{tr("），30 分钟内点击邮件里的链接完成更换。")}</p>
       ) : (
-        <p className="mt-3 text-caption text-fg-caption">更换后会向新地址发送确认链接，确认前仍使用当前邮箱。</p>
+        <p className="mt-3 text-caption text-fg-caption">{tr("更换后会向新地址发送确认链接，确认前仍使用当前邮箱。")}</p>
       )}
     </section>
   );
 }
 
 function NotifySection({ s }: { s: SettingsResponse }) {
+  useLanguage();
   const save = useAction((body: SettingsPatch) => api.updateSettings(body), { invalidate: [qk.settings] });
   const qc = useQueryClient();
-  const test = useAction(() => api.testNotify(), { success: "测试邮件已发送" });
+  const test = useAction(() => api.testNotify(), { success: localized("测试邮件已发送") });
   const runTest = () => test.mutate(undefined, { onSettled: () => void qc.invalidateQueries() });
   const pendingKinds = save.isPending ? save.variables?.notify_kinds : undefined;
   const kinds = { ...s.notify_kinds, ...pendingKinds };
@@ -102,10 +101,9 @@ function NotifySection({ s }: { s: SettingsResponse }) {
     <section className="glass-1 card p-5" aria-labelledby="s-notify">
       <div className="mb-3 flex flex-wrap items-center gap-3">
         <h2 id="s-notify" className="flex items-center gap-2 text-title-2">
-          <Bell size={20} className="text-mint-700" aria-hidden /> 通知种类
-        </h2>
+          <Bell size={20} className="text-mint-700" aria-hidden />{" "}{tr("通知种类")}</h2>
         <button className="btn btn-secondary ml-auto" disabled={test.isPending || !s.notify_email_masked} onClick={runTest}>
-          <Send size={16} aria-hidden /> {test.isPending ? "发送中…" : "发送测试邮件"}
+          <Send size={16} aria-hidden /> {test.isPending ? tr("发送中…") : tr("发送测试邮件")}
         </button>
       </div>
       <ul className="flex flex-col divide-y divide-line">
@@ -136,6 +134,7 @@ function NotifySection({ s }: { s: SettingsResponse }) {
 }
 
 function RuntimeSection({ s, platformAdmin }: { s: SettingsResponse; platformAdmin: boolean }) {
+  useLanguage();
   const [pct, setPct] = useState(s.default_pause_pct);
   const [merge, setMerge] = useState(String(s.merge_window_min));
   const [minVer, setMinVer] = useState(s.min_client_version);
@@ -143,7 +142,7 @@ function RuntimeSection({ s, platformAdmin }: { s: SettingsResponse; platformAdm
     success: undefined,
     invalidate: [qk.settings, qk.members, qk.dashboard],
   });
-  const save = useAction((body: SettingsPatch) => api.updateSettings(body), { success: "已保存", invalidate: [qk.settings] });
+  const save = useAction((body: SettingsPatch) => api.updateSettings(body), { success: localized("已保存"), invalidate: [qk.settings] });
   const mergeNum = Number(merge);
   const mergeOk = merge.trim() !== "" && Number.isInteger(mergeNum) && mergeNum >= 0 && mergeNum <= 1440;
   const verOk = minVer.trim() === "" || /^\d+\.\d+\.\d+([-+][\w.]+)?$/.test(minVer.trim());
@@ -156,20 +155,17 @@ function RuntimeSection({ s, platformAdmin }: { s: SettingsResponse; platformAdm
       <section className="glass-1 card flex flex-wrap items-center gap-4 p-5" aria-labelledby="s-pause">
         <PauseOctagon size={24} className={globalOn ? "text-warning-text" : "text-mint-700"} aria-hidden />
         <div className="min-w-0 flex-1">
-          <h2 id="s-pause" className="text-title-2">
-            全局暂停
-          </h2>
+          <h2 id="s-pause" className="text-title-2">{tr("全局暂停")}</h2>
           <p className="text-caption text-fg-caption">
-            {globalOn ? "所有 agent 已暂停，不会领取新消息。" : "打开后所有 agent 停止领取新消息，正在进行的轮次会跑完。"}
+            {globalOn ? tr("所有 agent 已暂停，不会领取新消息。") : tr("打开后所有 agent 停止领取新消息，正在进行的轮次会跑完。")}
           </p>
         </div>
-        <Switch label="全局暂停" tone="warning" checked={globalOn} disabled={pause.isPending} onCheckedChange={(v) => pause.mutate(v)} />
+        <Switch label={tr("全局暂停")} tone="warning" checked={globalOn} disabled={pause.isPending} onCheckedChange={(v) => pause.mutate(v)} />
       </section>
 
       <section className="glass-1 card p-5" aria-labelledby="s-runtime">
         <h2 id="s-runtime" className="mb-4 flex items-center gap-2 text-title-2">
-          <SlidersHorizontal size={20} className="text-mint-700" aria-hidden /> 运行参数
-        </h2>
+          <SlidersHorizontal size={20} className="text-mint-700" aria-hidden />{" "}{tr("运行参数")}</h2>
         <form
           className="flex flex-col gap-5"
           onSubmit={(e) => {
@@ -182,9 +178,7 @@ function RuntimeSection({ s, platformAdmin }: { s: SettingsResponse; platformAdm
           }}
         >
           <label className="flex flex-col gap-2">
-            <span className="flex items-baseline justify-between text-callout">
-              默认额度暂停线
-              <span className="tabular text-title-2 text-fg">{pct}%</span>
+            <span className="flex items-baseline justify-between text-callout">{tr("默认额度暂停线")}<span className="tabular text-title-2 text-fg">{pct}%</span>
             </span>
             <input
               type="range"
@@ -196,11 +190,11 @@ function RuntimeSection({ s, platformAdmin }: { s: SettingsResponse; platformAdm
               className="w-full accent-[var(--mint-500)]"
               aria-valuetext={`${pct}%`}
             />
-            <span className="text-caption text-fg-caption">没有单独设置规则的额度窗口，用到这个百分比时自动暂停 agent。100% 表示不提前暂停。</span>
+            <span className="text-caption text-fg-caption">{tr("没有单独设置规则的额度窗口，用到这个百分比时自动暂停 agent。100% 表示不提前暂停。")}</span>
           </label>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="flex flex-col gap-1.5">
-              <span className="text-callout">消息合并窗口（分钟）</span>
+              <span className="text-callout">{tr("消息合并窗口（分钟）")}</span>
               <input
                 type="number"
                 inputMode="numeric"
@@ -212,14 +206,14 @@ function RuntimeSection({ s, platformAdmin }: { s: SettingsResponse; platformAdm
                 aria-invalid={!mergeOk}
               />
               <span className={mergeOk ? "text-caption text-fg-caption" : "text-caption text-danger-text"}>
-                {mergeOk ? "同一讨论串在窗口内的多条消息合并成一次投递。" : "请输入 0 到 1440 之间的整数"}
+                {mergeOk ? tr("同一讨论串在窗口内的多条消息合并成一次投递。") : tr("请输入 0 到 1440 之间的整数")}
               </span>
             </label>
             <label className="flex flex-col gap-1.5">
-              <span className="text-callout">最低客户端版本</span>
+              <span className="text-callout">{tr("最低客户端版本")}</span>
               <input
                 className="field tabular"
-                placeholder="例如 0.5.0"
+                placeholder={tr("例如 0.5.0")}
                 value={minVer}
                 onChange={(e) => setMinVer(e.target.value)}
                 aria-invalid={!verOk}
@@ -228,10 +222,10 @@ function RuntimeSection({ s, platformAdmin }: { s: SettingsResponse; platformAdm
               />
               <span className={verOk ? "text-caption text-fg-caption" : "text-caption text-danger-text"}>
                 {!verOk
-                  ? "版本号格式应为 x.y.z"
+                  ? tr("版本号格式应为 x.y.z")
                   : platformAdmin
-                    ? "平台级设置，对所有团队生效。低于此版本的 agentbus 会被要求升级，留空表示不限制。"
-                    : "平台级设置，只有平台管理员可以修改。"}
+                    ? tr("平台级设置，对所有团队生效。低于此版本的 agentbus 会被要求升级，留空表示不限制。")
+                    : tr("平台级设置，只有平台管理员可以修改。")}
               </span>
             </label>
           </div>
@@ -245,12 +239,10 @@ function RuntimeSection({ s, platformAdmin }: { s: SettingsResponse; platformAdm
                   setMerge(String(s.merge_window_min));
                   setMinVer(s.min_client_version);
                 }}
-              >
-                还原
-              </button>
+              >{tr("还原")}</button>
             ) : null}
             <button type="submit" className="btn btn-primary btn-lg sm:h-10" disabled={!dirty || !mergeOk || !verOk || save.isPending}>
-              {save.isPending ? "保存中…" : "保存"}
+              {save.isPending ? tr("保存中…") : tr("保存")}
             </button>
           </div>
         </form>
@@ -260,6 +252,7 @@ function RuntimeSection({ s, platformAdmin }: { s: SettingsResponse; platformAdm
 }
 
 function AuditLog() {
+  useLanguage();
   const members = useMemberMap();
   const q = useInfiniteQuery({
     queryKey: qk.audit,
@@ -274,25 +267,24 @@ function AuditLog() {
   return (
     <section className="glass-1 card p-5" aria-labelledby="s-audit">
       <h2 id="s-audit" className="mb-3 flex items-center gap-2 text-title-2">
-        <ScrollText size={20} className="text-mint-700" aria-hidden /> 审计日志
-      </h2>
+        <ScrollText size={20} className="text-mint-700" aria-hidden />{" "}{tr("审计日志")}</h2>
       {q.isPending ? (
         <div className="skeleton h-40" />
       ) : q.isError ? (
         <QueryError error={q.error} onRetry={() => void q.refetch()} />
       ) : entries.length === 0 ? (
-        <EmptyState art="list" compact title="还没有审计记录" />
+        <EmptyState art="list" compact title={tr("还没有审计记录")} />
       ) : (
         <>
           <div className="-mx-1 overflow-x-auto">
             <table className="w-full min-w-[600px] text-left text-caption">
               <thead className="text-fg-caption">
                 <tr className="border-b border-line">
-                  <th className="px-2 py-2 font-medium">时间</th>
-                  <th className="px-2 py-2 font-medium">操作人</th>
-                  <th className="px-2 py-2 font-medium">操作</th>
-                  <th className="px-2 py-2 font-medium">对象</th>
-                  <th className="px-2 py-2 font-medium">详情</th>
+                  <th className="px-2 py-2 font-medium">{tr("时间")}</th>
+                  <th className="px-2 py-2 font-medium">{tr("操作人")}</th>
+                  <th className="px-2 py-2 font-medium">{tr("操作")}</th>
+                  <th className="px-2 py-2 font-medium">{tr("对象")}</th>
+                  <th className="px-2 py-2 font-medium">{tr("详情")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -313,7 +305,7 @@ function AuditLog() {
           {q.hasNextPage ? (
             <div className="mt-3 flex justify-center">
               <button className="btn btn-ghost" disabled={q.isFetchingNextPage} onClick={() => void q.fetchNextPage()}>
-                {q.isFetchingNextPage ? "加载中…" : "加载更多"}
+                {q.isFetchingNextPage ? tr("加载中…") : tr("加载更多")}
               </button>
             </div>
           ) : null}
@@ -324,6 +316,7 @@ function AuditLog() {
 }
 
 export function SettingsPage() {
+  useLanguage();
   const search = useSearch({ from: "/settings" });
   const navigate = useNavigate();
   const { isAdmin, platformAdmin } = useRole();
@@ -349,7 +342,7 @@ export function SettingsPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-[880px] flex-col gap-6">
-      <h1 className="text-title-1">设置</h1>
+      <h1 className="text-title-1">{tr("设置")}</h1>
 
       {emailOk || emailFailed ? (
         <div
@@ -361,8 +354,8 @@ export function SettingsPage() {
           role="status"
         >
           <CheckCircle2 size={20} className={emailOk ? "flex-none text-mint-700" : "flex-none text-danger-text"} aria-hidden />
-          <span className="flex-1 text-callout">{emailOk ? "通知邮箱已更换，之后的通知会发到新地址。" : "邮箱确认链接无效或已过期，请重新发起更换。"}</span>
-          <button className="btn btn-ghost btn-icon" onClick={dismiss} aria-label="关闭提示">
+          <span className="flex-1 text-callout">{emailOk ? tr("通知邮箱已更换，之后的通知会发到新地址。") : tr("邮箱确认链接无效或已过期，请重新发起更换。")}</span>
+          <button className="btn btn-ghost btn-icon" onClick={dismiss} aria-label={tr("关闭提示")}>
             <X size={16} />
           </button>
         </div>
@@ -380,9 +373,7 @@ export function SettingsPage() {
           <AuditLog />
         </>
       ) : (
-        <p className="glass-1 card text-callout font-normal text-fg-2">
-          通知、运行参数、邀请和加入码只有团队管理员可以查看和修改。
-        </p>
+        <p className="glass-1 card text-callout font-normal text-fg-2">{tr("通知、运行参数、邀请和加入码只有团队管理员可以查看和修改。")}</p>
       )}
 
       <DangerSection />
@@ -391,6 +382,7 @@ export function SettingsPage() {
 }
 
 function SettingsBody({ platformAdmin }: { platformAdmin: boolean }) {
+  useLanguage();
   const q = useSettings();
   if (q.isPending) {
     return (

@@ -10,6 +10,7 @@
 // Also used for README screenshots, so the data should read like a real team.
 
 import { setTransport, type RawResponse } from "./api";
+import { t } from "./lib/i18n";
 import { extraHandle } from "./mock-extra";
 import type {
   Activity,
@@ -1291,7 +1292,7 @@ function teamHandle(S: Store, me: Member, admin: boolean, owner: boolean, method
       };
       S.joinCodes.push(code);
       // Demo of the one-click flow: a machine "runs the command" a few seconds later.
-      if (code.label.startsWith("一键接入") && !S.members.some((m) => m.name === "mac-mini-claude")) {
+      if (["zh", "en"].some((language) => code.label.startsWith(t("一键接入", [], language as "zh" | "en"))) && !S.members.some((m) => m.name === "mac-mini-claude")) {
         const store = S;
         setTimeout(() => {
           const t = now();

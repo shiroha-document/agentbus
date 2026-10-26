@@ -1,3 +1,4 @@
+import { t as tr, useLanguage } from "../../lib/i18n";
 import { Check } from "lucide-react";
 import "../../styles/live.css";
 import { formatRelative } from "../../lib/format";
@@ -8,6 +9,7 @@ import { useNow } from "./useNow";
 
 /** Telegram-style ticks: one grey tick = sent, two = read, two mint = handled. */
 export function Ticks({ state }: { state: ReceiptState }) {
+  useLanguage();
   const double = state !== "sent" && state !== "failed";
   return (
     <span className="receipt-ticks" aria-hidden>
@@ -24,6 +26,7 @@ const STATE_ORDER: Record<ReceiptState, number> = { failed: 0, sent: 1, received
  * 预计 1:05" / "已读" / "已处理"), and a tooltip listing every recipient with a time.
  */
 export function ReceiptTicks({ receipts, members }: { receipts: Receipt[] | undefined; members: Map<string, Member> }) {
+  useLanguage();
   const sum = summarizeReceipts(receipts);
   const counting = !!sum && sum.state === "sent" && sum.eta !== null;
   const now = useNow(1000, counting);
@@ -33,10 +36,10 @@ export function ReceiptTicks({ receipts, members }: { receipts: Receipt[] | unde
   const lead = sorted[0]!;
   let text: string;
   if (sum.total === 1) text = receiptText(lead, nameOf(lead.member_id), now);
-  else if (sum.state === "sent") text = receiptText({ ...lead, eta: sum.eta }, nameOf(lead.member_id), now) + ` 等 ${sum.total} 人`;
-  else if (sum.state === "handled") text = `${sum.total} 人已处理`;
-  else if (sum.state === "failed") text = `${sum.counts.failed} 人投递失败`;
-  else text = `${RECEIPT_LABEL[sum.state]} · ${sum.counts.handled}/${sum.total} 已处理`;
+  else if (sum.state === "sent") text = receiptText({ ...lead, eta: sum.eta }, nameOf(lead.member_id), now) + tr(" 等 {0} 人", [sum.total]);
+  else if (sum.state === "handled") text = tr("{0} 人已处理", [sum.total]);
+  else if (sum.state === "failed") text = tr("{0} 人投递失败", [sum.counts.failed]);
+  else text = tr("{0} · {1}/{2} 已处理", [RECEIPT_LABEL[sum.state], sum.counts.handled, sum.total]);
 
   const detail = (
     <ul className="flex min-w-[180px] flex-col gap-1">
@@ -55,7 +58,7 @@ export function ReceiptTicks({ receipts, members }: { receipts: Receipt[] | unde
   );
   return (
     <Tip content={detail} side="top">
-      <button type="button" className="receipt tabular" data-state={sum.state} aria-label={`送达状态：${text}`}>
+      <button type="button" className="receipt tabular" data-state={sum.state} aria-label={tr("送达状态：{0}", [text])}>
         <Ticks state={sum.state} />
         <span aria-live="polite">{text}</span>
       </button>
@@ -65,10 +68,11 @@ export function ReceiptTicks({ receipts, members }: { receipts: Receipt[] | unde
 
 /** Tiny tick on home feed items (from `receipts_summary`). */
 export function FeedTick({ summary }: { summary: FeedItem["receipts_summary"] }) {
+  useLanguage();
   const state = summaryStateFromCounts(summary);
   if (!state || !summary) return null;
   const total = summary.sent + summary.received + summary.working + summary.handled;
-  const label = state === "handled" ? `${total} 人已处理` : `${RECEIPT_LABEL[state]}（${summary.handled}/${total} 已处理）`;
+  const label = state === "handled" ? tr("{0} 人已处理", [total]) : tr("{0}（{1}/{2} 已处理）", [RECEIPT_LABEL[state], summary.handled, total]);
   return (
     <Tip content={label}>
       <span className="feed-tick receipt" data-state={state} role="img" aria-label={label} tabIndex={0}>

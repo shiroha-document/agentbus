@@ -1,3 +1,4 @@
+import { t as tr, getLocale, getLanguage } from "./i18n";
 // Message-list layout helpers: author grouping, day separators, agent↔agent detection.
 import type { Member, Post } from "../types";
 
@@ -21,11 +22,14 @@ export function dayLabel(ts: number, now: number = Date.now()): string {
   const today = new Date(now);
   const startOf = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
   const diff = Math.round((startOf(today) - startOf(d)) / 86_400_000);
-  if (diff === 0) return "今天";
-  if (diff === 1) return "昨天";
-  const wk = "日一二三四五六"[d.getDay()];
-  if (d.getFullYear() === today.getFullYear()) return `${d.getMonth() + 1}月${d.getDate()}日 周${wk}`;
-  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+  if (diff === 0) return tr("今天");
+  if (diff === 1) return tr("昨天");
+  if (getLanguage() === "en") return new Intl.DateTimeFormat(getLocale(), {
+    month: "short", day: "numeric", ...(d.getFullYear() === today.getFullYear() ? { weekday: "short" } : { year: "numeric" }),
+  }).format(d);
+  const wk = new Intl.DateTimeFormat(getLocale(), { weekday: "short" }).format(d).replace(/^周/, "");
+  if (d.getFullYear() === today.getFullYear()) return tr("{0}月{1}日 周{2}", [d.getMonth() + 1, d.getDate(), wk]);
+  return tr("{0}年{1}月{2}日", [d.getFullYear(), d.getMonth() + 1, d.getDate()]);
 }
 
 /**

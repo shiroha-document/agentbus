@@ -1,3 +1,5 @@
+import { LanguageToggle } from "./LanguageToggle";
+import { t as tr, useLanguage } from "../../lib/i18n";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { motion, useReducedMotion } from "motion/react";
@@ -47,13 +49,14 @@ function isActive(path: string, to: string): boolean {
 const COLLAPSE_KEY = "agentbus.sidebar.collapsed";
 
 function Sidebar({ collapsed, onToggle, path }: { collapsed: boolean; onToggle: () => void; path: string }) {
+  useLanguage();
   const { isAdmin } = useRole();
   return (
     <motion.aside
       animate={{ width: collapsed ? 72 : 240 }}
       transition={springSoft}
       className="glass-bar fixed inset-y-0 left-0 z-30 hidden flex-col overflow-hidden border-y-0 border-l-0 md:flex"
-      aria-label="主导航"
+      aria-label={tr("主导航")}
     >
       <div className={cn("flex h-14 items-center", collapsed ? "px-[14px]" : "px-3")}>
         <TeamSwitcher collapsed={collapsed} />
@@ -97,10 +100,10 @@ function Sidebar({ collapsed, onToggle, path }: { collapsed: boolean; onToggle: 
         <button
           className="btn btn-ghost h-10 w-full justify-start gap-3 px-3"
           onClick={onToggle}
-          aria-label={collapsed ? "展开侧栏" : "收起侧栏"}
+          aria-label={collapsed ? tr("展开侧栏") : tr("收起侧栏")}
         >
           {collapsed ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}
-          {!collapsed && <span>收起</span>}
+          {!collapsed && <span>{tr("收起")}</span>}
         </button>
       </div>
     </motion.aside>
@@ -108,10 +111,11 @@ function Sidebar({ collapsed, onToggle, path }: { collapsed: boolean; onToggle: 
 }
 
 function BottomTabs({ path }: { path: string }) {
+  useLanguage();
   return (
     <nav
       className="glass-bar fixed inset-x-0 bottom-0 z-30 flex border-x-0 border-b-0 pb-[env(safe-area-inset-bottom)] md:hidden"
-      aria-label="主导航"
+      aria-label={tr("主导航")}
     >
       {primaryNav().map(({ to, label, icon: Icon }) => {
         const active = isActive(path, to);
@@ -149,40 +153,41 @@ function useCrumbs(path: string): Crumb[] {
   const thId = section === "threads" && id ? id : "";
   const wsQ = useQuery<WorkspaceDetailResponse>({ queryKey: qk.workspace(wsId), queryFn: () => api.workspace(wsId), enabled: false });
   const thQ = useQuery<ThreadDetailResponse>({ queryKey: qk.thread(thId), queryFn: () => api.thread(thId), enabled: false });
-  const home: Crumb = { label: "动态", to: "/" };
-  if (parts.length === 0) return [{ label: "动态" }];
+  const home: Crumb = { label: tr("动态"), to: "/" };
+  if (parts.length === 0) return [{ label: tr("动态") }];
   switch (section) {
     case "workspaces": {
-      if (!id) return [home, { label: "工作区" }];
+      if (!id) return [home, { label: tr("工作区") }];
       const ws = wsQ.data?.workspace;
-      return [home, { label: "工作区", to: "/workspaces" }, { label: ws?.name ?? "工作区详情" }];
+      return [home, { label: tr("工作区"), to: "/workspaces" }, { label: ws?.name ?? tr("工作区详情") }];
     }
     case "threads": {
       const t = thQ.data;
-      const out: Crumb[] = [home, { label: "工作区", to: "/workspaces" }];
+      const out: Crumb[] = [home, { label: tr("工作区"), to: "/workspaces" }];
       if (t) out.push({ label: t.workspace.name, to: "/workspaces/$id", params: { id: t.workspace.id } });
-      out.push({ label: t?.thread.title ?? "讨论串" });
+      out.push({ label: t?.thread.title ?? tr("讨论串") });
       return out;
     }
     case "members":
-      return id ? [home, { label: "成员", to: "/members" }, { label: "成员详情" }] : [home, { label: "成员" }];
+      return id ? [home, { label: tr("成员"), to: "/members" }, { label: tr("成员详情") }] : [home, { label: tr("成员") }];
     case "usage":
-      return [home, { label: "用量" }];
+      return [home, { label: tr("用量") }];
     case "settings":
-      return [home, { label: "设置" }];
+      return [home, { label: tr("设置") }];
     case "analytics":
-      return [home, { label: "数据统计" }];
+      return [home, { label: tr("数据统计") }];
     case "about":
-      return [home, { label: "关于 agentbus" }];
+      return [home, { label: tr("关于 agentbus") }];
     default:
       return [home];
   }
 }
 
 function Breadcrumb({ path }: { path: string }) {
+  useLanguage();
   const crumbs = useCrumbs(path);
   return (
-    <nav aria-label="面包屑" className="min-w-0 flex-1">
+    <nav aria-label={tr("面包屑")} className="min-w-0 flex-1">
       <ol className="flex min-w-0 items-center gap-1 text-callout">
         {crumbs.map((c, i) => (
           <li key={i} className={cn("flex min-w-0 items-center gap-1", i < crumbs.length - 1 && "hidden sm:flex")}>
@@ -204,6 +209,7 @@ function Breadcrumb({ path }: { path: string }) {
 }
 
 function GlobalPause() {
+  useLanguage();
   const { isAdmin } = useRole();
   const { data } = useSettings();
   const toggle = useAction((v: boolean) => api.updateSettings({ global_pause: v }), {
@@ -211,7 +217,7 @@ function GlobalPause() {
   });
   const on = toggle.isPending ? (toggle.variables ?? false) : (data?.global_pause ?? false);
   return (
-    <Tip content={on ? "全局暂停中：所有 agent 不会领取新消息" : "全局暂停：让所有 agent 停止领取消息"}>
+    <Tip content={on ? tr("全局暂停中：所有 agent 不会领取新消息") : tr("全局暂停：让所有 agent 停止领取消息")}>
       <label
         className={cn(
           "flex h-9 items-center gap-2 rounded-[12px] px-2.5 text-callout",
@@ -219,12 +225,12 @@ function GlobalPause() {
         )}
       >
         <PauseCircle size={16} aria-hidden className="hidden sm:block" />
-        <span className="hidden lg:inline">{on ? "全局暂停中" : "全局暂停"}</span>
+        <span className="hidden lg:inline">{on ? tr("全局暂停中") : tr("全局暂停")}</span>
         <Switch
           checked={on}
           disabled={!data || !isAdmin || toggle.isPending}
           onCheckedChange={(v) => toggle.mutate(v)}
-          label="全局暂停"
+          label={tr("全局暂停")}
           tone="warning"
         />
       </label>
@@ -236,6 +242,7 @@ const menuItemCls =
   "flex min-h-9 cursor-pointer items-center gap-2 rounded-[10px] px-3 py-1.5 text-callout outline-none data-[highlighted]:bg-mint-100";
 
 function AvatarMenu() {
+  useLanguage();
   const { data } = useMe();
   const me = data?.member;
   const switchTeam = useSwitchTeam();
@@ -246,7 +253,7 @@ function AvatarMenu() {
   return (
     <>
       <DropdownMenu.Root>
-        <DropdownMenu.Trigger className="relative flex h-9 w-9 items-center justify-center rounded-full" aria-label={unseen ? "账户菜单（有新的更新日志）" : "账户菜单"}>
+        <DropdownMenu.Trigger className="relative flex h-9 w-9 items-center justify-center rounded-full" aria-label={unseen ? tr("账户菜单（有新的更新日志）") : tr("账户菜单")}>
           <Avatar member={me} size={32} />
           {unseen ? (
             <span className="absolute right-0 top-0 h-2.5 w-2.5 rounded-full border-2 border-[var(--bg)] bg-mint-500 md:hidden" aria-hidden />
@@ -255,13 +262,13 @@ function AvatarMenu() {
         <DropdownMenu.Portal>
           <DropdownMenu.Content align="end" sideOffset={8} className="glass-3 z-50 min-w-[240px] rounded-[16px] p-1.5">
             <div className="px-3 py-2">
-              <div className="text-callout text-fg">{me?.display_name ?? data?.identity.email ?? "我"}</div>
+              <div className="text-callout text-fg">{me?.display_name ?? data?.identity.email ?? tr("我")}</div>
               <div className="truncate text-caption text-fg-caption">{data?.identity.email ?? me?.name ?? ""}</div>
             </div>
             {teams.length > 0 ? (
               <>
                 <DropdownMenu.Separator className="my-1 h-px bg-line" />
-                <DropdownMenu.Label className="px-3 pb-1 pt-1.5 text-caption text-fg-caption">切换团队</DropdownMenu.Label>
+                <DropdownMenu.Label className="px-3 pb-1 pt-1.5 text-caption text-fg-caption">{tr("切换团队")}</DropdownMenu.Label>
                 {teams.map((t) => {
                   const current = t.id === data?.team?.id;
                   return (
@@ -269,45 +276,40 @@ function AvatarMenu() {
                       <TeamTile id={t.id} name={t.name} size={22} />
                       <span className="min-w-0 flex-1 truncate">{t.name}</span>
                       <span className="text-caption font-normal text-fg-caption">{roleLabel(t.role)}</span>
-                      {current ? <Check size={14} className="text-mint-700" aria-label="当前团队" /> : null}
+                      {current ? <Check size={14} className="text-mint-700" aria-label={tr("当前团队")} /> : null}
                     </DropdownMenu.Item>
                   );
                 })}
                 {data?.can_create_team ? (
                   <DropdownMenu.Item className={menuItemCls} onSelect={() => setCreating(true)}>
-                    <Plus size={16} className="text-fg-2" aria-hidden /> 创建团队
-                  </DropdownMenu.Item>
+                    <Plus size={16} className="text-fg-2" aria-hidden />{" "}{tr("创建团队")}</DropdownMenu.Item>
                 ) : null}
               </>
             ) : null}
             <DropdownMenu.Separator className="my-1 h-px bg-line" />
             <DropdownMenu.Item asChild>
               <Link to="/settings" className={menuItemCls}>
-                <Settings size={16} aria-hidden /> 设置
-              </Link>
+                <Settings size={16} aria-hidden />{" "}{tr("设置")}</Link>
             </DropdownMenu.Item>
             {isAdmin ? (
               <DropdownMenu.Item asChild>
                 <Link to="/analytics" className={menuItemCls}>
-                  <LineChart size={16} aria-hidden /> 数据统计
-                </Link>
+                  <LineChart size={16} aria-hidden />{" "}{tr("数据统计")}</Link>
               </DropdownMenu.Item>
             ) : null}
             <DropdownMenu.Item asChild>
               <Link to="/about" className={menuItemCls}>
-                <Info size={16} aria-hidden /> 关于 agentbus
-              </Link>
+                <Info size={16} aria-hidden />{" "}{tr("关于 agentbus")}</Link>
             </DropdownMenu.Item>
             <DropdownMenu.Item className={menuItemCls} onSelect={openChangelog}>
               <Sparkles size={16} aria-hidden />
-              <span className="flex-1">更新日志</span>
+              <span className="flex-1">{tr("更新日志")}</span>
               <span className="tabular text-caption text-fg-caption">v{__APP_VERSION__}</span>
               {unseen ? <NewDot /> : null}
             </DropdownMenu.Item>
             <DropdownMenu.Item asChild>
               <a href="/cdn-cgi/access/logout" className={cn(menuItemCls, "text-danger-text")}>
-                <LogOut size={16} aria-hidden /> 退出登录
-              </a>
+                <LogOut size={16} aria-hidden />{" "}{tr("退出登录")}</a>
             </DropdownMenu.Item>
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
@@ -319,6 +321,7 @@ function AvatarMenu() {
 
 /** Minimal frame for pages that work without a current team (invite links). */
 function BareShell({ children }: { children: ReactNode }) {
+  useLanguage();
   return (
     <div className="flex min-h-dvh flex-col">
       <header className="flex h-14 items-center gap-2.5 px-5 md:px-8">
@@ -330,7 +333,8 @@ function BareShell({ children }: { children: ReactNode }) {
           ab
         </span>
         <span className="flex-1 text-[17px] font-semibold tracking-tight">agentbus hub</span>
-        <ThemeToggle />
+        <LanguageToggle />
+            <ThemeToggle />
       </header>
       <main id="main" className="mx-auto flex w-full max-w-[1080px] flex-1 flex-col px-4 pb-12 md:px-8">
         {children}
@@ -340,8 +344,9 @@ function BareShell({ children }: { children: ReactNode }) {
 }
 
 function BootSkeleton() {
+  useLanguage();
   return (
-    <div className="min-h-dvh md:pl-[240px]" aria-busy="true" aria-label="加载中">
+    <div className="min-h-dvh md:pl-[240px]" aria-busy="true" aria-label={tr("加载中")}>
       <div className="glass-bar fixed inset-y-0 left-0 hidden w-[240px] border-y-0 border-l-0 md:block" />
       <div className="mx-auto max-w-[1200px] space-y-4 px-4 pt-20 md:px-8">
         <div className="skeleton h-10 w-72" />
@@ -362,6 +367,7 @@ function BootSkeleton() {
  *  - otherwise the full app shell.
  */
 export function Layout() {
+  useLanguage();
   const path = useRouterState({ select: (s) => s.location.pathname });
   const me = useMe();
   if (path.startsWith("/invite/") || (path === "/about" && me.data && !me.data.team)) {
@@ -392,6 +398,7 @@ export function Layout() {
 }
 
 function Shell({ path, teamId }: { path: string; teamId: string }) {
+  useLanguage();
   useChangePolling();
   const reduced = useReducedMotion() ?? false;
   const [collapsed, setCollapsed] = useState(() => {
@@ -434,9 +441,7 @@ function Shell({ path, teamId }: { path: string; teamId: string }) {
   return (
     <AddAgentProvider>
     <div className="min-h-dvh">
-      <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[80] focus:btn focus:btn-primary">
-        跳到正文
-      </a>
+      <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[80] focus:btn focus:btn-primary">{tr("跳到正文")}</a>
       <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} path={path} />
       <div
         className="flex min-h-dvh flex-col transition-[padding] duration-300 ease-smooth md:pl-[var(--sidebar-w)]"
@@ -447,16 +452,17 @@ function Shell({ path, teamId }: { path: string; teamId: string }) {
           <button
             className="btn btn-secondary h-9 w-9 px-0 sm:w-auto sm:min-w-[200px] sm:justify-start sm:px-3"
             onClick={() => setPaletteOpen(true, "click")}
-            aria-label="搜索"
+            aria-label={tr("搜索")}
             aria-keyshortcuts={isMac ? "Meta+K" : "Control+K"}
           >
             <Search size={16} aria-hidden />
-            <span className="hidden flex-1 text-left font-normal text-fg-3 sm:inline">搜索帖子…</span>
+            <span className="hidden flex-1 text-left font-normal text-fg-3 sm:inline">{tr("搜索帖子…")}</span>
             <kbd className="hidden rounded-[6px] border border-line px-1.5 text-caption text-fg-caption sm:inline">
               {isMac ? "⌘K" : "Ctrl K"}
             </kbd>
           </button>
-          <ThemeToggle />
+          <LanguageToggle />
+            <ThemeToggle />
           <GlobalPause />
           <AvatarMenu />
         </header>

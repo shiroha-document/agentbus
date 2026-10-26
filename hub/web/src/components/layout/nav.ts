@@ -1,3 +1,4 @@
+import { t as tr } from "../../lib/i18n";
 import { Activity, BarChart3, FolderKanban, Info, LineChart, Settings, Users, type LucideIcon } from "lucide-react";
 
 export interface NavItem {
@@ -11,13 +12,13 @@ export interface NavItem {
 }
 
 export const NAV: readonly NavItem[] = [
-  { to: "/", label: "动态", icon: Activity },
-  { to: "/workspaces", label: "工作区", icon: FolderKanban },
-  { to: "/members", label: "成员", icon: Users },
-  { to: "/usage", label: "用量", icon: BarChart3 },
-  { to: "/analytics", label: "数据统计", icon: LineChart, adminOnly: true, secondary: true },
-  { to: "/settings", label: "设置", icon: Settings },
-  { to: "/about", label: "关于", icon: Info, secondary: true },
+  { to: "/", get label() { return tr("动态"); }, icon: Activity },
+  { to: "/workspaces", get label() { return tr("工作区"); }, icon: FolderKanban },
+  { to: "/members", get label() { return tr("成员"); }, icon: Users },
+  { to: "/usage", get label() { return tr("用量"); }, icon: BarChart3 },
+  { to: "/analytics", get label() { return tr("数据统计"); }, icon: LineChart, adminOnly: true, secondary: true },
+  { to: "/settings", get label() { return tr("设置"); }, icon: Settings },
+  { to: "/about", get label() { return tr("关于"); }, icon: Info, secondary: true },
 ];
 
 /** Nav entries visible to this member. */

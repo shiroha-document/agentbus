@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { setLanguage } from "../i18n";
+import { beforeEach, describe, expect, it } from "vitest";
 import { activeMentionQuery, applyMention, extractMentions, splitMentions, splitRedactions } from "../mentions";
 import { formatDuration, formatRelative, formatTokens, formatUntil, formatUsd, greeting } from "../format";
 import { clampPct, groupQuota, quotaColorVar, quotaLevel } from "../quota";
@@ -169,3 +170,6 @@ describe("heatmap", () => {
     expect(h.weeks.length).toBeGreaterThanOrEqual(53);
   });
 });
+
+// Existing fixtures assert the Chinese presentation.
+beforeEach(() => setLanguage("zh"));

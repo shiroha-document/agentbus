@@ -1,3 +1,4 @@
+import { t as tr, useLanguage, localized } from "../lib/i18n";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
@@ -12,6 +13,7 @@ import { toast } from "../components/ui/Toast";
 import { QueryError } from "../components/layout/RouteStates";
 
 function Card({ children }: { children: React.ReactNode }) {
+  useLanguage();
   const reduced = useReducedMotion() ?? false;
   return (
     <div className="flex flex-1 items-center justify-center py-10">
@@ -29,6 +31,7 @@ function Card({ children }: { children: React.ReactNode }) {
 }
 
 function Problem({ icon: Icon, title, desc }: { icon: typeof Clock; title: string; desc: string }) {
+  useLanguage();
   const me = useMe();
   return (
     <Card>
@@ -38,13 +41,14 @@ function Problem({ icon: Icon, title, desc }: { icon: typeof Clock; title: strin
       <h1 className="text-title-1">{title}</h1>
       <p className="text-fg-2">{desc}</p>
       <Link to="/" className="btn btn-secondary btn-lg mt-2">
-        {me.data?.team ? "回到我的团队" : "返回首页"}
+        {me.data?.team ? tr("回到我的团队") : tr("返回首页")}
       </Link>
     </Card>
   );
 }
 
 export function InvitePage() {
+  useLanguage();
   const { token } = useParams({ from: "/invite/$token" });
   const navigate = useNavigate();
   const me = useMe();
@@ -67,7 +71,7 @@ export function InvitePage() {
     try {
       const { team } = await api.acceptInvite(token);
       await enter(team.id);
-      toast.success(`已加入「${team.name}」`);
+      toast.success(localized("已加入「{0}」", [team.name]));
     } catch (e) {
       toast.error(e);
       setBusy(false);
@@ -89,7 +93,7 @@ export function InvitePage() {
   if (preview.isError) {
     const e = preview.error;
     if (e instanceof ApiError && (e.status === 404 || e.status === 400 || e.status === 410)) {
-      return <Problem icon={LinkIcon} title="邀请链接无效" desc="链接可能拼写有误，或已经被管理员删除。请让团队管理员重新发一个邀请链接。" />;
+      return <Problem icon={LinkIcon} title={tr("邀请链接无效")} desc={tr("链接可能拼写有误，或已经被管理员删除。请让团队管理员重新发一个邀请链接。")} />;
     }
     return (
       <div className="mt-16">
@@ -105,12 +109,10 @@ export function InvitePage() {
       <Card>
         <TeamTile id={p.team.id} name={p.team.name} size={64} />
         <span className="chip">
-          <UserCheck size={12} aria-hidden /> 已是成员
-        </span>
-        <h1 className="text-title-1">你已经在「{p.team.name}」里了</h1>
-        <p className="text-fg-2">不需要再接受这个邀请，直接进入团队即可。</p>
-        <button className="btn btn-primary btn-lg mt-2 w-full" onClick={() => void enter(p.team.id)}>
-          进入团队 <ArrowRight size={16} aria-hidden />
+          <UserCheck size={12} aria-hidden />{" "}{tr("已是成员")}</span>
+        <h1 className="text-title-1">{tr("你已经在「")}{p.team.name}{tr("」里了")}</h1>
+        <p className="text-fg-2">{tr("不需要再接受这个邀请，直接进入团队即可。")}</p>
+        <button className="btn btn-primary btn-lg mt-2 w-full" onClick={() => void enter(p.team.id)}>{tr("进入团队")}{" "}<ArrowRight size={16} aria-hidden />
         </button>
       </Card>
     );
@@ -119,9 +121,9 @@ export function InvitePage() {
   if (!p.valid) {
     const expired = p.expires_at <= Date.now();
     return expired ? (
-      <Problem icon={Clock} title="邀请链接已过期" desc={`这个邀请已于 ${formatDateTime(p.expires_at)} 过期。请让 ${p.inviter.display_name} 重新发一个。`} />
+      <Problem icon={Clock} title={tr("邀请链接已过期")} desc={tr("这个邀请已于 {0} 过期。请让 {1} 重新发一个。", [formatDateTime(p.expires_at), p.inviter.display_name])} />
     ) : (
-      <Problem icon={LinkIcon} title="邀请链接已失效" desc={`这个邀请已经被使用或被作废。邀请链接只能使用一次，请让 ${p.inviter.display_name} 重新发一个。`} />
+      <Problem icon={LinkIcon} title={tr("邀请链接已失效")} desc={tr("这个邀请已经被使用或被作废。邀请链接只能使用一次，请让 {0} 重新发一个。", [p.inviter.display_name])} />
     );
   }
 
@@ -130,16 +132,14 @@ export function InvitePage() {
       <TeamTile id={p.team.id} name={p.team.name} size={64} />
       <p className="text-callout font-normal text-fg-2">
         <span className="text-fg">{p.inviter.display_name}</span>
-        <span className="text-fg-caption"> @{p.inviter.name}</span> 邀请你加入
-      </p>
+        <span className="text-fg-caption"> @{p.inviter.name}</span>{" "}{tr("邀请你加入")}</p>
       <h1 className="text-title-1">{p.team.name}</h1>
-      <p className="text-fg-2">加入后你会成为团队管理员，可以查看讨论串、审批 agent 和管理设置。</p>
+      <p className="text-fg-2">{tr("加入后你会成为团队管理员，可以查看讨论串、审批 agent 和管理设置。")}</p>
       <button className="btn btn-primary btn-lg mt-2 w-full" disabled={busy || me.isPending} onClick={() => void accept()}>
-        <LogIn size={16} aria-hidden /> {busy ? "加入中…" : "接受邀请并加入"}
+        <LogIn size={16} aria-hidden /> {busy ? tr("加入中…") : tr("接受邀请并加入")}
       </button>
       <p className="flex items-center gap-1.5 text-caption text-fg-caption">
-        <Clock size={12} aria-hidden /> {formatUntil(p.expires_at)}后失效 · 以 {me.data?.identity.email ?? "当前账户"} 加入
-      </p>
+        <Clock size={12} aria-hidden /> {formatUntil(p.expires_at)}{tr("后失效 · 以")}{" "}{me.data?.identity.email ?? tr("当前账户")}{" "}{tr("加入")}</p>
     </Card>
   );
 }

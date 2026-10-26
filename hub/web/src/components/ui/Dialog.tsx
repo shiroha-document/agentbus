@@ -1,3 +1,4 @@
+import { t as tr, useLanguage } from "../../lib/i18n";
 import * as RDialog from "@radix-ui/react-dialog";
 import { motion, useReducedMotion } from "motion/react";
 import { X } from "lucide-react";
@@ -16,6 +17,7 @@ interface DialogProps {
 }
 
 export function Dialog({ open, onOpenChange, title, description, children, footer, wide }: DialogProps) {
+  useLanguage();
   const reduced = useReducedMotion() ?? false;
   return (
     <RDialog.Root open={open} onOpenChange={onOpenChange}>
@@ -46,7 +48,7 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
                   <RDialog.Description className="sr-only">{title}</RDialog.Description>
                 )}
               </div>
-              <RDialog.Close className="btn btn-ghost btn-icon -mr-2 -mt-1" aria-label="关闭">
+              <RDialog.Close className="btn btn-ghost btn-icon -mr-2 -mt-1" aria-label={tr("关闭")}>
                 <X size={18} />
               </RDialog.Close>
             </div>
@@ -71,6 +73,7 @@ export function Drawer({
   title: string;
   children: ReactNode;
 }) {
+  useLanguage();
   const reduced = useReducedMotion() ?? false;
   return (
     <RDialog.Root open={open} onOpenChange={onOpenChange}>
@@ -86,7 +89,7 @@ export function Drawer({
             <div className="flex items-center gap-3 px-6 pb-3 pt-5">
               <RDialog.Title className="flex-1 text-title-2">{title}</RDialog.Title>
               <RDialog.Description className="sr-only">{title}</RDialog.Description>
-              <RDialog.Close className="btn btn-ghost btn-icon -mr-2" aria-label="关闭">
+              <RDialog.Close className="btn btn-ghost btn-icon -mr-2" aria-label={tr("关闭")}>
                 <X size={18} />
               </RDialog.Close>
             </div>
@@ -120,6 +123,7 @@ export function ConfirmDialog({
   onConfirm: () => void;
   children?: ReactNode;
 }) {
+  useLanguage();
   return (
     <Dialog
       open={open}
@@ -128,9 +132,7 @@ export function ConfirmDialog({
       description={description}
       footer={
         <>
-          <button className="btn btn-secondary btn-lg sm:h-9" onClick={() => onOpenChange(false)}>
-            取消
-          </button>
+          <button className="btn btn-secondary btn-lg sm:h-9" onClick={() => onOpenChange(false)}>{tr("取消")}</button>
           <button
             className={cn("btn btn-lg sm:h-9", danger ? "btn-danger-solid" : "btn-primary")}
             disabled={busy}

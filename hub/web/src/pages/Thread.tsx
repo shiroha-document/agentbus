@@ -1,3 +1,4 @@
+import { t as tr, useLanguage } from "../lib/i18n";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useRouterState } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
@@ -23,6 +24,7 @@ import { QueryError, RoutePending } from "../components/layout/RouteStates";
 import { StatusChip, leaseText, useMemberMap } from "../components/threads";
 
 function LabelsEditor({ labels, onChange, busy }: { labels: string[]; onChange: (l: string[]) => void; busy: boolean }) {
+  useLanguage();
   const [adding, setAdding] = useState(false);
   const [v, setV] = useState("");
   const add = () => {
@@ -38,7 +40,7 @@ function LabelsEditor({ labels, onChange, busy }: { labels: string[]; onChange: 
           {l}
           <button
             className="flex h-4 w-4 items-center justify-center rounded-full hover:bg-mint-200"
-            aria-label={`移除标签 ${l}`}
+            aria-label={tr("移除标签 {0}", [l])}
             disabled={busy}
             onClick={() => onChange(labels.filter((x) => x !== l))}
           >
@@ -64,12 +66,11 @@ function LabelsEditor({ labels, onChange, busy }: { labels: string[]; onChange: 
               setAdding(false);
             }
           }}
-          aria-label="新标签"
+          aria-label={tr("新标签")}
         />
       ) : (
         <button className="btn btn-ghost h-7 min-h-0 rounded-full px-2 text-caption" onClick={() => setAdding(true)} disabled={busy}>
-          <Plus size={12} aria-hidden /> 标签
-        </button>
+          <Plus size={12} aria-hidden />{" "}{tr("标签")}</button>
       )}
     </div>
   );
@@ -97,6 +98,7 @@ function JumpButtons({
   onTop: () => void;
   onConfirm: () => void;
 }) {
+  useLanguage();
   const reduced = useReducedMotion() ?? false;
   const show = !atBottom || pendingConfirms > 0;
   return (
@@ -110,27 +112,25 @@ function JumpButtons({
           transition={reduced ? reducedFade : springSnappy}
           className="pointer-events-none absolute bottom-full right-2 mb-2 flex flex-col items-end gap-2"
           role="group"
-          aria-label="快速跳转"
+          aria-label={tr("快速跳转")}
         >
           {pendingConfirms > 0 ? (
             <button type="button" className="glass-3 btn pointer-events-auto h-9 min-h-0 rounded-full px-3 text-callout text-warning-text" onClick={onConfirm}>
-              <Hourglass size={14} aria-hidden /> 下一个待确认
-              <span className="tabular chip chip-warning h-5 min-h-0 px-1.5">{pendingConfirms}</span>
+              <Hourglass size={14} aria-hidden />{" "}{tr("下一个待确认")}<span className="tabular chip chip-warning h-5 min-h-0 px-1.5">{pendingConfirms}</span>
             </button>
           ) : null}
           {!atBottom ? (
             <div className="flex gap-2">
-              <button type="button" className="glass-3 btn btn-icon pointer-events-auto h-9 min-h-0 w-9 rounded-full" onClick={onTop} aria-label="跳到顶部">
+              <button type="button" className="glass-3 btn btn-icon pointer-events-auto h-9 min-h-0 w-9 rounded-full" onClick={onTop} aria-label={tr("跳到顶部")}>
                 <ArrowUpToLine size={16} aria-hidden />
               </button>
               <button
                 type="button"
                 className="glass-3 btn pointer-events-auto relative h-9 min-h-0 rounded-full px-3 text-callout"
                 onClick={onBottom}
-                aria-label={unread > 0 ? `跳到底部，有 ${unread} 条新消息` : "跳到底部"}
+                aria-label={unread > 0 ? tr("跳到底部，有 {0} 条新消息", [unread]) : tr("跳到底部")}
               >
-                <ArrowDownToLine size={16} aria-hidden /> 跳到底部
-                {unread > 0 ? (
+                <ArrowDownToLine size={16} aria-hidden />{" "}{tr("跳到底部")}{unread > 0 ? (
                   <span className="tabular absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-mint-600 px-1 text-[11px] font-semibold text-white" aria-hidden>
                     {unread > 99 ? "99+" : unread}
                   </span>
@@ -145,12 +145,14 @@ function JumpButtons({
 }
 
 export function ThreadPage() {
+  useLanguage();
   const { id } = useParams({ from: "/threads/$id" });
   // Keyed so paging, scroll and "seen" tracking reset when moving between threads.
   return <ThreadView key={id} id={id} />;
 }
 
 function ThreadView({ id }: { id: string }) {
+  const language = useLanguage();
   const hash = useRouterState({ select: (s) => s.location.hash });
   const reduced = useReducedMotion() ?? false;
   const arrive = arriveVariants(reduced);
@@ -260,7 +262,7 @@ function ThreadView({ id }: { id: string }) {
   }, [posts, hash]);
 
   const postById = useMemo(() => new Map((posts ?? []).map((p) => [p.id, p])), [posts]);
-  const rows = useMemo(() => buildRows(posts ?? [], now), [posts, now]);
+  const rows = useMemo(() => buildRows(posts ?? [], now), [posts, now, language]);
   const superseded = useMemo(() => supersededProgress(posts ?? []), [posts]);
   const pendingConfirms = useMemo(() => (posts ?? []).filter((p) => p.kind === "confirm" && p.confirmation?.status === "pending").length, [posts]);
 
@@ -329,8 +331,8 @@ function ThreadView({ id }: { id: string }) {
             <Link to="/workspaces/$id" params={{ id: w.id }} className="hover:text-fg">
               {w.name}
             </Link>
-            <span>创建于 {formatRelative(t.created_at)}</span>
-            <span className="tabular">{hasMore ? `已加载 ${all.length} 条帖子` : `${all.length} 条帖子`}</span>
+            <span>{tr("创建于")}{" "}{formatRelative(t.created_at)}</span>
+            <span className="tabular">{hasMore ? tr("已加载 {0} 条帖子", [all.length]) : tr("{0} 条帖子", [all.length])}</span>
             {lease ? (
               <span className="inline-flex items-center gap-1 text-mint-700">
                 <Lock size={12} aria-hidden />
@@ -353,30 +355,28 @@ function ThreadView({ id }: { id: string }) {
               <div className="glass-1 card flex flex-wrap items-center gap-3 border-l-[3px] border-l-warning p-4" role="alert">
                 <PauseOctagon size={20} className="flex-none text-warning-text" aria-hidden />
                 <div className="min-w-0 flex-1">
-                  <div className="text-callout font-semibold">这个讨论串因刷屏被自动暂停</div>
-                  <div className="text-caption text-fg-caption">agent 短时间内发帖过多。解除前不会再投递新消息。</div>
+                  <div className="text-callout font-semibold">{tr("这个讨论串因刷屏被自动暂停")}</div>
+                  <div className="text-caption text-fg-caption">{tr("agent 短时间内发帖过多。解除前不会再投递新消息。")}</div>
                 </div>
-                <button className="btn btn-primary btn-lg sm:h-9" disabled={patch.isPending} onClick={() => update({ auto_paused: false })}>
-                  解除
-                </button>
+                <button className="btn btn-primary btn-lg sm:h-9" disabled={patch.isPending} onClick={() => update({ auto_paused: false })}>{tr("解除")}</button>
               </div>
             </motion.div>
           ) : null}
         </AnimatePresence>
 
-        <section ref={listTop} className="glass-1 card scroll-mt-24 px-3 py-2 sm:px-4" aria-label="帖子">
+        <section ref={listTop} className="glass-1 card scroll-mt-24 px-3 py-2 sm:px-4" aria-label={tr("帖子")}>
           {hasMore ? (
             <div className="flex justify-center py-2">
               <button className="btn btn-ghost btn-sm" disabled={loadingOlder} onClick={() => void loadOlder()} aria-busy={loadingOlder}>
                 <History size={14} aria-hidden />
-                {loadingOlder ? "加载中…" : "加载更早的消息"}
+                {loadingOlder ? tr("加载中…") : tr("加载更早的消息")}
               </button>
             </div>
           ) : all.length > 0 && older.length > 0 ? (
-            <p className="py-2 text-center text-caption text-fg-caption">已经到最早的消息了</p>
+            <p className="py-2 text-center text-caption text-fg-caption">{tr("已经到最早的消息了")}</p>
           ) : null}
           {all.length === 0 ? (
-            <EmptyState art="inbox" compact title="还没有帖子" />
+            <EmptyState art="inbox" compact title={tr("还没有帖子")} />
           ) : (
             <div className="flex flex-col">
               {rows.map((row) => {
@@ -438,30 +438,30 @@ function ThreadView({ id }: { id: string }) {
         </div>
       </div>
 
-      <aside className="flex flex-col gap-4 lg:sticky lg:top-20" aria-label="讨论串信息">
+      <aside className="flex flex-col gap-4 lg:sticky lg:top-20" aria-label={tr("讨论串信息")}>
         <section className="glass-1 card flex flex-col gap-4 p-5">
           <label className="flex flex-col gap-1.5">
-            <span className="text-caption text-fg-caption">状态</span>
+            <span className="text-caption text-fg-caption">{tr("状态")}</span>
             <select
               className="field"
               value={t.status}
               disabled={patch.isPending}
               onChange={(e) => update({ status: e.target.value as ThreadStatus })}
             >
-              <option value="open">进行中</option>
-              <option value="done">已完成</option>
-              <option value="closed">已关闭</option>
+              <option value="open">{tr("进行中")}</option>
+              <option value="done">{tr("已完成")}</option>
+              <option value="closed">{tr("已关闭")}</option>
             </select>
           </label>
           <label className="flex flex-col gap-1.5">
-            <span className="text-caption text-fg-caption">负责人</span>
+            <span className="text-caption text-fg-caption">{tr("负责人")}</span>
             <select
               className="field"
               value={t.assignee_id ?? ""}
               disabled={patch.isPending}
               onChange={(e) => update({ assignee: e.target.value || null })}
             >
-              <option value="">未指派</option>
+              <option value="">{tr("未指派")}</option>
               {assignee && !agents.some((a) => a.id === assignee.id) ? (
                 <option value={assignee.id}>{assignee.display_name}</option>
               ) : null}
@@ -474,13 +474,12 @@ function ThreadView({ id }: { id: string }) {
           </label>
           <div className="flex flex-col gap-1.5">
             <span className="inline-flex items-center gap-1 text-caption text-fg-caption">
-              <Tag size={12} aria-hidden /> 标签
-            </span>
+              <Tag size={12} aria-hidden />{" "}{tr("标签")}</span>
             <LabelsEditor labels={t.labels} busy={patch.isPending} onChange={(labels) => update({ labels })} />
           </div>
           <div className="flex flex-col gap-1 text-caption text-fg-caption">
-            <span>租约</span>
-            <span className={lease ? "text-mint-700" : ""}>{lease ?? "当前没有 agent 在处理"}</span>
+            <span>{tr("租约")}</span>
+            <span className={lease ? "text-mint-700" : ""}>{lease ?? tr("当前没有 agent 在处理")}</span>
           </div>
         </section>
       </aside>

@@ -11,7 +11,7 @@ const SHELL = "agentbus-shell-v1";
 const ASSETS = "agentbus-assets-v1";
 const KEEP = [SHELL, ASSETS];
 const MAX_ASSETS = 80;
-const STATIC = ["/favicon.svg", "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png", "/apple-touch-icon.png", "/manifest.webmanifest", "/theme-init.js"];
+const STATIC = ["/favicon.svg", "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png", "/apple-touch-icon.png", "/manifest.webmanifest", "/manifest.zh.webmanifest", "/theme-init.js"];
 
 self.addEventListener("install", () => {
   self.skipWaiting();

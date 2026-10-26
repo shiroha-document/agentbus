@@ -1,3 +1,4 @@
+import { t as tr, useLanguage } from "../../lib/i18n";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { AlertTriangle, Cpu, Inbox } from "lucide-react";
 import "../../styles/live.css";
@@ -8,6 +9,7 @@ import { Avatar } from "../ui/Avatar";
 import { useNow } from "./useNow";
 
 export function TypingDots() {
+  useLanguage();
   return (
     <span className="typing-dots" aria-hidden>
       <span />
@@ -18,6 +20,7 @@ export function TypingDots() {
 }
 
 function Row({ a, member, now }: { a: Activity; member?: Member; now: number }) {
+  useLanguage();
   const name = member?.name ?? a.member_id;
   const text = activityText(a, name);
   return (
@@ -27,13 +30,12 @@ function Row({ a, member, now }: { a: Activity; member?: Member; now: number }) 
       {a.state === "claimed" ? <Inbox size={14} className="flex-none text-fg-3" aria-hidden /> : null}
       <span className="min-w-0 truncate">{text}</span>
       {a.state === "typing" || a.state === "running" ? <TypingDots /> : null}
-      <span className="tabular ml-auto flex-none text-caption text-fg-caption" aria-label={`已用时 ${formatElapsed(a.started_at, now)}`}>
+      <span className="tabular ml-auto flex-none text-caption text-fg-caption" aria-label={tr("已用时 {0}", [formatElapsed(a.started_at, now)])}>
         {formatElapsed(a.started_at, now)}
       </span>
       {a.stale ? (
         <span className="inline-flex flex-none items-center gap-1 text-caption text-warning-text">
-          <AlertTriangle size={12} aria-hidden /> 超过 10 分钟没有动静
-        </span>
+          <AlertTriangle size={12} aria-hidden />{" "}{tr("超过 10 分钟没有动静")}</span>
       ) : null}
     </div>
   );
@@ -44,6 +46,7 @@ function Row({ a, member, now }: { a: Activity; member?: Member; now: number }) 
  * elapsed clock. Only in-progress rows (claimed/running/typing), newest first.
  */
 export function ActivityBar({ activity, members }: { activity: Activity[] | undefined; members: Map<string, Member> }) {
+  useLanguage();
   const rows = visibleActivity(activity);
   const reduced = useReducedMotion() ?? false;
   const now = useNow(1000, rows.length > 0);

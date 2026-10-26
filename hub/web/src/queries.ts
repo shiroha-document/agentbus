@@ -1,7 +1,7 @@
 import { QueryClient, useMutation, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api, ApiError } from "./api";
-import { toast } from "./components/ui/Toast";
+import { toast, type ToastMessage } from "./components/ui/Toast";
 import { isLiveActive } from "./lib/live";
 import { isAdminRole, isOwnerRole, setStoredTeam } from "./lib/team";
 
@@ -56,7 +56,7 @@ export const useWorkspaces = () => useQuery({ queryKey: qk.workspaces, queryFn: 
 export const useSettings = () => useQuery({ queryKey: qk.settings, queryFn: api.settings });
 
 /** Mutation helper: runs fn, then invalidates everything (server is the source of truth). */
-export function useAction<TArgs, TResult>(fn: (a: TArgs) => Promise<TResult>, opts?: { success?: string; invalidate?: QueryKey[] }) {
+export function useAction<TArgs, TResult>(fn: (a: TArgs) => Promise<TResult>, opts?: { success?: ToastMessage; invalidate?: QueryKey[] }) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: fn,

@@ -67,3 +67,23 @@ describe("pwa helpers", () => {
     expect(isIOS("Mozilla/5.0 (Linux; Android 15)", 5)).toBe(false);
   });
 });
+
+describe("localized PWA metadata", () => {
+  it("matches the dictionary in both languages without changing installed app identity", async () => {
+    const { t, manifestUrl } = await import("../i18n");
+    const en = JSON.parse(readFileSync(pub("manifest.webmanifest"), "utf8"));
+    expect(en.lang).toBe("en");
+    expect(en.description).toBe(t("manifest.description", [], "en"));
+    expect(manifestUrl("en")).toBe("/manifest.webmanifest");
+    const zh = JSON.parse(readFileSync(pub("manifest.zh.webmanifest"), "utf8"));
+    expect(zh.lang).toBe("zh-CN");
+    expect(zh.description).toBe(t("manifest.description", [], "zh"));
+    expect(manifestUrl("zh")).toBe("/manifest.zh.webmanifest");
+    for (const field of ["id", "start_url", "scope", "name", "short_name", "icons"]) expect(zh[field]).toEqual(en[field]);
+    for (const [index, key] of ["动态", "工作区", "成员"].entries()) {
+      expect(en.shortcuts[index].name).toBe(t(key as "动态" | "工作区" | "成员", [], "en"));
+      expect(zh.shortcuts[index].name).toBe(t(key as "动态" | "工作区" | "成员", [], "zh"));
+      expect(zh.shortcuts[index].url).toBe(en.shortcuts[index].url);
+    }
+  });
+});

@@ -1,3 +1,4 @@
+import { t as tr, useLanguage } from "../../lib/i18n";
 // Version badge + changelog dialog (contract §6). One dialog instance is mounted by the layout;
 // anything (palette, About page, badge) opens it through `openChangelog()`.
 import { lazy, Suspense, useSyncExternalStore } from "react";
@@ -7,7 +8,7 @@ import { Tip } from "../ui/Tip";
 import { cn } from "../../lib/util";
 import { track } from "../../lib/telemetry";
 import { APP_VERSION, SEEN_VERSION_KEY, hasUnseenVersion } from "../../lib/version";
-import { CHANGELOG_BODY } from "../../lib/changelog";
+import { getChangelog } from "../../lib/changelog";
 
 const Markdown = lazy(() => import("../Markdown"));
 
@@ -59,17 +60,18 @@ export function useChangelog(): State & { setOpen: (o: boolean) => void } {
 // ---------------------------------------------------------------- UI
 
 export function ChangelogDialog() {
+  useLanguage();
   const { open, setOpen } = useChangelog();
   return (
     <Dialog
       open={open}
       onOpenChange={setOpen}
-      title="更新日志"
-      description={`当前版本 v${APP_VERSION}`}
+      title={tr("更新日志")}
+      description={tr("当前版本 v{0}", [APP_VERSION])}
       wide
     >
-      <Suspense fallback={<div className="skeleton h-40 w-full" aria-label="加载中" />}>
-        <Markdown className="changelog pb-2">{CHANGELOG_BODY || "暂无更新日志"}</Markdown>
+      <Suspense fallback={<div className="skeleton h-40 w-full" aria-label={tr("加载中")} />}>
+        <Markdown className="changelog pb-2">{getChangelog().body || tr("暂无更新日志")}</Markdown>
       </Suspense>
     </Dialog>
   );
@@ -77,19 +79,19 @@ export function ChangelogDialog() {
 
 /** "新" dot next to anything that opens the changelog. */
 export function NewDot({ className }: { className?: string }) {
+  useLanguage();
   return (
     <span
       className={cn("inline-flex h-[18px] items-center rounded-full bg-mint-500 px-1.5 text-[11px] font-semibold leading-none text-[var(--mint-950)]", className)}
-    >
-      新
-    </span>
+    >{tr("新")}</span>
   );
 }
 
 /** Sidebar footer badge: `v0.6.0` (+ "新" when the changelog of this version wasn't opened yet). */
 export function VersionBadge({ collapsed }: { collapsed?: boolean }) {
+  useLanguage();
   const { unseen } = useChangelog();
-  const label = unseen ? `版本 v${APP_VERSION}，有新的更新日志` : `版本 v${APP_VERSION}，查看更新日志`;
+  const label = unseen ? tr("版本 v{0}，有新的更新日志", [APP_VERSION]) : tr("版本 v{0}，查看更新日志", [APP_VERSION]);
   const btn = (
     <button
       type="button"
@@ -107,7 +109,7 @@ export function VersionBadge({ collapsed }: { collapsed?: boolean }) {
     </button>
   );
   return collapsed ? (
-    <Tip content={unseen ? `v${APP_VERSION} · 有更新` : `v${APP_VERSION} · 更新日志`} side="right">
+    <Tip content={unseen ? tr("v{0} · 有更新", [APP_VERSION]) : tr("v{0} · 更新日志", [APP_VERSION])} side="right">
       {btn}
     </Tip>
   ) : (

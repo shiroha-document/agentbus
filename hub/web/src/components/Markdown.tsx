@@ -1,3 +1,4 @@
+import { t as tr, useLanguage } from "../lib/i18n";
 import { memo } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -81,16 +82,15 @@ const components: Components = {
   },
   img: ({ src, alt }) => {
     const url = typeof src === "string" ? safeUrl(src) : null;
-    if (!url || !url.startsWith("https://")) return <span>{alt ? `[图片：${alt}]` : "[图片]"}</span>;
+    if (!url || !url.startsWith("https://")) return <span>{alt ? tr("[图片：{0}]", [alt]) : tr("[图片]")}</span>;
     return <img src={url} alt={alt ?? ""} loading="lazy" referrerPolicy="no-referrer" />;
   },
   span: ({ node: _node, children, ...props }) => {
     const p = props as Record<string, unknown>;
     if (typeof p["data-redacted"] === "string") {
       return (
-        <span className="redacted" title="此处密钥已被服务端打码">
-          <Lock size={12} aria-hidden />
-          已打码:{String(p["data-redacted"])}
+        <span className="redacted" title={tr("此处密钥已被服务端打码")}>
+          <Lock size={12} aria-hidden />{tr("已打码:")}{String(p["data-redacted"])}
         </span>
       );
     }
@@ -102,6 +102,7 @@ const components: Components = {
 };
 
 function MarkdownImpl({ children, names, className }: { children: string; names?: ReadonlySet<string>; className?: string }) {
+  useLanguage();
   return (
     <div className={className ? `md ${className}` : "md"}>
       <ReactMarkdown

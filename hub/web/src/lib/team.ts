@@ -1,3 +1,4 @@
+import { t as tr, docsUrl, getLanguage, type Language } from "./i18n";
 // Current-team plumbing (hub-api.md §0.1, §6) and small team/role helpers.
 // Everything here is pure or takes an injected storage so it can be unit-tested in node.
 
@@ -83,10 +84,10 @@ export function applyTeamParamFromLocation(
 // ---------------------------------------------------------------- roles
 
 export const ROLE_LABEL: Record<MemberRole, string> = {
-  owner: "所有者",
-  admin: "管理员",
-  manager: "Manager",
-  agent: "Agent",
+  get owner() { return tr("所有者"); },
+  get admin() { return tr("管理员"); },
+  get manager() { return tr("role.manager"); },
+  get agent() { return tr("role.agent"); },
 };
 
 export function roleLabel(role: string | null | undefined): string {
@@ -128,10 +129,10 @@ export function inviteStatus(inv: Pick<Invite, "accepted_at" | "revoked_at" | "e
 }
 
 export const INVITE_STATUS_LABEL: Record<InviteStatus, string> = {
-  pending: "待接受",
-  accepted: "已接受",
-  revoked: "已作废",
-  expired: "已过期",
+  get pending() { return tr("待接受"); },
+  get accepted() { return tr("已接受"); },
+  get revoked() { return tr("已作废"); },
+  get expired() { return tr("已过期"); },
 };
 
 export type JoinCodeStatus = "active" | "revoked" | "expired";
@@ -145,38 +146,38 @@ export function joinCodeStatus(c: { revoked_at: number | null; expires_at: numbe
 const RAW = "https://raw.githubusercontent.com/shiroha-document/agentbus/main";
 export const INSTALL_LINE = `curl -fsSL ${RAW}/install.sh | sh`;
 export const INSTALL_PS1 = `irm ${RAW}/install.ps1 | iex`;
-export const ONBOARDING_URL = "https://github.com/shiroha-document/agentbus/blob/main/docs/ONBOARDING.md";
+export const onboardingUrl = (language = getLanguage()) => docsUrl("guide/onboarding", language);
 
 function hubOf(origin: string): string {
   return origin.replace(/\/+$/, "");
 }
 
 /** Shell lines shown once after creating a join code (manual, two steps). */
-export function joinSnippet(origin: string, secret: string): string {
-  return `${INSTALL_LINE}\nagentbus setup --hub ${hubOf(origin)} --join-code ${secret}`;
+export function joinSnippet(origin: string, secret: string, language: Language = getLanguage()): string {
+  return `${INSTALL_LINE.replace("| sh", `| AGENTBUS_LANG=${language} sh`)} -s -- --no-setup\nagentbus --lang ${language} setup --hub ${hubOf(origin)} --join-code ${secret}`;
 }
 
 /** macOS / Linux: install + join in one line (install.sh runs `agentbus setup --yes`). */
-export function unixOneLiner(origin: string, secret: string): string {
-  return `${INSTALL_LINE} -s -- --hub ${hubOf(origin)} --join-code ${secret}`;
+export function unixOneLiner(origin: string, secret: string, language: Language = getLanguage()): string {
+  return `${INSTALL_LINE.replace("| sh", `| AGENTBUS_LANG=${language} sh`)} -s -- --lang ${language} --hub ${hubOf(origin)} --join-code ${secret}`;
 }
 
 /** Windows PowerShell: install + join in one line (install.ps1 reads the env vars). */
-export function windowsOneLiner(origin: string, secret: string): string {
-  return `$env:AGENTBUS_HUB='${hubOf(origin)}'; $env:AGENTBUS_JOIN_CODE='${secret}'; ${INSTALL_PS1}`;
+export function windowsOneLiner(origin: string, secret: string, language: Language = getLanguage()): string {
+  return `$env:AGENTBUS_LANG='${language}'; $env:AGENTBUS_HUB='${hubOf(origin)}'; $env:AGENTBUS_JOIN_CODE='${secret}'; ${INSTALL_PS1}`;
 }
 
 /** CLI names `--cli` accepts for coding agents tick can start. */
 export const SPAWNABLE_CLIS = ["claude", "codex", "cursor", "gemini", "traecli", "dsh"] as const;
 
 /** macOS / Linux one-liner pinned to one CLI (e.g. "manual" for a self-driven agent). */
-export function unixOneLinerFor(origin: string, secret: string, cli: string): string {
-  return `${unixOneLiner(origin, secret)} --cli ${cli}`;
+export function unixOneLinerFor(origin: string, secret: string, cli: string, language: Language = getLanguage()): string {
+  return `${unixOneLiner(origin, secret, language)} --cli ${cli}`;
 }
 
 /** Windows one-liner pinned to one CLI. */
-export function windowsOneLinerFor(origin: string, secret: string, cli: string): string {
-  return `$env:AGENTBUS_CLI='${cli}'; ${windowsOneLiner(origin, secret)}`;
+export function windowsOneLinerFor(origin: string, secret: string, cli: string, language: Language = getLanguage()): string {
+  return `$env:AGENTBUS_CLI='${cli}'; ${windowsOneLiner(origin, secret, language)}`;
 }
 
 /**
@@ -185,31 +186,31 @@ export function windowsOneLinerFor(origin: string, secret: string, cli: string):
  * agent such as OpenAI dot that can only wake itself with a scheduled task):
  * the agent installs agentbus and joins the team by itself.
  */
-export function agentPrompt(origin: string, secret: string, team?: string): string {
+export function agentPrompt(origin: string, secret: string, team?: string, language: Language = getLanguage()): string {
   const hub = hubOf(origin);
-  const where = team ? `agentbus hub（${hub}）的「${team}」团队` : `agentbus hub（${hub}）`;
+  const where = team ? tr("agentbus hub（{0}）的「{1}」团队", [hub, team], language) : tr("install.hub", [hub], language);
   return [
-    `请帮我把这台机器（或者你自己）作为 agent 接入${where}。先判断你属于哪一种：`,
+    tr("请帮我把这台机器（或者你自己）作为 agent 接入{0}。先判断你属于哪一种：", [where], language),
     "",
-    "A. 你是能被命令行启动的编程 CLI（Claude Code、Codex、Cursor、Gemini CLI、TRAE CLI、DeepSeek Harness）：",
-    "   1. 运行一条命令安装 agentbus 并加入团队，末尾的 `--cli` 换成你自己（" + SPAWNABLE_CLIS.join(" / ") + "）：",
-    `      - macOS / Linux：${unixOneLinerFor(hub, secret, "claude")}`,
-    `      - Windows PowerShell：${windowsOneLinerFor(hub, secret, "claude")}`,
-    "   2. 之后 agentbus 会用定时任务自动唤醒你处理消息，不用你再做什么。",
+    tr("A. 你是能被命令行启动的编程 CLI（Claude Code、Codex、Cursor、Gemini CLI、TRAE CLI、DeepSeek Harness）：", [], language),
+    tr("install.cli-step", [SPAWNABLE_CLIS.join(" / ")], language),
+    `      - macOS / Linux: ${unixOneLinerFor(hub, secret, "claude", language)}`,
+    `      - Windows PowerShell: ${windowsOneLinerFor(hub, secret, "claude", language)}`,
+    tr("   2. 之后 agentbus 会用定时任务自动唤醒你处理消息，不用你再做什么。", [], language),
     "",
-    "B. 你不能被命令行启动，只能靠自己的定时任务唤醒自己、手动执行命令（例如 OpenAI dot、托管型 agent）：",
-    "   1. 用自驱模式安装并加入团队：",
-    `      - macOS / Linux：${unixOneLinerFor(hub, secret, "manual")}`,
-    `      - Windows PowerShell：${windowsOneLinerFor(hub, secret, "manual")}`,
-    "   2. 在你自己的 harness 里建一个定时任务（建议每 5–15 分钟一次），每次唤醒时运行 `agentbus inbox`：",
-    "      - 输出「没有新消息」/ 退出码 3：本次结束，等下一次唤醒；",
-    "      - 输出了讨论串：按里面的提示词处理，用 `agentbus post --thread <讨论串> --body …` 回复，最后运行 `agentbus ack --thread <讨论串>`；",
-    "      - 处理超过 10 分钟先运行 `agentbus heartbeat --thread <讨论串>` 续租；做不了就 `agentbus release --thread <讨论串> --reason …` 退回。",
+    tr("B. 你不能被命令行启动，只能靠自己的定时任务唤醒自己、手动执行命令（例如 OpenAI dot、托管型 agent）：", [], language),
+    tr("   1. 用自驱模式安装并加入团队：", [], language),
+    `      - macOS / Linux: ${unixOneLinerFor(hub, secret, "manual", language)}`,
+    `      - Windows PowerShell: ${windowsOneLinerFor(hub, secret, "manual", language)}`,
+    tr("   2. 在你自己的 harness 里建一个定时任务（建议每 5–15 分钟一次），每次唤醒时运行 `agentbus inbox`：", [], language),
+    tr("      - 输出「没有新消息」/ 退出码 3：本次结束，等下一次唤醒；", [], language),
+    tr("      - 输出了讨论串：按里面的提示词处理，用 `agentbus post --thread <讨论串> --body …` 回复，最后运行 `agentbus ack --thread <讨论串>`；", [], language),
+    tr("      - 处理超过 10 分钟先运行 `agentbus heartbeat --thread <讨论串>` 续租；做不了就 `agentbus release --thread <讨论串> --reason …` 退回。", [], language),
     "",
-    "两种方式都适用：",
-    "- 如果报错，先运行 `agentbus doctor` 看哪一项失败，按提示修好后重新运行 `agentbus setup`；需要时参考接入文档：" + ONBOARDING_URL,
-    "- 完成后告诉我 agent 的名字、所在团队和状态（pending 表示等待管理员在网页上批准，这是正常的）。",
-    "- 加入码只用于首次加入，不要把它写进仓库或日志。",
+    tr("两种方式都适用：", [], language),
+    tr("install.troubleshoot", [onboardingUrl(language)], language),
+    tr("- 完成后告诉我 agent 的名字、所在团队和状态（pending 表示等待管理员在网页上批准，这是正常的）。", [], language),
+    tr("- 加入码只用于首次加入，不要把它写进仓库或日志。", [], language),
   ].join("\n");
 }
 

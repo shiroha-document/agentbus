@@ -1,3 +1,4 @@
+import { t as tr, useLanguage, localized, getLocale } from "../lib/i18n";
 // One-click agent onboarding: opening the dialog mints a join code, shows a
 // single paste-and-run line (or an AI prompt) and watches for the new agent so
 // it can be approved right here. Mounted once in the app shell; any page opens
@@ -47,6 +48,7 @@ export function useAddAgent(): () => void {
 }
 
 export function AddAgentProvider({ children }: { children: ReactNode }) {
+  useLanguage();
   const [open, setOpen] = useState(false);
   const show = useCallback(() => setOpen(true), []);
   return (
@@ -61,12 +63,13 @@ function defaultTab(): Tab {
   return typeof navigator !== "undefined" && /Win/i.test(navigator.platform || navigator.userAgent) ? "windows" : "unix";
 }
 
-function stamp(d = new Date()): string {
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+export function quickCodeLabel(d = new Date()): string {
+  const stamp = new Intl.DateTimeFormat(getLocale(), { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(d);
+  return `${tr(QUICK_CODE_LABEL)} · ${stamp}`;
 }
 
 export function AddAgentDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  useLanguage();
   const { isAdmin, team } = useRole();
   useEffect(() => {
     if (open) track("agent.add_open", {});
@@ -76,8 +79,8 @@ export function AddAgentDialog({ open, onOpenChange }: { open: boolean; onOpenCh
       open={open}
       onOpenChange={onOpenChange}
       wide
-      title="添加 agent"
-      description={isAdmin ? "复制一行命令到要接入的机器上运行，或者把提示词交给那台机器上的 AI 编码助手。" : undefined}
+      title={tr("添加 agent")}
+      description={isAdmin ? tr("复制一行命令到要接入的机器上运行，或者把提示词交给那台机器上的 AI 编码助手。") : undefined}
     >
       {!open ? null : isAdmin && team ? (
         <AddAgentBody teamId={team.id} teamName={team.name} onClose={() => onOpenChange(false)} />
@@ -86,7 +89,7 @@ export function AddAgentDialog({ open, onOpenChange }: { open: boolean; onOpenCh
           <span className="flex h-12 w-12 items-center justify-center rounded-full bg-mint-100 text-mint-700">
             <KeyRound size={22} aria-hidden />
           </span>
-          <p className="max-w-sm text-callout text-fg-2">只有团队所有者或管理员可以添加 agent。请联系管理员，在「成员 → 添加 agent」里复制接入命令给你。</p>
+          <p className="max-w-sm text-callout text-fg-2">{tr("只有团队所有者或管理员可以添加 agent。请联系管理员，在「成员 → 添加 agent」里复制接入命令给你。")}</p>
         </div>
       )}
     </Dialog>
@@ -94,6 +97,7 @@ export function AddAgentDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 }
 
 function AddAgentBody({ teamId, teamName, onClose }: { teamId: string; teamName: string; onClose: () => void }) {
+  useLanguage();
   const reduced = useReducedMotion() ?? false;
   const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>(defaultTab);
@@ -101,7 +105,7 @@ function AddAgentBody({ teamId, teamName, onClose }: { teamId: string; teamName:
     cached && cached.team === teamId && (cached.expiresAt === null || cached.expiresAt > Date.now() + 3600_000) ? cached : null,
   );
   const create = useAction(
-    () => api.createJoinCode({ label: `${QUICK_CODE_LABEL} · ${stamp()}`, expires_in_days: QUICK_CODE_DAYS }),
+    () => api.createJoinCode({ label: quickCodeLabel(), expires_in_days: QUICK_CODE_DAYS }),
     { invalidate: [qk.joinCodes] },
   );
   const mint = useCallback(() => {
@@ -134,14 +138,14 @@ function AddAgentBody({ teamId, teamName, onClose }: { teamId: string; teamName:
   const tabs: { value: Tab; label: string; icon: typeof Terminal }[] = [
     { value: "unix", label: "macOS / Linux", icon: Terminal },
     { value: "windows", label: "Windows", icon: AppWindow },
-    { value: "ai", label: "交给 AI 来装", icon: Sparkles },
+    { value: "ai", label: tr("交给 AI 来装"), icon: Sparkles },
   ];
 
   return (
     <div className="flex flex-col gap-5 pb-2">
-      <section aria-label="接入命令" className="flex flex-col gap-3">
-        <StepTitle n={1}>{tab === "ai" ? "把提示词粘贴给要接入的 agent：Claude Code / Codex / Cursor 等编程 CLI，或 OpenAI dot 这类自己定时唤醒的 agent" : "在要接入的机器上，打开终端粘贴运行"}</StepTitle>
-        <div className="flex flex-wrap gap-1 self-start rounded-[12px] bg-mint-100/60 p-1" role="tablist" aria-label="接入方式">
+      <section aria-label={tr("接入命令")} className="flex flex-col gap-3">
+        <StepTitle n={1}>{tab === "ai" ? tr("把提示词粘贴给要接入的 agent：Claude Code / Codex / Cursor 等编程 CLI，或 OpenAI dot 这类自己定时唤醒的 agent") : tr("在要接入的机器上，打开终端粘贴运行")}</StepTitle>
+        <div className="flex flex-wrap gap-1 self-start rounded-[12px] bg-mint-100/60 p-1" role="tablist" aria-label={tr("接入方式")}>
           {tabs.map(({ value, label, icon: Icon }) => (
             <button
               key={value}
@@ -162,38 +166,35 @@ function AddAgentBody({ teamId, teamName, onClose }: { teamId: string; teamName:
         {create.isError && !code ? (
           <div className="flex items-center gap-3 rounded-[16px] border border-line bg-surface-strong p-4 text-callout">
             <X size={18} className="flex-none text-danger-text" aria-hidden />
-            <span className="flex-1 text-fg-2">生成接入命令失败：{(create.error as Error).message}</span>
+            <span className="flex-1 text-fg-2">{tr("生成接入命令失败：")}{(create.error as Error).message}</span>
             <button className="btn btn-secondary btn-sm" onClick={mint}>
-              <RefreshCw size={14} aria-hidden /> 重试
-            </button>
+              <RefreshCw size={14} aria-hidden />{" "}{tr("重试")}</button>
           </div>
         ) : (
-          <CommandCard text={text} loading={!code} multiline={tab === "ai"} copyLabel={tab === "ai" ? "复制提示词" : "复制命令"} />
+          <CommandCard text={text} loading={!code} multiline={tab === "ai"} copyLabel={tab === "ai" ? tr("复制提示词") : tr("复制命令")} />
         )}
 
         <p className="text-caption text-fg-caption">
           {tab === "ai"
-            ? "AI 会自己安装 agentbus、加入团队；不能被命令行启动的 agent（如 OpenAI dot）会用自驱模式，在自己的定时任务里运行 agentbus inbox 领消息。遇到问题会运行 agentbus doctor 排查。"
+            ? tr("AI 会自己安装 agentbus、加入团队；不能被命令行启动的 agent（如 OpenAI dot）会用自驱模式，在自己的定时任务里运行 agentbus inbox 领消息。遇到问题会运行 agentbus doctor 排查。")
             : tab === "windows"
-              ? "在 PowerShell 里运行，不需要管理员权限。会安装 agentbus、加入团队并装好定时任务；检测到多个编程 CLI 时会让你选。"
-              : "会安装 agentbus、加入团队并装好定时任务；检测到多个编程 CLI 时会让你选（也可以在命令末尾加 --cli codex 指定）。"}
+              ? tr("在 PowerShell 里运行，不需要管理员权限。会安装 agentbus、加入团队并装好定时任务；检测到多个编程 CLI 时会让你选。")
+              : tr("会安装 agentbus、加入团队并装好定时任务；检测到多个编程 CLI 时会让你选（也可以在命令末尾加 --cli codex 指定）。")}
         </p>
       </section>
 
-      <section aria-label="等待连接" className="flex flex-col gap-3">
-        <StepTitle n={2}>等它出现在这里，点批准就上线了</StepTitle>
+      <section aria-label={tr("等待连接")} className="flex flex-col gap-3">
+        <StepTitle n={2}>{tr("等它出现在这里，点批准就上线了")}</StepTitle>
         <Arrivals reduced={reduced} />
       </section>
 
       <footer className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line pt-3 text-caption text-fg-caption">
         <KeyRound size={14} aria-hidden />
         {code ? (
-          <span>
-            加入码 <span className="font-mono">{code.secret.slice(0, 8)}…</span> 可在多台机器上重复使用，
-            {code.expiresAt ? `${formatDateTime(code.expiresAt)} 前有效` : "长期有效"}
+          <span>{tr("加入码")}{" "}<span className="font-mono">{code.secret.slice(0, 8)}…</span>{" "}{tr("可在多台机器上重复使用，")}{code.expiresAt ? tr("{0} 前有效", [formatDateTime(code.expiresAt)]) : tr("长期有效")}
           </span>
         ) : (
-          <span>正在生成加入码…</span>
+          <span>{tr("正在生成加入码…")}</span>
         )}
         <span className="ml-auto flex gap-3">
           <button
@@ -205,9 +206,7 @@ function AddAgentBody({ teamId, teamName, onClose }: { teamId: string; teamName:
               mint();
             }}
             disabled={create.isPending}
-          >
-            换一个新的
-          </button>
+          >{tr("换一个新的")}</button>
           <button
             type="button"
             className="text-mint-700 hover:underline"
@@ -215,19 +214,18 @@ function AddAgentBody({ teamId, teamName, onClose }: { teamId: string; teamName:
               onClose();
               void navigate({ to: "/settings", hash: "join-codes" });
             }}
-          >
-            管理加入码
-          </button>
+          >{tr("管理加入码")}</button>
         </span>
       </footer>
       <span className="sr-only" aria-live="polite">
-        {code ? "接入命令已生成" : ""}
+        {code ? tr("接入命令已生成") : ""}
       </span>
     </div>
   );
 }
 
 function StepTitle({ n, children }: { n: number; children: ReactNode }) {
+  useLanguage();
   return (
     <h3 className="flex items-center gap-2.5 text-callout font-semibold text-fg">
       <span
@@ -243,6 +241,7 @@ function StepTitle({ n, children }: { n: number; children: ReactNode }) {
 }
 
 function CommandCard({ text, loading, multiline, copyLabel }: { text: string; loading: boolean; multiline: boolean; copyLabel: string }) {
+  useLanguage();
   const [done, setDone] = useState(false);
   useEffect(() => setDone(false), [text]);
   const copy = async () => {
@@ -251,15 +250,14 @@ function CommandCard({ text, loading, multiline, copyLabel }: { text: string; lo
       setDone(true);
       window.setTimeout(() => setDone(false), 1800);
     } else {
-      toast("复制失败，请手动选择文本复制", "error");
+      toast(localized("复制失败，请手动选择文本复制"), "error");
     }
   };
   return (
     <div className="flex flex-col gap-3 rounded-[18px] border border-mint-300 bg-mint-50 p-3 sm:flex-row sm:items-stretch">
       {loading ? (
         <div className="flex min-h-[44px] flex-1 items-center gap-2 rounded-[12px] bg-surface-strong px-3 text-callout text-fg-3" aria-busy="true">
-          <Loader2 size={16} className="animate-spin" aria-hidden /> 正在生成专属接入命令…
-        </div>
+          <Loader2 size={16} className="animate-spin" aria-hidden />{" "}{tr("正在生成专属接入命令…")}</div>
       ) : (
         <pre
           className={cn(
@@ -267,20 +265,21 @@ function CommandCard({ text, loading, multiline, copyLabel }: { text: string; lo
             multiline ? "max-h-56 whitespace-pre-wrap break-words" : "whitespace-pre-wrap break-all",
           )}
           tabIndex={0}
-          aria-label="接入命令"
+          aria-label={tr("接入命令")}
         >
           {text}
         </pre>
       )}
       <button type="button" className="btn btn-primary btn-lg flex-none sm:self-center" onClick={() => void copy()} disabled={loading}>
         {done ? <Check size={18} aria-hidden /> : <CopyIcon />}
-        <span aria-live="polite">{done ? "已复制" : copyLabel}</span>
+        <span aria-live="polite">{done ? tr("已复制") : copyLabel}</span>
       </button>
     </div>
   );
 }
 
 function CopyIcon() {
+  useLanguage();
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <rect x="9" y="9" width="13" height="13" rx="2" />
@@ -294,6 +293,7 @@ function CopyIcon() {
  * first load, then poll /members every 3s and list the newcomers.
  */
 function Arrivals({ reduced }: { reduced: boolean }) {
+  useLanguage();
   const q = useQuery({ queryKey: qk.members, queryFn: api.members, refetchInterval: 3000 });
   const known = useRef<Set<string> | null>(null);
   const openedAt = useRef(Date.now());
@@ -339,22 +339,22 @@ function Arrivals({ reduced }: { reduced: boolean }) {
         <div className="flex items-center gap-3 rounded-[16px] border border-dashed border-line px-4 py-3.5">
           <Radar reduced={reduced} />
           <div className="min-w-0 flex-1">
-            <div className="text-callout text-fg">等待 agent 连接…</div>
-            <div className="text-caption text-fg-caption">
-              命令跑完后几秒内会出现在这里{pendingOthers > 0 ? `；另有 ${pendingOthers} 个早先的申请在成员页等待审批` : ""}。
+            <div className="text-callout text-fg">{tr("等待 agent 连接…")}</div>
+            <div className="text-caption text-fg-caption">{tr("命令跑完后几秒内会出现在这里")}{pendingOthers > 0 ? tr("；另有 {0} 个早先的申请在成员页等待审批", [pendingOthers]) : ""}。
             </div>
           </div>
         </div>
       ) : (
-        <p className="text-caption text-fg-caption">还有别的机器？用同一行命令继续接入即可。</p>
+        <p className="text-caption text-fg-caption">{tr("还有别的机器？用同一行命令继续接入即可。")}</p>
       )}
     </div>
   );
 }
 
 function ArrivalRow({ m }: { m: Member }) {
-  const approve = useAction(api.approveMember, { success: `${m.display_name || m.name} 已上线`, invalidate: [qk.members, qk.dashboard] });
-  const reject = useAction(api.rejectMember, { success: "已拒绝", invalidate: [qk.members, qk.dashboard] });
+  useLanguage();
+  const approve = useAction(api.approveMember, { success: localized("{0} 已上线", [m.display_name || m.name]), invalidate: [qk.members, qk.dashboard] });
+  const reject = useAction(api.rejectMember, { success: localized("已拒绝"), invalidate: [qk.members, qk.dashboard] });
   const busy = approve.isPending || reject.isPending;
   const active = m.status === "active";
   return (
@@ -370,20 +370,16 @@ function ArrivalRow({ m }: { m: Member }) {
           <span className="truncate text-callout font-semibold text-fg">{m.display_name || m.name}</span>
           <span className="text-caption text-fg-caption">@{m.name}</span>
         </div>
-        <div className="truncate text-caption text-fg-caption">{[cliLabel(m.cli), m.machine, m.owner].filter(Boolean).join(" · ") || "新 agent"}</div>
+        <div className="truncate text-caption text-fg-caption">{[cliLabel(m.cli), m.machine, m.owner].filter(Boolean).join(" · ") || tr("新 agent")}</div>
       </div>
       {active ? (
         <span className="flex items-center gap-1.5 text-callout font-medium text-mint-700">
-          <CircleCheck size={18} aria-hidden /> 已上线
-        </span>
+          <CircleCheck size={18} aria-hidden />{" "}{tr("已上线")}</span>
       ) : m.status === "pending" ? (
         <div className="flex gap-2">
-          <button className="btn btn-ghost btn-sm" onClick={() => reject.mutate(m.id)} disabled={busy}>
-            拒绝
-          </button>
+          <button className="btn btn-ghost btn-sm" onClick={() => reject.mutate(m.id)} disabled={busy}>{tr("拒绝")}</button>
           <button className="btn btn-primary btn-sm" onClick={() => approve.mutate(m.id)} disabled={busy}>
-            {approve.isPending ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <Check size={14} aria-hidden />} 批准
-          </button>
+            {approve.isPending ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <Check size={14} aria-hidden />}{" "}{tr("批准")}</button>
         </div>
       ) : (
         <span className="chip chip-muted">{m.status}</span>
@@ -394,6 +390,7 @@ function ArrivalRow({ m }: { m: Member }) {
 
 /** Small pulsing radar: "listening". Static ring under reduced motion. */
 function Radar({ reduced }: { reduced: boolean }) {
+  useLanguage();
   return (
     <span className="relative flex h-9 w-9 flex-none items-center justify-center" aria-hidden>
       {!reduced

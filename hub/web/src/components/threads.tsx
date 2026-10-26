@@ -1,3 +1,4 @@
+import { t as tr, useLanguage, localized } from "../lib/i18n";
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Clock, Lock, PauseOctagon, UserRound } from "lucide-react";
@@ -20,6 +21,7 @@ export function useMemberMap(extra?: Member[]): Map<string, Member> {
 }
 
 export function StatusChip({ status }: { status: ThreadStatus }) {
+  useLanguage();
   return (
     <span className={cn("chip", status === "open" ? "" : status === "done" ? "chip-info" : "chip-muted")}>
       {THREAD_STATUS_LABEL[status] ?? status}
@@ -31,11 +33,12 @@ export function StatusChip({ status }: { status: ThreadStatus }) {
 export function leaseText(t: Pick<Thread, "lease_holder" | "lease_until">, members: Map<string, Member>, now = Date.now()): string | null {
   if (!t.lease_holder || !t.lease_until || t.lease_until <= now) return null;
   const who = members.get(t.lease_holder);
-  return `${who?.display_name || who?.name || t.lease_holder} 正在处理 · 剩 ${formatUntil(t.lease_until, now)}`;
+  return tr("{0} 正在处理 · 剩 {1}", [who?.display_name || who?.name || t.lease_holder, formatUntil(t.lease_until, now)]);
 }
 
 /** Compact card for the horizontal 进行中 row on the home page. */
 export function ThreadCard({ thread, members, workspaceName }: { thread: Thread; members: Map<string, Member>; workspaceName?: string }) {
+  useLanguage();
   const assignee = thread.assignee_id ? members.get(thread.assignee_id) : undefined;
   const lease = leaseText(thread, members);
   return (
@@ -45,7 +48,7 @@ export function ThreadCard({ thread, members, workspaceName }: { thread: Thread;
       className="glass-1 card card-hover flex w-[280px] flex-none snap-start flex-col gap-3 p-5"
     >
       <div className="flex items-center gap-2 text-caption text-fg-caption">
-        <span className="truncate">{workspaceName ?? "工作区"}</span>
+        <span className="truncate">{workspaceName ?? tr("工作区")}</span>
         <span className="ml-auto flex-none">{formatRelative(thread.last_post_at)}</span>
       </div>
       <div className="line-clamp-2 min-h-[48px] text-body font-semibold text-fg">{thread.title}</div>
@@ -56,12 +59,11 @@ export function ThreadCard({ thread, members, workspaceName }: { thread: Thread;
             <span className="truncate">{assignee.display_name}</span>
           </>
         ) : (
-          <span className="text-fg-caption">未指派</span>
+          <span className="text-fg-caption">{tr("未指派")}</span>
         )}
         {thread.auto_paused ? (
           <span className="chip chip-warning ml-auto">
-            <PauseOctagon size={12} aria-hidden /> 已拦截
-          </span>
+            <PauseOctagon size={12} aria-hidden />{" "}{tr("已拦截")}</span>
         ) : null}
       </div>
       {lease ? (
@@ -76,6 +78,7 @@ export function ThreadCard({ thread, members, workspaceName }: { thread: Thread;
 
 /** Full-width row for workspace thread lists. */
 export function ThreadRow({ thread, members }: { thread: Thread; members: Map<string, Member> }) {
+  useLanguage();
   const assignee = thread.assignee_id ? members.get(thread.assignee_id) : undefined;
   const lease = leaseText(thread, members);
   return (
@@ -89,8 +92,7 @@ export function ThreadRow({ thread, members }: { thread: Thread; members: Map<st
           <span className="truncate text-body font-medium text-fg">{thread.title}</span>
           {thread.auto_paused ? (
             <span className="chip chip-warning flex-none">
-              <PauseOctagon size={12} aria-hidden /> 已拦截
-            </span>
+              <PauseOctagon size={12} aria-hidden />{" "}{tr("已拦截")}</span>
           ) : null}
         </div>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-fg-caption">
@@ -113,7 +115,7 @@ export function ThreadRow({ thread, members }: { thread: Thread; members: Map<st
       </div>
       <span className="hidden items-center gap-1.5 text-caption text-fg-2 sm:inline-flex">
         {assignee ? <Avatar member={assignee} size={20} /> : <UserRound size={14} aria-hidden />}
-        {assignee ? assignee.display_name : "未指派"}
+        {assignee ? assignee.display_name : tr("未指派")}
       </span>
       <StatusChip status={thread.status} />
     </Link>
@@ -130,6 +132,7 @@ export function NewThreadDialog({
   onOpenChange: (o: boolean) => void;
   workspaceId?: string;
 }) {
+  useLanguage();
   const navigate = useNavigate();
   const workspaces = useWorkspaces();
   const members = useMembers();
@@ -139,7 +142,7 @@ export function NewThreadDialog({
   const [assignee, setAssignee] = useState("");
   const create = useAction(
     () => api.createThread({ workspace_id: workspaceId ?? ws, title: title.trim(), body: body.trim(), assignee: assignee || undefined }),
-    { success: "讨论串已创建" },
+    { success: localized("讨论串已创建") },
   );
   const target = workspaceId ?? ws;
   const valid = target && title.trim() && body.trim();
@@ -160,15 +163,13 @@ export function NewThreadDialog({
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
-      title="新建讨论串"
+      title={tr("新建讨论串")}
       wide
       footer={
         <>
-          <button className="btn btn-secondary" onClick={() => onOpenChange(false)}>
-            取消
-          </button>
+          <button className="btn btn-secondary" onClick={() => onOpenChange(false)}>{tr("取消")}</button>
           <button className="btn btn-primary" disabled={!valid || create.isPending} onClick={submit}>
-            {create.isPending ? "创建中…" : "创建"}
+            {create.isPending ? tr("创建中…") : tr("创建")}
           </button>
         </>
       }
@@ -182,9 +183,9 @@ export function NewThreadDialog({
       >
         {!workspaceId && (
           <label className="flex flex-col gap-1.5">
-            <span className="text-callout text-fg-2">工作区</span>
+            <span className="text-callout text-fg-2">{tr("工作区")}</span>
             <select className="field" value={ws} onChange={(e) => setWs(e.target.value)} required>
-              <option value="">选择工作区</option>
+              <option value="">{tr("选择工作区")}</option>
               {(workspaces.data?.workspaces ?? [])
                 .filter((w) => w.status === "active")
                 .map((w) => (
@@ -196,11 +197,11 @@ export function NewThreadDialog({
           </label>
         )}
         <label className="flex flex-col gap-1.5">
-          <span className="text-callout text-fg-2">标题</span>
+          <span className="text-callout text-fg-2">{tr("标题")}</span>
           <input className="field" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} required autoFocus />
         </label>
         <label className="flex flex-col gap-1.5">
-          <span className="text-callout text-fg-2">内容（支持 Markdown，用 @名字 提及成员）</span>
+          <span className="text-callout text-fg-2">{tr("内容（支持 Markdown，用 @名字 提及成员）")}</span>
           <textarea
             className="field min-h-[140px] resize-y py-2.5"
             value={body}
@@ -215,9 +216,9 @@ export function NewThreadDialog({
           />
         </label>
         <label className="flex flex-col gap-1.5">
-          <span className="text-callout text-fg-2">负责人（可选）</span>
+          <span className="text-callout text-fg-2">{tr("负责人（可选）")}</span>
           <select className="field" value={assignee} onChange={(e) => setAssignee(e.target.value)}>
-            <option value="">不指派</option>
+            <option value="">{tr("不指派")}</option>
             {agents.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.display_name}（@{m.name}）
